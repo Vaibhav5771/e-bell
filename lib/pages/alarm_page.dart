@@ -121,13 +121,23 @@ class _AlarmPageState extends State<AlarmPage> {
 
     return Scaffold(
       appBar: AppBar(
-        leading: IconButton(
-          icon: const Icon(Icons.close, color: Colors.orange),
-          onPressed: () => Navigator.pop(context),
+        leading: Padding(
+          padding: const EdgeInsets.only(left: 5.0),
+          child: GestureDetector(
+            onTap: () => Navigator.pop(context),
+            child: const Center(
+              child: Text(
+                'Cancel',
+                style: TextStyle(color: Colors.orange, fontSize: 16),
+              ),
+            ),
+          ),
         ),
-        title: const Text(
-          'Add Alarm',
-          style: TextStyle(fontWeight: FontWeight.bold),
+        title: Center(
+          child: const Text(
+            'Add Alarm',
+            style: TextStyle(fontWeight: FontWeight.bold),
+          ),
         ),
         actions: [
           TextButton(

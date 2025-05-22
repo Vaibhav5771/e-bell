@@ -1,8 +1,10 @@
+import 'package:e_bell/pages/login_page.dart';
+import 'package:e_bell/profile/account_screen.dart';
+import 'package:e_bell/profile/profile_page.dart';
 import 'package:flutter/material.dart';
 import 'package:android_alarm_manager_plus/android_alarm_manager_plus.dart';
 import 'alarm/alarm_service.dart';
 import 'pages/home_page.dart';
-import 'alarm/permission_handler.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();

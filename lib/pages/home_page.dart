@@ -1,12 +1,19 @@
-import 'package:e_bell/pages/alarm_page.dart';
-import 'package:e_bell/services/calender.dart';
-import 'package:e_bell/services/schedule_item.dart';
-import 'package:e_bell/tabs/tab_logic1.dart';
+import 'package:e_bell/pages/music_library.dart';
+import 'package:e_bell/pages/tablogic1.dart';
 import 'package:flutter/material.dart';
 import 'package:table_calendar/table_calendar.dart';
+import 'package:e_bell/pages/alarm_page.dart';
+import 'package:e_bell/bell/schedule_bell.dart';
+import 'package:e_bell/services/calender.dart';
 import 'package:e_bell/alarm/shared_preferences.dart';
 import 'package:e_bell/alarm/alarm_model.dart';
+import 'package:e_bell/remainder/remainder_page.dart';
 import 'dart:async';
+import '../profile/profile_page.dart';
+import '../tabs_planner/bell_tab.dart';
+import '../tabs_planner/events_tab.dart';
+import '../tabs_planner/tab_logic1.dart';
+
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -16,31 +23,32 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  late TabLogic _tabLogic;
+  late TabLogic _tabLogic; // For Planner tabs (Event/Tasks and Bell)
+  late TabLogic1 _musicTabLogic; // For Music tabs (Library and My Music)
   late CalendarLogic _calendarLogic;
   bool _isFabMenuOpen = false;
   List<AlarmModel> _todaysAlarms = [];
   Timer? _timer;
+  int _selectedIndex = 0; // Tracks the selected bottom nav index
 
   @override
   void initState() {
     super.initState();
     _tabLogic = TabLogic();
+    _musicTabLogic = TabLogic1(); // Initialize shared TabLogic1 instance
     _calendarLogic = CalendarLogic();
     _loadTodaysAlarms();
-    // Start timer to refresh UI every minute
     _timer = Timer.periodic(const Duration(minutes: 1), (timer) {
-      setState(() {}); // Trigger rebuild to update isChecked
+      setState(() {});
     });
   }
 
   @override
   void dispose() {
-    _timer?.cancel(); // Cancel timer to prevent memory leaks
+    _timer?.cancel();
     super.dispose();
   }
 
-  // Load alarms for today
   Future<void> _loadTodaysAlarms() async {
     final alarms = await SharedPreferencesService.getAlarms();
     final now = DateTime.now();
@@ -61,11 +69,107 @@ class _HomeScreenState extends State<HomeScreen> {
     });
   }
 
+  void _onDaySelected(DateTime selectedDay, DateTime focusedDay) {
+    setState(() {
+      _calendarLogic.setSelectedDay(selectedDay);
+      _calendarLogic.setFocusedDay(focusedDay);
+      _loadTodaysAlarms();
+    });
+  }
+
+  void _onNavBarTapped(int index) {
+    setState(() {
+      _selectedIndex = index;
+      if (index == 1) {
+        _musicTabLogic.setSelectedTab(0); // Reset to Library tab when navigating to Library
+      }
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
+    // List of screens for each bottom nav tab
+    final List<Widget> screens = [
+      // Planner Tab (EventsTab or BellTab)
+      SingleChildScrollView(
+        child: Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Tabs for Events/Tasks and Bell
+              Container(
+                height: 35,
+                padding: const EdgeInsets.all(2),
+                decoration: BoxDecoration(
+                  color: Colors.grey[400],
+                  borderRadius: BorderRadius.circular(9),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                  children: [
+                    Expanded(
+                      child: _tabLogic.buildTab(
+                        context: context,
+                        text: 'Event / Tasks',
+                        index: 0,
+                        onTap: () {
+                          print("Switching to Event/Tasks tab");
+                          setState(() {
+                            _tabLogic.setSelectedTab(0);
+                          });
+                        },
+                      ),
+                    ),
+                    Expanded(
+                      child: _tabLogic.buildTab(
+                        context: context,
+                        text: 'Bell',
+                        index: 1,
+                        onTap: () {
+                          print("Switching to Bell tab");
+                          setState(() {
+                            _tabLogic.setSelectedTab(1);
+                          });
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
+              // Show content based on selected tab
+              SizedBox(
+                height: MediaQuery.of(context).size.height - 200,
+                child: _tabLogic.selectedTabIndex == 0
+                    ? EventsTab(
+                  todaysAlarms: _todaysAlarms,
+                  calendarLogic: _calendarLogic,
+                  onDaySelected: _onDaySelected,
+                  loadTodaysAlarms: _loadTodaysAlarms,
+                )
+                    : const BellTab(),
+              ),
+            ],
+          ),
+        ),
+      ),
+      // Library Tab (MusicLibrary)
+      MusicLibrary(tabLogic: _musicTabLogic),
+      // Profile Tab (ProfileScreen)
+      const ProfileScreen(),
+    ];
+
     return Scaffold(
       appBar: AppBar(
-        title: const Text('E-Bell'),
+        title: const Text(
+          'E-Bell',
+          style: TextStyle(
+            color: Colors.orange,
+            fontWeight: FontWeight.bold,
+            fontSize: 28,
+          ),
+        ),
         actions: [
           IconButton(
             icon: const Icon(Icons.menu),
@@ -79,156 +183,9 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
       body: Stack(
         children: [
-          SingleChildScrollView(
-            child: Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // Tabs
-                  Container(
-                    height: 35,
-                    padding: const EdgeInsets.all(2),
-                    decoration: BoxDecoration(
-                      color: Colors.grey[400],
-                      borderRadius: BorderRadius.circular(9),
-                    ),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                      children: [
-                        Expanded(
-                          child: _tabLogic.buildTab(
-                            context: context,
-                            text: 'Event / Tasks',
-                            index: 0,
-                            onTap: () {
-                              setState(() {
-                                _tabLogic.setSelectedTab(0);
-                              });
-                            },
-                          ),
-                        ),
-                        Expanded(
-                          child: _tabLogic.buildTab(
-                            context: context,
-                            text: 'Bell',
-                            index: 1,
-                            onTap: () {
-                              setState(() {
-                                _tabLogic.setSelectedTab(1);
-                              });
-                            },
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  // Calendar
-                  Container(
-                    padding: const EdgeInsets.all(8.0),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(12),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.grey.withOpacity(0.2),
-                          spreadRadius: 2,
-                          blurRadius: 5,
-                        ),
-                      ],
-                    ),
-                    child: TableCalendar(
-                      firstDay: _calendarLogic.firstDay,
-                      lastDay: _calendarLogic.lastDay,
-                      focusedDay: _calendarLogic.focusedDay,
-                      selectedDayPredicate: (day) {
-                        return isSameDay(day, _calendarLogic.selectedDay);
-                      },
-                      onDaySelected: (selectedDay, focusedDay) {
-                        setState(() {
-                          _calendarLogic.setSelectedDay(selectedDay);
-                          _calendarLogic.setFocusedDay(focusedDay);
-                          _loadTodaysAlarms();
-                        });
-                      },
-                      calendarFormat: CalendarFormat.month,
-                      headerStyle: const HeaderStyle(
-                        formatButtonVisible: false,
-                        titleTextStyle: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                        ),
-                        leftChevronVisible: true,
-                        rightChevronVisible: true,
-                      ),
-                      daysOfWeekStyle: const DaysOfWeekStyle(
-                        weekdayStyle: TextStyle(color: Colors.black54),
-                        weekendStyle: TextStyle(color: Colors.black54),
-                      ),
-                      calendarStyle: CalendarStyle(
-                        todayDecoration: const BoxDecoration(
-                          color: Colors.transparent,
-                        ),
-                        todayTextStyle: const TextStyle(
-                          fontWeight: FontWeight.bold,
-                          color: Colors.black54,
-                        ),
-                        selectedDecoration: BoxDecoration(
-                          color: Colors.orange[300],
-                          shape: BoxShape.circle,
-                        ),
-                        defaultTextStyle: const TextStyle(color: Colors.black54),
-                        weekendTextStyle: const TextStyle(color: Colors.black54),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 24),
-                  // Today's Schedule
-                  const Text(
-                    "Today's Schedule",
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  // Dynamic Schedule Items from Alarms
-                  if (_todaysAlarms.isEmpty)
-                    const Text(
-                      'No alarms scheduled for today',
-                      style: TextStyle(
-                        fontSize: 16,
-                        color: Colors.grey,
-                      ),
-                    )
-                  else
-                    ..._todaysAlarms.map((alarm) {
-                      final alarmDateTime = DateTime(
-                        DateTime.now().year,
-                        DateTime.now().month,
-                        DateTime.now().day,
-                        alarm.time.hour,
-                        alarm.time.minute,
-                      );
-                      final isChecked = alarmDateTime.isBefore(DateTime.now());
-                      final timeString = alarm.time.format(context);
-                      return Padding(
-                        padding: const EdgeInsets.only(bottom: 8),
-                        child: ScheduleItem(
-                          time: timeString,
-                          title: alarm.label,
-                          isChecked: isChecked,
-                        ),
-                      );
-                    }).toList(),
-                  const SizedBox(height: 16),
-                ],
-              ),
-            ),
-          ),
-          // FAB Menu Options
-          if (_isFabMenuOpen)
+          screens[_selectedIndex],
+          // FAB Menu Options (only for Planner tab)
+          if (_isFabMenuOpen && _selectedIndex == 0)
             Positioned(
               bottom: 80,
               right: 16,
@@ -249,7 +206,8 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
         ],
       ),
-      floatingActionButton: FloatingActionButton(
+      floatingActionButton: _selectedIndex == 0
+          ? FloatingActionButton(
         onPressed: () {
           setState(() {
             _isFabMenuOpen = !_isFabMenuOpen;
@@ -261,9 +219,13 @@ class _HomeScreenState extends State<HomeScreen> {
           _isFabMenuOpen ? Icons.close : Icons.edit_calendar_outlined,
           color: Colors.white,
         ),
-      ),
+      )
+          : null,
       floatingActionButtonLocation: FloatingActionButtonLocation.miniEndFloat,
       bottomNavigationBar: BottomNavigationBar(
+        currentIndex: _selectedIndex,
+        selectedItemColor: Colors.orange,
+        unselectedItemColor: Colors.grey,
         items: const [
           BottomNavigationBarItem(
             icon: Icon(Icons.calendar_today),
@@ -278,8 +240,7 @@ class _HomeScreenState extends State<HomeScreen> {
             label: 'Profile',
           ),
         ],
-        selectedItemColor: Colors.orange,
-        unselectedItemColor: Colors.grey,
+        onTap: _onNavBarTapped,
       ),
     );
   }
@@ -299,10 +260,16 @@ class _HomeScreenState extends State<HomeScreen> {
               await _loadTodaysAlarms();
               break;
             case 'Reminder':
-            // TODO: Implement reminder navigation
+              await Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const AddReminderScreen()),
+              );
               break;
             case 'Bell':
-            // TODO: Implement bell navigation
+              await Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const BellConfigurationScreen()),
+              );
               break;
           }
         },
