@@ -9,6 +9,7 @@ class SharedPreferencesService {
   static Future<void> saveAlarm(AlarmModel alarm) async {
     final prefs = await SharedPreferences.getInstance();
     final alarms = await getAlarms();
+    print('Saving alarm with sound: ${alarm.sound}');
     alarms.add(alarm);
     final alarmsJson = alarms.map((alarm) => jsonEncode(alarm.toJson())).toList();
     await prefs.setStringList(_alarmsKey, alarmsJson);

@@ -1,5 +1,9 @@
+import 'package:e_bell/remainder/remainder_model.dart';
+import 'package:e_bell/remainder/remainder_service.dart';
+import 'package:e_bell/remainder/shared_preferences_remainder.dart';
 import 'package:flutter/material.dart';
 import 'package:table_calendar/table_calendar.dart';
+
 
 class AddReminderScreen extends StatefulWidget {
   const AddReminderScreen({super.key});
@@ -14,6 +18,9 @@ class _AddReminderScreenState extends State<AddReminderScreen> {
   DateTime _fromDateTime = DateTime.now();
   DateTime _toDateTime = DateTime.now();
   bool _isImportant = false;
+  final TextEditingController _titleController = TextEditingController();
+  final TextEditingController _descriptionController = TextEditingController();
+  String _selectedSound = 'opening'; // Matches DropdownMenuItem value
 
   @override
   void initState() {
@@ -21,12 +28,31 @@ class _AddReminderScreenState extends State<AddReminderScreen> {
     _selectedDay = _focusedDay;
   }
 
+  @override
+  void dispose() {
+    _titleController.dispose();
+    _descriptionController.dispose();
+    super.dispose();
+  }
+
   void _onDaySelected(DateTime selectedDay, DateTime focusedDay) {
     setState(() {
       _selectedDay = selectedDay;
       _focusedDay = focusedDay;
-      _fromDateTime = DateTime(selectedDay.year, selectedDay.month, selectedDay.day, _fromDateTime.hour, _fromDateTime.minute);
-      _toDateTime = DateTime(selectedDay.year, selectedDay.month, selectedDay.day, _toDateTime.hour, _toDateTime.minute);
+      _fromDateTime = DateTime(
+        selectedDay.year,
+        selectedDay.month,
+        selectedDay.day,
+        _fromDateTime.hour,
+        _fromDateTime.minute,
+      );
+      _toDateTime = DateTime(
+        selectedDay.year,
+        selectedDay.month,
+        selectedDay.day,
+        _toDateTime.hour,
+        _toDateTime.minute,
+      );
     });
   }
 
@@ -58,6 +84,39 @@ class _AddReminderScreenState extends State<AddReminderScreen> {
     }
   }
 
+  Future<void> _saveReminder() async {
+    final title = _titleController.text.trim();
+    final description = _descriptionController.text.trim();
+    if (title.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Title is required')),
+      );
+      return;
+    }
+
+    final id = await ReminderModel.generateUniqueId();
+    final reminder = ReminderModel(
+      id: id,
+      title: title,
+      description: description,
+      startDateTime: _fromDateTime,
+      endDateTime: _toDateTime,
+      isImportant: _isImportant,
+      sound: _selectedSound,
+      isActive: true,
+    );
+
+    await ReminderSharedPreferencesService.saveReminder(reminder);
+    final scheduled = await ReminderService.scheduleReminder(reminder);
+    if (scheduled) {
+      Navigator.pop(context);
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Failed to schedule reminder')),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -81,10 +140,7 @@ class _AddReminderScreenState extends State<AddReminderScreen> {
         ),
         actions: [
           TextButton(
-            onPressed: () {
-              // Save logic here
-              Navigator.pop(context);
-            },
+            onPressed: _saveReminder,
             child: const Text(
               'Save',
               style: TextStyle(color: Colors.orange, fontSize: 16),
@@ -94,14 +150,14 @@ class _AddReminderScreenState extends State<AddReminderScreen> {
         centerTitle: true,
       ),
       body: SingleChildScrollView(
-        physics: const AlwaysScrollableScrollPhysics(), // Ensure smooth scrolling in both directions
+        physics: const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.all(16.0),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Title Input
-            const TextField(
-              decoration: InputDecoration(
+            TextField(
+              controller: _titleController,
+              decoration: const InputDecoration(
                 labelText: 'Title',
                 labelStyle: TextStyle(fontSize: 20),
                 border: InputBorder.none,
@@ -109,13 +165,10 @@ class _AddReminderScreenState extends State<AddReminderScreen> {
                 focusedBorder: InputBorder.none,
               ),
             ),
-            Divider(
-              color: Colors.grey[300],
-              thickness: 0.5,
-              height: 0,
-            ),
-            const TextField(
-              decoration: InputDecoration(
+            Divider(color: Colors.grey[300], thickness: 0.5, height: 0),
+            TextField(
+              controller: _descriptionController,
+              decoration: const InputDecoration(
                 labelText: 'Description',
                 labelStyle: TextStyle(fontSize: 16),
                 border: InputBorder.none,
@@ -124,13 +177,8 @@ class _AddReminderScreenState extends State<AddReminderScreen> {
               ),
               maxLines: 1,
             ),
-            Divider(
-              color: Colors.grey[300],
-              thickness: 0.5,
-              height: 0,
-            ),
+            Divider(color: Colors.grey[300], thickness: 0.5, height: 0),
             const SizedBox(height: 16),
-            // Calendar Picker
             const Center(
               child: Text(
                 'Select Date & Time',
@@ -140,13 +188,8 @@ class _AddReminderScreenState extends State<AddReminderScreen> {
             const SizedBox(height: 8),
             _buildCalendarPicker(),
             const SizedBox(height: 16),
-            Divider(
-              color: Colors.grey[300],
-              thickness: 0.5,
-              height: 0,
-            ),
+            Divider(color: Colors.grey[300], thickness: 0.5, height: 0),
             const SizedBox(height: 16),
-            // Important Checkbox
             Row(
               children: [
                 const Text('Important'),
@@ -163,13 +206,8 @@ class _AddReminderScreenState extends State<AddReminderScreen> {
               ],
             ),
             const SizedBox(height: 16),
-            Divider(
-              color: Colors.grey[300],
-              thickness: 0.5,
-              height: 0,
-            ),
+            Divider(color: Colors.grey[300], thickness: 0.5, height: 0),
             const SizedBox(height: 16),
-            // Schedule Section
             const Text(
               'Schedule',
               style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
@@ -179,10 +217,7 @@ class _AddReminderScreenState extends State<AddReminderScreen> {
               children: [
                 const SizedBox(
                   width: 40,
-                  child: Text(
-                    'From',
-                    style: TextStyle(fontSize: 16),
-                  ),
+                  child: Text('From', style: TextStyle(fontSize: 16)),
                 ),
                 const SizedBox(width: 8),
                 Expanded(
@@ -195,10 +230,7 @@ class _AddReminderScreenState extends State<AddReminderScreen> {
               children: [
                 const SizedBox(
                   width: 40,
-                  child: Text(
-                    'To',
-                    style: TextStyle(fontSize: 16),
-                  ),
+                  child: Text('To', style: TextStyle(fontSize: 16)),
                 ),
                 const SizedBox(width: 8),
                 Expanded(
@@ -207,13 +239,8 @@ class _AddReminderScreenState extends State<AddReminderScreen> {
               ],
             ),
             const SizedBox(height: 16),
-            Divider(
-              color: Colors.grey[300],
-              thickness: 0.5,
-              height: 0,
-            ),
+            Divider(color: Colors.grey[300], thickness: 0.5, height: 0),
             const SizedBox(height: 16),
-            // Sound Selection
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
@@ -222,24 +249,30 @@ class _AddReminderScreenState extends State<AddReminderScreen> {
                   style: TextStyle(fontSize: 16, fontWeight: FontWeight.w400),
                 ),
                 DropdownButton<String>(
-                  value: 'Opening(default)',
-                  items: ['Opening(default)', 'Sound 1', 'Sound 2', 'Sound 3']
+                  value: _selectedSound,
+                  items: ['Beep', 'Chime', 'Opening', 'Radar']
                       .map((sound) => DropdownMenuItem(
-                    value: sound,
-                    child: Text(
-                      sound,
-                      style: const TextStyle(fontWeight: FontWeight.w400),
-                    ),
-                  ))
+                            value: sound.toLowerCase(),
+                            child: Text(
+                              sound,
+                              style:
+                                  const TextStyle(fontWeight: FontWeight.w400),
+                            ),
+                          ))
                       .toList(),
-                  onChanged: (value) {},
+                  onChanged: (value) {
+                    setState(() {
+                      _selectedSound = value!;
+                    });
+                  },
                   underline: const SizedBox(),
                   icon: const Icon(Icons.chevron_right, color: Colors.grey),
                   isDense: true,
                   alignment: Alignment.centerRight,
-                  style: const TextStyle(fontWeight: FontWeight.w400, color: Colors.black),
+                  style: const TextStyle(
+                      fontWeight: FontWeight.w400, color: Colors.black),
                   selectedItemBuilder: (BuildContext context) {
-                    return ['Opening(default)', 'Sound 1', 'Sound 2', 'Sound 3'].map((sound) {
+                    return ['Beep', 'Chime', 'Opening', 'Radar'].map((sound) {
                       return Align(
                         alignment: Alignment.centerLeft,
                         child: Text(
@@ -260,7 +293,7 @@ class _AddReminderScreenState extends State<AddReminderScreen> {
 
   Widget _buildCalendarPicker() {
     return SizedBox(
-      height: 350, // Fixed height to ensure the calendar fits well in the scroll view
+      height: 350,
       child: TableCalendar(
         firstDay: DateTime.utc(2020, 1, 1),
         lastDay: DateTime.utc(2030, 12, 31),
@@ -268,7 +301,7 @@ class _AddReminderScreenState extends State<AddReminderScreen> {
         selectedDayPredicate: (day) => isSameDay(_selectedDay, day),
         onDaySelected: _onDaySelected,
         calendarFormat: CalendarFormat.month,
-        availableGestures: AvailableGestures.none, // Disable calendar's internal gestures
+        availableGestures: AvailableGestures.none,
         headerStyle: const HeaderStyle(
           formatButtonVisible: false,
           titleCentered: true,
@@ -293,9 +326,7 @@ class _AddReminderScreenState extends State<AddReminderScreen> {
       children: [
         Expanded(
           child: ElevatedButton(
-            onPressed: () {
-              // Date picker logic (already handled by TableCalendar)
-            },
+            onPressed: () {},
             style: ElevatedButton.styleFrom(
               backgroundColor: Colors.grey[100],
               foregroundColor: Colors.black,
@@ -323,7 +354,7 @@ class _AddReminderScreenState extends State<AddReminderScreen> {
           ),
           child: Text(
             '${dateTime.hour}:${dateTime.minute.toString().padLeft(2, '0')} ${dateTime.hour >= 12 ? 'PM' : 'AM'}',
-            style: const TextStyle(color: Colors.orange,fontSize: 14),
+            style: const TextStyle(color: Colors.orange, fontSize: 14),
           ),
         ),
       ],
@@ -332,8 +363,18 @@ class _AddReminderScreenState extends State<AddReminderScreen> {
 
   String _getMonthName(int month) {
     const months = [
-      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec'
     ];
     return months[month - 1];
   }
