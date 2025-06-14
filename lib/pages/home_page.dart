@@ -9,11 +9,15 @@ import 'package:e_bell/alarm/shared_preferences.dart';
 import 'package:e_bell/alarm/alarm_model.dart';
 import 'package:e_bell/remainder/remainder_page.dart';
 import 'dart:async';
+import 'package:connectivity_plus/connectivity_plus.dart';
+import 'package:network_info_plus/network_info_plus.dart';
+import 'package:permission_handler/permission_handler.dart';
 import '../profile/profile_page.dart';
+import '../services/bell_service.dart';
 import '../tabs_planner/bell_tab.dart';
 import '../tabs_planner/events_tab.dart';
 import '../tabs_planner/tab_logic1.dart';
-
+import 'package:flutter/foundation.dart'; // For debugPrint
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -23,21 +27,27 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  late TabLogic _tabLogic; // For Planner tabs (Event/Tasks and Bell)
-  late TabLogic1 _musicTabLogic; // For Music tabs (Library and My Music)
+  late TabLogic _tabLogic;
+  late TabLogic1 _musicTabLogic;
   late CalendarLogic _calendarLogic;
   bool _isFabMenuOpen = false;
   List<AlarmModel> _todaysAlarms = [];
   Timer? _timer;
-  int _selectedIndex = 0; // Tracks the selected bottom nav index
+  int _selectedIndex = 0;
+  String connectionStatus = "Checking Wi-Fi...";
+  bool isWifiConnected = false;
+  Timer? wifiCheckTimer;
+  final String targetSsid = "IoGen_Speaker";
 
   @override
   void initState() {
     super.initState();
     _tabLogic = TabLogic();
-    _musicTabLogic = TabLogic1(); // Initialize shared TabLogic1 instance
+    _musicTabLogic = TabLogic1();
     _calendarLogic = CalendarLogic();
     _loadTodaysAlarms();
+    _requestPermissions();
+    _startWifiMonitoring();
     _timer = Timer.periodic(const Duration(minutes: 1), (timer) {
       setState(() {});
     });
@@ -46,7 +56,65 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void dispose() {
     _timer?.cancel();
+    wifiCheckTimer?.cancel();
     super.dispose();
+  }
+
+  Future<void> _requestPermissions() async {
+    Map<Permission, PermissionStatus> statuses = await [
+      Permission.location,
+      Permission.nearbyWifiDevices,
+    ].request();
+
+    if (statuses[Permission.location]!.isDenied) {
+      setState(() {
+        connectionStatus = "Location permission denied";
+      });
+      debugPrint("Location permission denied");
+    } else {
+      debugPrint("Location permission granted");
+    }
+  }
+
+  Future<void> _startWifiMonitoring() async {
+    await _checkWifiConnection();
+    wifiCheckTimer = Timer.periodic(const Duration(seconds: 5), (timer) {
+      _checkWifiConnection();
+    });
+  }
+
+  Future<void> _checkWifiConnection() async {
+    try {
+      var connectivityResult = await Connectivity().checkConnectivity();
+      if (connectivityResult.contains(ConnectivityResult.wifi)) {
+        String? wifiSSID = await NetworkInfo().getWifiName();
+        String? cleanedSSID = wifiSSID?.replaceAll('"', '').trim();
+        debugPrint("Raw Wi-Fi SSID: $wifiSSID");
+        debugPrint("Cleaned Wi-Fi SSID: $cleanedSSID");
+        setState(() {
+          isWifiConnected = true;
+          if (cleanedSSID != null &&
+              cleanedSSID.toLowerCase() == targetSsid.toLowerCase()) {
+            connectionStatus = "Connected to $targetSsid";
+          } else {
+            connectionStatus = "Connected to Wi-Fi: ${cleanedSSID ?? 'Unknown'}";
+          }
+        });
+        debugPrint("Connection Status: $connectionStatus");
+      } else {
+        setState(() {
+          isWifiConnected = false;
+          connectionStatus = "Not connected to Wi-Fi";
+        });
+        debugPrint("Not connected to Wi-Fi");
+      }
+    } catch (e) {
+      setState(() {
+        isWifiConnected = false;
+        connectionStatus = "Error checking Wi-Fi: $e";
+      });
+      debugPrint("Error checking Wi-Fi: $e");
+    }
   }
 
   Future<void> _loadTodaysAlarms() async {
@@ -81,23 +149,20 @@ class _HomeScreenState extends State<HomeScreen> {
     setState(() {
       _selectedIndex = index;
       if (index == 1) {
-        _musicTabLogic.setSelectedTab(0); // Reset to Library tab when navigating to Library
+        _musicTabLogic.setSelectedTab(0);
       }
     });
   }
 
   @override
   Widget build(BuildContext context) {
-    // List of screens for each bottom nav tab
     final List<Widget> screens = [
-      // Planner Tab (EventsTab or BellTab)
       SingleChildScrollView(
         child: Padding(
           padding: const EdgeInsets.all(16.0),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Tabs for Events/Tasks and Bell
               Container(
                 height: 35,
                 padding: const EdgeInsets.all(2),
@@ -114,7 +179,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         text: 'Event / Tasks',
                         index: 0,
                         onTap: () {
-                          print("Switching to Event/Tasks tab");
+                          debugPrint("Switching to Event/Tasks tab");
                           setState(() {
                             _tabLogic.setSelectedTab(0);
                           });
@@ -127,7 +192,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         text: 'Bell',
                         index: 1,
                         onTap: () {
-                          print("Switching to Bell tab");
+                          debugPrint("Switching to Bell tab");
                           setState(() {
                             _tabLogic.setSelectedTab(1);
                           });
@@ -138,7 +203,13 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               ),
               const SizedBox(height: 16),
-              // Show content based on selected tab
+              // Display Wi-Fi connection status
+              Text(
+                connectionStatus,
+                style: const TextStyle(fontSize: 16),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 16),
               SizedBox(
                 height: MediaQuery.of(context).size.height - 200,
                 child: _tabLogic.selectedTabIndex == 0
@@ -154,9 +225,7 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ),
       ),
-      // Library Tab (MusicLibrary)
       MusicLibrary(tabLogic: _musicTabLogic),
-      // Profile Tab (ProfileScreen)
       const ProfileScreen(),
     ];
 
@@ -172,8 +241,18 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
         actions: [
           IconButton(
-            icon: const Icon(Icons.menu),
-            onPressed: () {},
+            icon: const Icon(Icons.sync),
+            onPressed: () async {
+              if (isWifiConnected) {
+                await BellService().syncTime(context);
+              } else {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text("Please connect to IoGen_Speaker Wi-Fi first"),
+                  ),
+                );
+              }
+            },
           ),
           IconButton(
             icon: const Icon(Icons.notifications),
@@ -184,7 +263,6 @@ class _HomeScreenState extends State<HomeScreen> {
       body: Stack(
         children: [
           screens[_selectedIndex],
-          // FAB Menu Options (only for Planner tab)
           if (_isFabMenuOpen && _selectedIndex == 0)
             Positioned(
               bottom: 80,
@@ -268,7 +346,8 @@ class _HomeScreenState extends State<HomeScreen> {
             case 'Bell':
               await Navigator.push(
                 context,
-                MaterialPageRoute(builder: (context) => const BellConfigurationScreen()),
+                MaterialPageRoute(
+                    builder: (context) => const BellConfigurationScreen()),
               );
               break;
           }

@@ -110,21 +110,17 @@ class AlarmService {
     String soundFile;
     String normalizedSound = alarm.sound.toLowerCase().trim();
     switch (normalizedSound) {
-      case 'beep':
-        soundFile = 'beep';
+      case 'file1':
+        soundFile = 'file1';
         break;
-      case 'chime':
-        soundFile = 'chime';
+      case 'file2':
+        soundFile = 'file2';
         break;
-      case 'radar':
-        soundFile = 'radar';
-        break;
-      case 'opening':
-      case 'opening (default)':
-        soundFile = 'opening';
+      case 'file3':
+        soundFile = 'file3';
         break;
       default:
-        soundFile = 'opening';
+        soundFile = 'file1';
         print('Unknown sound: $normalizedSound, falling back to opening');
     }
     print(
@@ -212,21 +208,17 @@ class AlarmService {
     String soundFile;
     String normalizedSound = sound.toLowerCase().trim();
     switch (normalizedSound) {
-      case 'beep':
-        soundFile = 'beep'; // Refers to beep.wav
+      case 'file1':
+        soundFile = 'file1'; // Refers to beep.wav
         break;
-      case 'chime':
-        soundFile = 'chime'; // Refers to chime.wav
+      case 'file2':
+        soundFile = 'file2'; // Refers to chime.wav
         break;
-      case 'radar':
-        soundFile = 'radar'; // Refers to radar.wav
-        break;
-      case 'opening':
-      case 'opening (default)':
-        soundFile = 'opening'; // Refers to opening.wav
+      case 'file3':
+        soundFile = 'file3'; // Refers to radar.wav
         break;
       default:
-        soundFile = 'opening'; // Refers to opening.wav
+        soundFile = 'file1'; // Refers to opening.wav
         print('Unknown test sound: $normalizedSound, falling back to opening');
     }
     print('Testing sound: $soundFile.wav (from input: $sound)');
@@ -263,21 +255,17 @@ class AlarmService {
     String soundFile;
     String normalizedSound = sound.toLowerCase().trim();
     switch (normalizedSound) {
-      case 'beep':
-        soundFile = 'beep'; // Refers to beep.wav
+      case 'file1':
+        soundFile = 'file1'; // Refers to beep.wav
         break;
-      case 'chime':
-        soundFile = 'chime'; // Refers to chime.wav
+      case 'file2':
+        soundFile = 'file2'; // Refers to chime.wav
         break;
-      case 'radar':
-        soundFile = 'radar'; // Refers to radar.wav
-        break;
-      case 'opening':
-      case 'opening (default)':
-        soundFile = 'opening'; // Refers to opening.wav
+      case 'file3':
+        soundFile = 'file3'; // Refers to radar.wav
         break;
       default:
-        soundFile = 'opening'; // Refers to opening.wav
+        soundFile = 'file1'; // Refers to opening.wav
         print('Unknown test sound: $normalizedSound, falling back to opening');
     }
     print('Testing immediate scheduled sound: $soundFile.wav (from input: $sound)');

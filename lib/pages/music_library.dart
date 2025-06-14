@@ -1,7 +1,16 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:e_bell/music_tabs/addmusic.dart';
 import 'package:e_bell/music_tabs/recordingpage.dart';
 import 'package:e_bell/pages/tablogic1.dart';
+import 'package:connectivity_plus/connectivity_plus.dart';
+import 'package:network_info_plus/network_info_plus.dart';
+import 'package:permission_handler/permission_handler.dart';
+import 'package:e_bell/services/bell_service.dart';
+import 'package:flutter/foundation.dart';
+import 'dart:io';
+import 'package:device_info_plus/device_info_plus.dart';
 
 class MusicLibrary extends StatefulWidget {
   final TabLogic1 tabLogic;
@@ -14,6 +23,132 @@ class MusicLibrary extends StatefulWidget {
 
 class _MusicLibraryState extends State<MusicLibrary> {
   bool _isFabMenuOpen = false;
+  bool isWifiConnected = false;
+  String connectionStatus = "Checking Wi-Fi...";
+  Timer? wifiCheckTimer;
+  final String targetSsid = "IoGen_Speaker";
+
+  @override
+  void initState() {
+    super.initState();
+    _requestPermissions();
+    _startWifiMonitoring();
+  }
+
+  @override
+  void dispose() {
+    wifiCheckTimer?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _requestPermissions() async {
+    Map<Permission, PermissionStatus> statuses;
+
+    if (Platform.isAndroid) {
+      if ((await _getAndroidVersion()) >= 33) {
+        statuses = await [
+          Permission.location,
+          Permission.nearbyWifiDevices,
+          Permission.audio,
+        ].request();
+      } else {
+        statuses = await [
+          Permission.location,
+          Permission.nearbyWifiDevices,
+          Permission.storage,
+        ].request();
+      }
+    } else {
+      statuses = await [
+        Permission.location,
+        Permission.nearbyWifiDevices,
+      ].request();
+    }
+
+    if (statuses[Permission.location]!.isDenied) {
+      setState(() {
+        connectionStatus = "Location permission denied";
+      });
+      debugPrint("Location permission denied");
+    } else {
+      debugPrint("Location permission granted");
+    }
+
+    if (Platform.isAndroid) {
+      if ((await _getAndroidVersion()) >= 33) {
+        if (statuses[Permission.audio]!.isDenied) {
+          debugPrint("Audio permission denied");
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+                content: Text("Audio permission denied; cannot access MP3 files")),
+          );
+        } else {
+          debugPrint("Audio permission granted");
+        }
+      } else {
+        if (statuses[Permission.storage]!.isDenied) {
+          debugPrint("Storage permission denied");
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+                content: Text("Storage permission denied; cannot access files")),
+          );
+        } else {
+          debugPrint("Storage permission granted");
+        }
+      }
+    }
+  }
+
+  Future<int> _getAndroidVersion() async {
+    try {
+      if (Platform.isAndroid) {
+        var version = await DeviceInfoPlugin().androidInfo;
+        return version.version.sdkInt;
+      }
+    } catch (e) {
+      debugPrint("Error getting Android version: $e");
+    }
+    return 0;
+  }
+
+  Future<void> _startWifiMonitoring() async {
+    await _checkWifiConnection();
+    wifiCheckTimer = Timer.periodic(const Duration(seconds: 5), (timer) {
+      _checkWifiConnection();
+    });
+  }
+
+  Future<void> _checkWifiConnection() async {
+    try {
+      var connectivityResult = await Connectivity().checkConnectivity();
+      if (connectivityResult.contains(ConnectivityResult.wifi)) {
+        String? wifiSSID = await NetworkInfo().getWifiName();
+        debugPrint("Raw Wi-Fi SSID: $wifiSSID"); // Log raw SSID
+        setState(() {
+          isWifiConnected = true;
+          if (wifiSSID != null &&
+              wifiSSID.toLowerCase() == targetSsid.toLowerCase()) {
+            connectionStatus = "Connected to $targetSsid";
+          } else {
+            connectionStatus = "Connected to Wi-Fi: ${wifiSSID ?? 'Unknown'}";
+          }
+        });
+        debugPrint("Connection Status: $connectionStatus");
+      } else {
+        setState(() {
+          isWifiConnected = false;
+          connectionStatus = "Not connected to Wi-Fi";
+        });
+        debugPrint("Not connected to Wi-Fi");
+      }
+    } catch (e) {
+      setState(() {
+        isWifiConnected = false;
+        connectionStatus = "Error checking Wi-Fi: $e";
+      });
+      debugPrint("Error checking Wi-Fi: $e");
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -23,13 +158,11 @@ class _MusicLibraryState extends State<MusicLibrary> {
         children: [
           Column(
             children: [
-              // Custom Tab Bar
               Padding(
                 padding: const EdgeInsets.all(16.0),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // Tabs for Events/Tasks and Bell
                     Container(
                       height: 35,
                       padding: const EdgeInsets.all(2),
@@ -69,11 +202,16 @@ class _MusicLibraryState extends State<MusicLibrary> {
                         ],
                       ),
                     ),
+                    const SizedBox(height: 10),
+                    Text(
+                      connectionStatus,
+                      style: const TextStyle(fontSize: 16),
+                      textAlign: TextAlign.center,
+                    ),
                   ],
                 ),
               ),
               const SizedBox(height: 10),
-              // Tab Content
               Expanded(
                 child: SingleChildScrollView(
                   padding: const EdgeInsets.only(bottom: 80),
@@ -84,7 +222,6 @@ class _MusicLibraryState extends State<MusicLibrary> {
               ),
             ],
           ),
-          // FAB Menu Options
           if (_isFabMenuOpen)
             Positioned(
               bottom: 80,
@@ -122,31 +259,6 @@ class _MusicLibraryState extends State<MusicLibrary> {
     );
   }
 
-  // Library Content (Category Grid + Trending List)
-  Widget _buildLibraryContent() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _buildSectionTitle('Category'),
-        _buildCategoryGrid(),
-        _buildSectionTitle('Trending Music'),
-        _buildTrendingList(),
-      ],
-    );
-  }
-
-  // My Music Content
-  Widget _buildMyMusicContent() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _buildSectionTitle('Your Music'),
-        _buildMyMusicList(),
-      ],
-    );
-  }
-
-  // FAB Option
   Widget _buildFabOption(String title, bool isChecked) {
     return Material(
       color: Colors.transparent,
@@ -155,11 +267,8 @@ class _MusicLibraryState extends State<MusicLibrary> {
           setState(() => _isFabMenuOpen = false);
           switch (title) {
             case 'Add Music':
-              await Navigator.push(
-                context,
-                MaterialPageRoute(builder: (context) => const AddmusicPage()),
-              );
-              setState(() {}); // Refresh content
+              await BellService().uploadMp3(context, isWifiConnected);
+              setState(() {});
               break;
             case 'Record Music':
               await Navigator.push(
@@ -167,7 +276,7 @@ class _MusicLibraryState extends State<MusicLibrary> {
                 MaterialPageRoute(
                     builder: (context) => const RecordMusicPage()),
               );
-              setState(() {}); // Refresh content
+              setState(() {});
               break;
           }
         },
@@ -203,7 +312,28 @@ class _MusicLibraryState extends State<MusicLibrary> {
     );
   }
 
-  // Section Title
+  Widget _buildLibraryContent() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _buildSectionTitle('Category'),
+        _buildCategoryGrid(),
+        _buildSectionTitle('Trending Music'),
+        _buildTrendingList(),
+      ],
+    );
+  }
+
+  Widget _buildMyMusicContent() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _buildSectionTitle('Your Music'),
+        _buildMyMusicList(),
+      ],
+    );
+  }
+
   Widget _buildSectionTitle(String title) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
@@ -214,7 +344,6 @@ class _MusicLibraryState extends State<MusicLibrary> {
     );
   }
 
-  // Category Grid
   Widget _buildCategoryGrid() {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16.0),
@@ -257,7 +386,6 @@ class _MusicLibraryState extends State<MusicLibrary> {
     );
   }
 
-  // Trending List
   Widget _buildTrendingList() {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16.0),
@@ -303,7 +431,6 @@ class _MusicLibraryState extends State<MusicLibrary> {
     );
   }
 
-  // My Music List
   Widget _buildMyMusicList() {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16.0),
