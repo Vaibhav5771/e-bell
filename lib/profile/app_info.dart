@@ -1,14 +1,18 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import '../services/theme_state.dart';
 
 class AppInfoScreen extends StatelessWidget {
   const AppInfoScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
+    final themeProvider = Provider.of<ThemeProvider>(context);
+    print('AppInfoScreen: Using color ${themeProvider.selectedColor}');
     return Scaffold(
       appBar: AppBar(
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: Colors.orange),
+          icon: Icon(Icons.arrow_back, color: themeProvider.selectedColor),
           onPressed: () {
             Navigator.pop(context);
           },

@@ -1,10 +1,13 @@
+import 'package:e_bell/services/theme_state.dart';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+
 
 class ScheduleItem extends StatelessWidget {
   final String time;
   final String title;
   final bool isChecked;
-  final bool isLast; // Add to hide the dotted line for the last item
+  final bool isLast;
 
   const ScheduleItem({
     super.key,
@@ -16,8 +19,9 @@ class ScheduleItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final themeProvider = Provider.of<ThemeProvider>(context);
     return SizedBox(
-      height: 100, // Adjust height as needed
+      height: 100,
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -26,12 +30,12 @@ class ScheduleItem extends StatelessWidget {
               Container(
                 padding: const EdgeInsets.all(15),
                 decoration: BoxDecoration(
-                  color: Colors.orange.withOpacity(0.3),
+                  color: themeProvider.selectedColor.withOpacity(0.3),
                   shape: BoxShape.circle,
                 ),
-                child: const Icon(
+                child: Icon(
                   Icons.alarm,
-                  color: Colors.orange,
+                  color: themeProvider.selectedColor,
                   size: 30,
                 ),
               ),
@@ -74,7 +78,7 @@ class ScheduleItem extends StatelessWidget {
           Checkbox(
             value: isChecked,
             onChanged: null,
-            activeColor: Colors.orange,
+            activeColor: themeProvider.selectedColor,
           ),
         ],
       ),

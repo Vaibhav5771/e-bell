@@ -1,16 +1,24 @@
 import 'package:e_bell/pages/login_page.dart';
 import 'package:e_bell/profile/account_screen.dart';
 import 'package:e_bell/profile/profile_page.dart';
+import 'package:e_bell/services/theme_state.dart';
 import 'package:flutter/material.dart';
 import 'package:android_alarm_manager_plus/android_alarm_manager_plus.dart';
 import 'alarm/alarm_service.dart';
 import 'pages/home_page.dart';
+import 'package:provider/provider.dart';
+
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await AlarmService.initialize();
   await AndroidAlarmManager.initialize();
-  runApp(const MyApp());
+  runApp(
+    ChangeNotifierProvider(
+      create: (context) => ThemeProvider(),
+      child: const MyApp(),
+    ),
+  );
 }
 
 class MyApp extends StatelessWidget {
@@ -19,12 +27,13 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
+      debugShowCheckedModeBanner: false,
       title: 'E-Bell',
       theme: ThemeData(
         primarySwatch: Colors.orange,
         scaffoldBackgroundColor: Colors.grey[100],
       ),
-      home: const LoginPage(),
+      home: const HomeScreen(),
     );
   }
 }

@@ -1,10 +1,14 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import '../services/theme_state.dart';
 
 class BellTab extends StatelessWidget {
   const BellTab({super.key});
 
   @override
   Widget build(BuildContext context) {
+    final themeProvider = Provider.of<ThemeProvider>(context);
+    print('BellTab: Using color ${themeProvider.selectedColor}');
     return Padding(
       padding: const EdgeInsets.all(5.0),
       child: ListView(
@@ -44,6 +48,7 @@ class BellCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final themeProvider = Provider.of<ThemeProvider>(context);
     return Card(
       color: Colors.white,
       elevation: 1,
@@ -56,15 +61,17 @@ class BellCard extends StatelessWidget {
           children: [
             // Bell Icon
             Container(
-              padding: const EdgeInsets.all(15),
-              decoration: BoxDecoration(
-                color: Colors.orange.withOpacity(0.3),
-                shape: BoxShape.circle,
-              ),
-              child: const Icon(
-                Icons.notifications_none_outlined,
-                color: Colors.orange,
-                size: 30,
+              child: Container(
+                padding: const EdgeInsets.all(15),
+                decoration: BoxDecoration(
+                  color: themeProvider.selectedColor.withOpacity(0.3),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(
+                  Icons.notifications_none_outlined,
+                  color: themeProvider.selectedColor,
+                  size: 30,
+                ),
               ),
             ),
             const SizedBox(width: 20),

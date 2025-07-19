@@ -1,5 +1,6 @@
 import 'package:e_bell/pages/home_page.dart';
 import 'package:e_bell/services/qr_screen_page.dart';
+import 'package:e_bell/tabs_planner/themes.dart';
 import 'package:flutter/material.dart';
 
 
@@ -47,7 +48,7 @@ class DevicePage extends StatelessWidget {
                   onTap: () {
                     Navigator.pushReplacement(
                       context,
-                      MaterialPageRoute(builder: (context) => const HomeScreen()),
+                      MaterialPageRoute(builder: (context) => const ThemePage()),
                     );
                   },
                 ),

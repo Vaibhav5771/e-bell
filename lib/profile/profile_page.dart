@@ -1,22 +1,147 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import '../services/theme_state.dart';
 import 'account_screen.dart';
 import 'app_setting.dart';
 import 'device_setting.dart';
 import 'app_info.dart';
+import 'help_privacy_screen.dart';
 
-class ProfileScreen extends StatelessWidget {
-  const ProfileScreen({super.key});
 
-  // Shows a bottom sheet for switching between devices
+class ProfileScreen extends StatefulWidget {
+  @override
+  _ProfileScreenState createState() => _ProfileScreenState();
+}
+
+class _ProfileScreenState extends State<ProfileScreen> {
+  // Define the items list as a constant
+  static const List<Map<String, dynamic>> _items = [
+    {'icon': Icons.person_outline, 'title': 'Account', 'screen': AccountScreen()},
+    {'icon': Icons.settings, 'title': 'Device Setting', 'screen': DeviceSettingScreen()},
+    {'icon': Icons.tune, 'title': 'App Setting', 'screen': AppSettingScreen()},
+    {'icon': Icons.help_outline, 'title': 'Help & Privacy', 'screen': HelpPrivacyScreen()},
+    {'icon': Icons.info_outline, 'title': 'App Info', 'screen': AppInfoScreen()},
+  ];
+
+  // Track the currently selected device
+  String _selectedDevice = 'Device 1';
+
+  @override
+  Widget build(BuildContext context) {
+    final themeProvider = Provider.of<ThemeProvider>(context);
+    print('ProfileScreen: Using color ${themeProvider.selectedColor}');
+    return Scaffold(
+      body: Container(
+        color: Colors.grey[100],
+        child: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Header Section
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 20.0),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    Container(
+                      width: 100,
+                      height: 100,
+                      decoration: BoxDecoration(
+                        color: themeProvider.selectedColor,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Icon(Icons.device_hub, color: themeProvider.textColor, size: 30),
+                    ),
+                    SizedBox(width: 16),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            _selectedDevice,
+                            style: TextStyle(
+                              fontSize: 20,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.black87,
+                            ),
+                          ),
+                          SizedBox(height: 4),
+                          GestureDetector(
+                            onTap: () {
+                              _showSwitchAccountBottomSheet(context);
+                            },
+                            child: Text(
+                              'Switch Account',
+                              style: TextStyle(
+                                color: Colors.grey[600],
+                                fontSize: 14,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Icon(Icons.arrow_forward_ios, color: Colors.grey[600], size: 18),
+                  ],
+                ),
+              ),
+              // White Box with Menu
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(12),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.grey.withOpacity(0.2),
+                        spreadRadius: 2,
+                        blurRadius: 5,
+                        offset: Offset(0, 3),
+                      ),
+                    ],
+                  ),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(12),
+                    child: ListView.builder(
+                      shrinkWrap: true,
+                      physics: NeverScrollableScrollPhysics(),
+                      padding: EdgeInsets.zero,
+                      itemCount: _items.length,
+                      itemBuilder: (context, index) {
+                        return _buildListTile(
+                          context,
+                          icon: _items[index]['icon'] as IconData,
+                          title: _items[index]['title'] as String,
+                          onTap: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(builder: (context) => _items[index]['screen'] as Widget),
+                            );
+                          },
+                        );
+                      },
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   void _showSwitchAccountBottomSheet(BuildContext context) {
     showModalBottomSheet(
       context: context,
-      shape: const RoundedRectangleBorder(
+      shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
       builder: (BuildContext context) {
+        final themeProvider = Provider.of<ThemeProvider>(context);
         return Container(
-          padding: const EdgeInsets.all(16.0),
+          padding: EdgeInsets.all(16.0),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -24,59 +149,31 @@ class ProfileScreen extends StatelessWidget {
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  const Text(
+                  Text(
                     'Switch Profile',
                     style: TextStyle(
                       fontSize: 18,
                       fontWeight: FontWeight.bold,
+                      color: Colors.black87,
                     ),
                   ),
                   IconButton(
-                    icon: const Icon(Icons.close),
-                    onPressed: () {
-                      Navigator.pop(context);
-                    },
+                    icon: Icon(Icons.close, size: 24, color: themeProvider.textColor),
+                    onPressed: () => Navigator.pop(context),
                   ),
                 ],
               ),
-              const SizedBox(height: 16),
+              SizedBox(height: 16),
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                 children: [
-                  _buildDeviceOption(
-                    context,
-                    label: 'Device 1',
-                    onTap: () {
-                      // TODO: Implement Device 1 selection logic
-                      Navigator.pop(context);
-                    },
-                  ),
-                  _buildDeviceOption(
-                    context,
-                    label: 'Device 2',
-                    onTap: () {
-                      // TODO: Implement Device 2 selection logic
-                      Navigator.pop(context);
-                    },
-                  ),
-                  _buildDeviceOption(
-                    context,
-                    label: 'Device 3',
-                    onTap: () {
-                      // TODO: Implement Device 3 selection logic
-                      Navigator.pop(context);
-                    },
-                  ),
-                  _buildAddNewDeviceOption(
-                    context,
-                    onTap: () {
-                      // TODO: Implement Add new device logic
-                      Navigator.pop(context);
-                    },
-                  ),
+                  _buildDeviceOption(context, label: 'Device 1'),
+                  _buildDeviceOption(context, label: 'Device 2'),
+                  _buildDeviceOption(context, label: 'Device 3'),
+                  _buildAddNewDeviceOption(context),
                 ],
               ),
-              const SizedBox(height: 16),
+              SizedBox(height: 16),
             ],
           ),
         );
@@ -84,37 +181,44 @@ class ProfileScreen extends StatelessWidget {
     );
   }
 
-  // Builds a widget for each device option in the bottom sheet
-  Widget _buildDeviceOption(BuildContext context,
-      {required String label, required VoidCallback onTap}) {
+  Widget _buildDeviceOption(BuildContext context, {required String label}) {
+    final themeProvider = Provider.of<ThemeProvider>(context);
     return GestureDetector(
-      onTap: onTap,
+      onTap: () {
+        setState(() {
+          _selectedDevice = label;
+        });
+        Navigator.pop(context);
+      },
       child: Column(
         children: [
           Container(
             width: 60,
             height: 60,
             decoration: BoxDecoration(
-              color: Colors.yellow[300],
+              color: themeProvider.selectedColor,
               borderRadius: BorderRadius.circular(8),
             ),
-            child: const Icon(
-              Icons.device_unknown,
-              color: Colors.black,
-            ),
+            child: Icon(Icons.device_unknown, color: themeProvider.textColor, size: 30),
           ),
-          const SizedBox(height: 8),
-          Text(label),
+          SizedBox(height: 8),
+          Text(
+            label,
+            style: TextStyle(fontSize: 14, color: Colors.black87),
+          ),
         ],
       ),
     );
   }
 
-  // Builds the "Add new device" option in the bottom sheet
-  Widget _buildAddNewDeviceOption(BuildContext context,
-      {required VoidCallback onTap}) {
+  Widget _buildAddNewDeviceOption(BuildContext context) {
     return GestureDetector(
-      onTap: onTap,
+      onTap: () {
+        Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Add new device functionality not implemented yet')),
+        );
+      },
       child: Column(
         children: [
           Container(
@@ -124,167 +228,44 @@ class ProfileScreen extends StatelessWidget {
               color: Colors.grey[200],
               borderRadius: BorderRadius.circular(8),
             ),
-            child: const Icon(
-              Icons.add,
-              color: Colors.black,
-            ),
+            child: Icon(Icons.add, color: Colors.black, size: 30),
           ),
-          const SizedBox(height: 8),
-          const Text('Add new device'),
+          SizedBox(height: 8),
+          Text(
+            'Add new device',
+            style: TextStyle(fontSize: 14, color: Colors.black87),
+            textAlign: TextAlign.center,
+          ),
         ],
       ),
     );
   }
 
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      body: Container(
-        color: Colors.grey[100],
-        child: Column(
-          children: [
-            // Device 1 and Switch Account Section
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 24.0),
-              child: Row(
-                children: [
-                  Container(
-                    width: 50,
-                    height: 50,
-                    decoration: BoxDecoration(
-                      color: Colors.yellow[300],
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: const Icon(
-                      Icons.device_unknown,
-                      color: Colors.black,
-                    ),
-                  ),
-                  const SizedBox(width: 16),
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        'Device 1',
-                        style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      GestureDetector(
-                        onTap: () {
-                          _showSwitchAccountBottomSheet(context);
-                        },
-                        child: const Text(
-                          'Switch Account',
-                          style: TextStyle(
-                            color: Colors.grey,
-                            fontSize: 14,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const Spacer(),
-                  const Icon(
-                    Icons.arrow_forward_ios,
-                    color: Colors.grey,
-                    size: 16,
-                  ),
-                ],
-              ),
-            ),
-            // List of Options
-            Expanded(
-              child: ListView(
-                children: [
-                  _buildListTile(
-                    context,
-                    icon: Icons.account_circle_outlined,
-                    title: 'Account',
-                    onTap: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (context) => const AccountScreen(),
-                        ),
-                      );
-                    },
-                  ),
-                  _buildListTile(
-                    context,
-                    icon: Icons.devices_outlined,
-                    title: 'Device Setting',
-                    onTap: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (context) => const DeviceSettingScreen(),
-                        ),
-                      );
-                    },
-                  ),
-                  _buildListTile(
-                    context,
-                    icon: Icons.settings_outlined,
-                    title: 'App Setting',
-                    onTap: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (context) => const AppSettingScreen(),
-                        ),
-                      );
-                    },
-                  ),
-                  _buildListTile(
-                    context,
-                    icon: Icons.info_outline,
-                    title: 'App Info',
-                    onTap: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (context) => const AppInfoScreen(),
-                        ),
-                      );
-                    },
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  // Builds a list tile for navigation options
   Widget _buildListTile(BuildContext context,
       {required IconData icon, required String title, required VoidCallback onTap}) {
-    return ListTile(
-      leading: Container(
-        padding: const EdgeInsets.all(8.0),
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          border: Border.all(color: Colors.orange, width: 1.5),
+    final themeProvider = Provider.of<ThemeProvider>(context);
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4.0, horizontal: 16.0),
+      child: ListTile(
+        contentPadding: EdgeInsets.zero,
+        leading: Container(
+          padding: const EdgeInsets.all(0),
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: themeProvider.selectedColor.withOpacity(0.2),
+          ),
+          child: CircleAvatar(
+            backgroundColor: themeProvider.selectedColor,
+            child: Icon(icon, color: themeProvider.textColor, size: 24),
+          ),
         ),
-        child: Icon(
-          icon,
-          color: Colors.orange,
-          size: 24,
+        title: Text(
+          title,
+          style: TextStyle(fontSize: 16, color: Colors.black87),
         ),
+        trailing: Icon(Icons.arrow_forward_ios, color: Colors.grey[600], size: 16),
+        onTap: onTap,
       ),
-      title: Text(
-        title,
-        style: const TextStyle(fontSize: 16),
-      ),
-      trailing: const Icon(
-        Icons.arrow_forward_ios,
-        color: Colors.grey,
-        size: 16,
-      ),
-      onTap: onTap,
     );
   }
 }

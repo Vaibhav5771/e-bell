@@ -1,16 +1,17 @@
 import 'dart:async';
-
+import 'dart:io';
+import 'package:connectivity_plus/connectivity_plus.dart';
+import 'package:device_info_plus/device_info_plus.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:network_info_plus/network_info_plus.dart';
+import 'package:permission_handler/permission_handler.dart';
+import 'package:provider/provider.dart';
 import 'package:e_bell/music_tabs/addmusic.dart';
 import 'package:e_bell/music_tabs/recordingpage.dart';
 import 'package:e_bell/pages/tablogic1.dart';
-import 'package:connectivity_plus/connectivity_plus.dart';
-import 'package:network_info_plus/network_info_plus.dart';
-import 'package:permission_handler/permission_handler.dart';
 import 'package:e_bell/services/bell_service.dart';
-import 'package:flutter/foundation.dart';
-import 'dart:io';
-import 'package:device_info_plus/device_info_plus.dart';
+import '../services/theme_state.dart';
 
 class MusicLibrary extends StatefulWidget {
   final TabLogic1 tabLogic;
@@ -123,7 +124,7 @@ class _MusicLibraryState extends State<MusicLibrary> {
       var connectivityResult = await Connectivity().checkConnectivity();
       if (connectivityResult.contains(ConnectivityResult.wifi)) {
         String? wifiSSID = await NetworkInfo().getWifiName();
-        debugPrint("Raw Wi-Fi SSID: $wifiSSID"); // Log raw SSID
+        debugPrint("Raw Wi-Fi SSID: $wifiSSID");
         setState(() {
           isWifiConnected = true;
           if (wifiSSID != null &&
@@ -152,6 +153,8 @@ class _MusicLibraryState extends State<MusicLibrary> {
 
   @override
   Widget build(BuildContext context) {
+    final themeProvider = Provider.of<ThemeProvider>(context);
+    print('MusicLibrary: Using color ${themeProvider.selectedColor}');
     return Scaffold(
       backgroundColor: Colors.grey[100],
       body: Stack(
@@ -248,18 +251,23 @@ class _MusicLibraryState extends State<MusicLibrary> {
             _isFabMenuOpen = !_isFabMenuOpen;
           });
         },
-        backgroundColor: const Color.fromRGBO(255, 152, 0, 1),
-        shape: const CircleBorder(),
+        backgroundColor: themeProvider.selectedColor,
+        shape: CircleBorder(
+          side: BorderSide(
+            color: themeProvider.selectedColor,
+          ),
+        ),
         child: Icon(
           _isFabMenuOpen ? Icons.close : Icons.music_note,
           size: 28,
-          color: Colors.white,
+          color: themeProvider.textColor,
         ),
       ),
     );
   }
 
   Widget _buildFabOption(String title, bool isChecked) {
+    final themeProvider = Provider.of<ThemeProvider>(context);
     return Material(
       color: Colors.transparent,
       child: InkWell(
@@ -287,13 +295,13 @@ class _MusicLibraryState extends State<MusicLibrary> {
               Container(
                 width: 24,
                 height: 24,
-                decoration: const BoxDecoration(
-                  color: Colors.orange,
+                decoration: BoxDecoration(
+                  color: themeProvider.selectedColor,
                   shape: BoxShape.circle,
                 ),
-                child: const Icon(
+                child: Icon(
                   Icons.add,
-                  color: Colors.white,
+                  color: themeProvider.textColor,
                   size: 16,
                 ),
               ),
@@ -387,6 +395,7 @@ class _MusicLibraryState extends State<MusicLibrary> {
   }
 
   Widget _buildTrendingList() {
+    final themeProvider = Provider.of<ThemeProvider>(context);
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16.0),
       child: ListView.builder(
@@ -419,10 +428,12 @@ class _MusicLibraryState extends State<MusicLibrary> {
               ),
               title: Text('Song ${index + 1}'),
               subtitle: const Text('00:00'),
-              trailing: const Icon(
-                Icons.play_circle_fill,
-                color: Colors.orange,
-                size: 30,
+              trailing: Container(
+                child: Icon(
+                  Icons.play_circle_fill,
+                  color: themeProvider.selectedColor,
+                  size: 30,
+                ),
               ),
             ),
           );
@@ -432,6 +443,7 @@ class _MusicLibraryState extends State<MusicLibrary> {
   }
 
   Widget _buildMyMusicList() {
+    final themeProvider = Provider.of<ThemeProvider>(context);
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16.0),
       child: ListView.builder(
@@ -464,10 +476,12 @@ class _MusicLibraryState extends State<MusicLibrary> {
               ),
               title: Text('Song ${index + 1}'),
               subtitle: const Text('00:00'),
-              trailing: const Icon(
-                Icons.play_circle_fill,
-                color: Colors.orange,
-                size: 30,
+              trailing: Container(
+                child: Icon(
+                  Icons.play_circle_fill,
+                  color: themeProvider.selectedColor,
+                  size: 30,
+                ),
               ),
               onTap: () {},
             ),

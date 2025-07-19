@@ -14,10 +14,13 @@ import 'package:network_info_plus/network_info_plus.dart';
 import 'package:permission_handler/permission_handler.dart';
 import '../profile/profile_page.dart';
 import '../services/bell_service.dart';
+import '../services/theme_state.dart';
 import '../tabs_planner/bell_tab.dart';
 import '../tabs_planner/events_tab.dart';
 import '../tabs_planner/tab_logic1.dart';
-import 'package:flutter/foundation.dart'; // For debugPrint
+import 'package:flutter/foundation.dart';
+import 'package:provider/provider.dart';
+
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -156,6 +159,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final themeProvider = Provider.of<ThemeProvider>(context);
     final List<Widget> screens = [
       SingleChildScrollView(
         child: Padding(
@@ -203,7 +207,6 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               ),
               const SizedBox(height: 16),
-              // Display Wi-Fi connection status
               Text(
                 connectionStatus,
                 style: const TextStyle(fontSize: 16),
@@ -226,15 +229,15 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
       ),
       MusicLibrary(tabLogic: _musicTabLogic),
-      const ProfileScreen(),
+       ProfileScreen(),
     ];
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text(
+        title: Text(
           'E-Bell',
           style: TextStyle(
-            color: Colors.orange,
+            color: themeProvider.selectedColor,
             fontWeight: FontWeight.bold,
             fontSize: 28,
           ),
@@ -291,7 +294,7 @@ class _HomeScreenState extends State<HomeScreen> {
             _isFabMenuOpen = !_isFabMenuOpen;
           });
         },
-        backgroundColor: Colors.orange,
+        backgroundColor: themeProvider.selectedColor,
         shape: const CircleBorder(),
         child: Icon(
           _isFabMenuOpen ? Icons.close : Icons.edit_calendar_outlined,
@@ -302,11 +305,11 @@ class _HomeScreenState extends State<HomeScreen> {
       floatingActionButtonLocation: FloatingActionButtonLocation.miniEndFloat,
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _selectedIndex,
-        selectedItemColor: Colors.orange,
+        selectedItemColor: themeProvider.selectedColor,
         unselectedItemColor: Colors.grey,
         items: const [
           BottomNavigationBarItem(
-            icon: Icon(Icons.calendar_today),
+            icon: Icon(Icons.calendar_month_outlined),
             label: 'Planner',
           ),
           BottomNavigationBarItem(
@@ -314,7 +317,7 @@ class _HomeScreenState extends State<HomeScreen> {
             label: 'Library',
           ),
           BottomNavigationBarItem(
-            icon: Icon(Icons.person),
+            icon: Icon(Icons.person_outline_rounded),
             label: 'Profile',
           ),
         ],
@@ -324,6 +327,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildFabOption(String title, bool isChecked) {
+    final themeProvider = Provider.of<ThemeProvider>(context);
     return Material(
       color: Colors.transparent,
       child: InkWell(
@@ -347,7 +351,7 @@ class _HomeScreenState extends State<HomeScreen> {
               await Navigator.push(
                 context,
                 MaterialPageRoute(
-                    builder: (context) => const BellConfigurationScreen()),
+                    builder: (context) => BellSoundChanger()),
               );
               break;
           }
@@ -359,8 +363,8 @@ class _HomeScreenState extends State<HomeScreen> {
               Container(
                 width: 24,
                 height: 24,
-                decoration: const BoxDecoration(
-                  color: Colors.orange,
+                decoration: BoxDecoration(
+                  color: themeProvider.selectedColor,
                   shape: BoxShape.circle,
                 ),
                 child: const Icon(

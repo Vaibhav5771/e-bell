@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:audioplayers/audioplayers.dart';
+import 'package:http/http.dart' as http;
 import '../alarm/alarm_model.dart';
 import '../alarm/permission_handler.dart';
 import '../alarm/shared_preferences.dart';
 import '../alarm/alarm_service.dart';
-import '../services/bell_service.dart';
-import 'package:intl/intl.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:provider/provider.dart';
+import '../services/theme_state.dart';
 
 class AlarmPage extends StatefulWidget {
   const AlarmPage({super.key});
@@ -20,7 +22,26 @@ class _AlarmPageState extends State<AlarmPage> {
   String _alarmLabel = '';
   String _repeatOption = 'Never';
   String _soundOption = 'file1';
+  String _period = TimeOfDay.now().hour < 12 ? 'AM' : 'PM'; // Initialize AM/PM
   final AudioPlayer _audioPlayer = AudioPlayer();
+  List<String> _soundOptions = ['file1', 'file2', 'file3'];
+
+  @override
+  void initState() {
+    super.initState();
+    _loadUploadedFiles();
+  }
+
+  Future<void> _loadUploadedFiles() async {
+    final prefs = await SharedPreferences.getInstance();
+    final uploadedFiles = prefs.getStringList('uploaded_files') ?? [];
+    setState(() {
+      _soundOptions = ['file1', 'file2', 'file3', ...uploadedFiles];
+      if (!_soundOptions.contains(_soundOption)) {
+        _soundOption = _soundOptions.isNotEmpty ? _soundOptions[0] : 'file1';
+      }
+    });
+  }
 
   @override
   void dispose() {
@@ -38,14 +59,19 @@ class _AlarmPageState extends State<AlarmPage> {
     );
   }
 
+  String _formatDataString(TimeOfDay time) {
+    String hh = time.hour.toString().padLeft(2, '0');
+    String mm = time.minute.toString().padLeft(2, '0');
+    return "omomo${hh}ooo$mm";
+  }
+
   Future<void> _saveAlarm() async {
     bool hasNotificationPermission =
-        await PermissionHandler.requestNotificationPermission();
+    await PermissionHandler.requestNotificationPermission();
     if (!hasNotificationPermission) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-            content:
-                Text('Notification permission is required to set alarms.')),
+            content: Text('Notification permission is required to set alarms.')),
       );
       return;
     }
@@ -76,53 +102,35 @@ class _AlarmPageState extends State<AlarmPage> {
     }
 
     String mp3File;
-    switch (alarm.sound) {
-      case 'file1':
-        mp3File = 'file1.mp3';
-        break;
-      case 'file2':
-        mp3File = 'file2.mp3';
-        break;
-      case 'file3':
-        mp3File = 'file3.mp3';
-        break;
-      default:
-        mp3File = 'file1.mp3';
-    }
-
-    final now = DateTime.now();
-    DateTime alarmDateTime = DateTime(
-      now.year,
-      now.month,
-      now.day,
-      alarm.time.hour,
-      alarm.time.minute,
-    );
-    if (alarmDateTime.isBefore(now)) {
-      alarmDateTime = alarmDateTime.add(const Duration(days: 1));
-    }
-
-// Format as MM:dd:yyyy:hh:mm:ss:a for logging
-    final fullFormat =
-        DateFormat('MM:dd:yyyy:hh:mm:ss:a').format(alarmDateTime);
-    debugPrint("Full alarm time format: $fullFormat");
-
-// Use HH:mm (24-hour) for server
-    final timeFormat = DateFormat('HH:mm').format(alarmDateTime);
-    debugPrint("Setting alarm time: $timeFormat (24-hour) for $mp3File");
-
-    bool serverSuccess = await BellService()
-        .setAlarmTime(mp3File, alarmDateTime, context, timeFormat);
-    if (serverSuccess) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-            content: Text('Alarm set on server for $timeFormat with $mp3File')),
-      );
+    if (_soundOption == 'file1' || _soundOption == 'file2' || _soundOption == 'file3') {
+      mp3File = '${_soundOption.toUpperCase()}.MP3';
     } else {
+      mp3File = _soundOption.toUpperCase();
+    }
+
+    String url = 'http://192.168.2.1/settime/$mp3File';
+    String data = _formatDataString(_selectedTime);
+
+    setState(() => isLoading = true);
+
+    try {
+      final response = await http.post(Uri.parse(url), body: data);
+      if (response.statusCode == 200) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Alarm set on server for ${alarm.time.format(context)} with $mp3File')),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to set alarm on server: ${response.statusCode}')),
+        );
+      }
+    } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Failed to set alarm on server')),
+        SnackBar(content: Text("Error setting alarm: Make sure you're connected to the speaker's Wi-Fi. Error: $e")),
       );
     }
+
+    setState(() => isLoading = false);
 
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Alarm saved successfully!')),
@@ -131,54 +139,11 @@ class _AlarmPageState extends State<AlarmPage> {
     Navigator.pop(context);
   }
 
-  Future<void> _playAlarmSound(String sound) async {
-    String audioPath;
-    switch (sound) {
-      case 'file1':
-        audioPath = 'file1.mp3';
-        break;
-      case 'file2':
-        audioPath = 'file2.mp3';
-        break;
-      case 'file3':
-        audioPath = 'file3.mp3';
-        break;
-      default:
-        audioPath = 'file1.mp3';
-    }
-
-    try {
-      debugPrint('Attempting to play sound: assets/$audioPath');
-      await _audioPlayer.play(AssetSource(audioPath));
-      debugPrint('Sound played successfully: assets/$audioPath');
-    } catch (e) {
-      debugPrint('Error playing alarm sound: $e');
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error playing $sound: $e')),
-      );
-    }
-  }
-
-  Future<void> _selectTime() async {
-    final TimeOfDay? picked = await showTimePicker(
-      context: context,
-      initialTime: _selectedTime,
-      builder: (BuildContext context, Widget? child) {
-        return MediaQuery(
-          data: MediaQuery.of(context).copyWith(alwaysUse24HourFormat: true),
-          child: child!,
-        );
-      },
-    );
-    if (picked != null && picked != _selectedTime) {
-      setState(() {
-        _selectedTime = picked;
-      });
-    }
-  }
+  bool isLoading = false;
 
   @override
   Widget build(BuildContext context) {
+    final themeProvider = Provider.of<ThemeProvider>(context);
     final isSmallScreen = MediaQuery.of(context).size.width < 360;
     final timeTextSize = isSmallScreen ? 28.0 : 32.0;
 
@@ -188,10 +153,10 @@ class _AlarmPageState extends State<AlarmPage> {
           padding: const EdgeInsets.only(left: 5.0),
           child: GestureDetector(
             onTap: () => Navigator.pop(context),
-            child: const Center(
+            child: Center(
               child: Text(
                 'Cancel',
-                style: TextStyle(color: Colors.orange, fontSize: 16),
+                style: TextStyle(color: themeProvider.selectedColor, fontSize: 16),
               ),
             ),
           ),
@@ -205,10 +170,10 @@ class _AlarmPageState extends State<AlarmPage> {
         actions: [
           TextButton(
             onPressed: _saveAlarm,
-            child: const Text(
+            child: Text(
               'Save',
               style: TextStyle(
-                color: Colors.orange,
+                color: themeProvider.selectedColor,
                 fontSize: 16,
                 fontWeight: FontWeight.bold,
               ),
@@ -218,25 +183,125 @@ class _AlarmPageState extends State<AlarmPage> {
         backgroundColor: Colors.white,
         elevation: 0.5,
       ),
-      body: SingleChildScrollView(
+      body: isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : SingleChildScrollView(
         child: Column(
           children: [
-            GestureDetector(
-              onTap: _selectTime,
-              child: Container(
-                height: isSmallScreen ? 180.0 : 220.0,
-                color: Colors.grey[50],
-                padding: const EdgeInsets.symmetric(vertical: 16),
-                child: Center(
-                  child: Text(
-                    _selectedTime.format(context).padLeft(5, '0'),
-                    style: TextStyle(
-                      fontSize: timeTextSize + 10,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.black,
+            Container(
+              height: isSmallScreen ? 200.0 : 240.0,
+              color: Colors.grey[50],
+              padding: const EdgeInsets.symmetric(vertical: 16),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  // Hour picker
+                  SizedBox(
+                    width: isSmallScreen ? 80 : 100,
+                    child: ListWheelScrollView.useDelegate(
+                      itemExtent: 60,
+                      perspective: 0.005,
+                      diameterRatio: 1.2,
+                      physics: const FixedExtentScrollPhysics(),
+                      onSelectedItemChanged: (index) {
+                        setState(() {
+                          int hour = (index % 12) + 1; // Cycle 1 to 12
+                          _selectedTime = _selectedTime.replacing(
+                            hour: _period == 'AM'
+                                ? (hour == 12 ? 0 : hour)
+                                : (hour == 12 ? 12 : hour + 12),
+                          );
+                        });
+                      },
+                      childDelegate: ListWheelChildLoopingListDelegate(
+                        children: List.generate(12, (i) {
+                          final displayHour = (i % 12) + 1; // Generate 1 to 12
+                          return Center(
+                            child: Text(
+                              displayHour.toString().padLeft(2, '0'),
+                              style: TextStyle(
+                                fontSize: 32,
+                                fontWeight: FontWeight.bold,
+                                color: displayHour == (_selectedTime.hourOfPeriod == 0 ? 12 : _selectedTime.hourOfPeriod)
+                                    ? themeProvider.selectedColor
+                                    : Colors.black,
+                              ),
+                            ),
+                          );
+                        }),
+                      ),
                     ),
                   ),
-                ),
+
+                  // Minute picker
+                  SizedBox(
+                    width: isSmallScreen ? 80 : 100,
+                    child: ListWheelScrollView.useDelegate(
+                      itemExtent: 60,
+                      perspective: 0.005,
+                      diameterRatio: 1.2,
+                      physics: const FixedExtentScrollPhysics(),
+                      onSelectedItemChanged: (index) {
+                        setState(() {
+                          _selectedTime = _selectedTime.replacing(minute: index % 60);
+                        });
+                      },
+                      childDelegate: ListWheelChildLoopingListDelegate(
+                        children: List.generate(60, (minute) {
+                          return Center(
+                            child: Text(
+                              minute.toString().padLeft(2, '0'),
+                              style: TextStyle(
+                                fontSize: 32,
+                                fontWeight: FontWeight.bold,
+                                color: minute == _selectedTime.minute
+                                    ? themeProvider.selectedColor
+                                    : Colors.black,
+                              ),
+                            ),
+                          );
+                        }),
+                      ),
+                    ),
+                  ),
+
+                  // AM/PM picker
+                  SizedBox(
+                    width: isSmallScreen ? 80 : 100,
+                    child: ListWheelScrollView(
+                      itemExtent: 60,
+                      perspective: 0.005,
+                      diameterRatio: 1.2,
+                      physics: const FixedExtentScrollPhysics(),
+                      controller: FixedExtentScrollController(initialItem: _period == 'AM' ? 0 : 1),
+                      onSelectedItemChanged: (index) {
+                        setState(() {
+                          _period = index == 0 ? 'AM' : 'PM';
+                          int currentHour = _selectedTime.hour;
+                          if (_period == 'AM' && currentHour >= 12) {
+                            _selectedTime = _selectedTime.replacing(hour: currentHour - 12);
+                          } else if (_period == 'PM' && currentHour < 12) {
+                            _selectedTime = _selectedTime.replacing(hour: currentHour + 12);
+                          }
+                        });
+                      },
+                      children: ['AM', 'PM'].map((period) {
+                        return Center(
+                          child: Text(
+                            period,
+                            style: TextStyle(
+                              fontSize: 32,
+                              fontWeight: FontWeight.bold,
+                              color: period == _period
+                                  ? themeProvider.selectedColor
+                                  : Colors.black,
+                            ),
+                          ),
+                        );
+                      }).toList(),
+                    ),
+                  ),
+                ],
               ),
             ),
             Padding(
@@ -274,10 +339,6 @@ class _AlarmPageState extends State<AlarmPage> {
                         setState(() => _isSnoozeEnabled = value),
                   ),
                   _buildDivider(),
-                  ElevatedButton(
-                    onPressed: () => _playAlarmSound(_soundOption),
-                    child: const Text('Test Selected Sound'),
-                  ),
                 ],
               ),
             ),
@@ -316,7 +377,7 @@ class _AlarmPageState extends State<AlarmPage> {
       builder: (context) {
         return _buildOptionSelectionSheet(
           title: 'Sound',
-          options: const ['file1', 'file2', 'file3', 'Custom...'],
+          options: [..._soundOptions, 'Custom...'],
           selectedOption: _soundOption,
           onSelect: (value) {
             setState(() => _soundOption = value);
@@ -333,6 +394,7 @@ class _AlarmPageState extends State<AlarmPage> {
     required String selectedOption,
     required Function(String) onSelect,
   }) {
+    final themeProvider = Provider.of<ThemeProvider>(context);
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -344,28 +406,28 @@ class _AlarmPageState extends State<AlarmPage> {
           ),
         ),
         ...options.map((option) => ListTile(
-              title: Text(option),
-              trailing: option == selectedOption
-                  ? const Icon(Icons.check, color: Colors.orange)
-                  : null,
-              onTap: () => onSelect(option),
-            )),
+          title: Text(option),
+          trailing: option == selectedOption
+              ? Icon(Icons.check, color: themeProvider.selectedColor)
+              : null,
+          onTap: () => onSelect(option),
+        )),
         const SizedBox(height: 8),
       ],
     );
   }
 
   Widget _buildOptionTile(
-    BuildContext context, {
-    required String title,
-    String? value,
-    bool isTextField = false,
-    bool isSwitch = false,
-    bool? switchValue,
-    Function(String)? onChanged,
-    Function()? onTap,
-    Function(bool)? onSwitchChanged,
-  }) {
+      BuildContext context, {
+        required String title,
+        String? value,
+        bool isTextField = false,
+        bool isSwitch = false,
+        bool? switchValue,
+        Function(String)? onChanged,
+        Function()? onTap,
+        Function(bool)? onSwitchChanged,
+      }) {
     return ListTile(
       contentPadding: const EdgeInsets.symmetric(vertical: 8),
       title: Text(
@@ -374,36 +436,36 @@ class _AlarmPageState extends State<AlarmPage> {
       ),
       trailing: isSwitch
           ? Switch(
-              value: switchValue!,
-              onChanged: onSwitchChanged,
-              activeColor: Colors.lightGreen,
-            )
+        value: switchValue!,
+        onChanged: onSwitchChanged,
+        activeColor: Colors.lightGreen,
+      )
           : Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                if (isTextField)
-                  SizedBox(
-                    width: MediaQuery.of(context).size.width * 0.4,
-                    child: TextField(
-                      textAlign: TextAlign.end,
-                      decoration: InputDecoration(
-                        border: InputBorder.none,
-                        hintText: 'Alarm',
-                        hintStyle: TextStyle(color: Colors.grey[600]),
-                      ),
-                      onChanged: onChanged,
-                    ),
-                  )
-                else
-                  Text(
-                    value!,
-                    style: TextStyle(color: Colors.grey[600], fontSize: 16),
-                  ),
-                const SizedBox(width: 4),
-                if (!isSwitch && !isTextField)
-                  const Icon(Icons.chevron_right, color: Colors.grey, size: 20),
-              ],
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (isTextField)
+            SizedBox(
+              width: MediaQuery.of(context).size.width * 0.4,
+              child: TextField(
+                textAlign: TextAlign.end,
+                decoration: InputDecoration(
+                  border: InputBorder.none,
+                  hintText: 'Alarm',
+                  hintStyle: TextStyle(color: Colors.grey[600]),
+                ),
+                onChanged: onChanged,
+              ),
+            )
+          else
+            Text(
+              value!,
+              style: TextStyle(color: Colors.grey[600], fontSize: 16),
             ),
+          const SizedBox(width: 4),
+          if (!isSwitch && !isTextField)
+            const Icon(Icons.chevron_right, color: Colors.grey, size: 20),
+        ],
+      ),
       onTap: onTap,
     );
   }

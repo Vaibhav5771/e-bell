@@ -3,7 +3,8 @@ import 'package:e_bell/remainder/remainder_service.dart';
 import 'package:e_bell/remainder/shared_preferences_remainder.dart';
 import 'package:flutter/material.dart';
 import 'package:table_calendar/table_calendar.dart';
-
+import 'package:provider/provider.dart';
+import '../services/theme_state.dart';
 
 class AddReminderScreen extends StatefulWidget {
   const AddReminderScreen({super.key});
@@ -20,7 +21,7 @@ class _AddReminderScreenState extends State<AddReminderScreen> {
   bool _isImportant = false;
   final TextEditingController _titleController = TextEditingController();
   final TextEditingController _descriptionController = TextEditingController();
-  String _selectedSound = 'opening'; // Matches DropdownMenuItem value
+  String _selectedSound = 'opening';
 
   @override
   void initState() {
@@ -119,6 +120,7 @@ class _AddReminderScreenState extends State<AddReminderScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final themeProvider = Provider.of<ThemeProvider>(context);
     return Scaffold(
       backgroundColor: Colors.grey[50],
       appBar: AppBar(
@@ -126,10 +128,10 @@ class _AddReminderScreenState extends State<AddReminderScreen> {
           padding: const EdgeInsets.only(left: 5.0),
           child: GestureDetector(
             onTap: () => Navigator.pop(context),
-            child: const Center(
+            child: Center(
               child: Text(
                 'Cancel',
-                style: TextStyle(color: Colors.orange, fontSize: 16),
+                style: TextStyle(color: themeProvider.selectedColor, fontSize: 16),
               ),
             ),
           ),
@@ -141,9 +143,9 @@ class _AddReminderScreenState extends State<AddReminderScreen> {
         actions: [
           TextButton(
             onPressed: _saveReminder,
-            child: const Text(
+            child: Text(
               'Save',
-              style: TextStyle(color: Colors.orange, fontSize: 16),
+              style: TextStyle(color: themeProvider.selectedColor, fontSize: 16),
             ),
           ),
         ],
@@ -196,7 +198,7 @@ class _AddReminderScreenState extends State<AddReminderScreen> {
                 const Spacer(),
                 Checkbox(
                   value: _isImportant,
-                  activeColor: Colors.orange,
+                  activeColor: themeProvider.selectedColor,
                   onChanged: (value) {
                     setState(() {
                       _isImportant = value ?? false;
@@ -252,13 +254,13 @@ class _AddReminderScreenState extends State<AddReminderScreen> {
                   value: _selectedSound,
                   items: ['Beep', 'Chime', 'Opening', 'Radar']
                       .map((sound) => DropdownMenuItem(
-                            value: sound.toLowerCase(),
-                            child: Text(
-                              sound,
-                              style:
-                                  const TextStyle(fontWeight: FontWeight.w400),
-                            ),
-                          ))
+                    value: sound.toLowerCase(),
+                    child: Text(
+                      sound,
+                      style:
+                      const TextStyle(fontWeight: FontWeight.w400),
+                    ),
+                  ))
                       .toList(),
                   onChanged: (value) {
                     setState(() {
@@ -292,6 +294,7 @@ class _AddReminderScreenState extends State<AddReminderScreen> {
   }
 
   Widget _buildCalendarPicker() {
+    final themeProvider = Provider.of<ThemeProvider>(context);
     return SizedBox(
       height: 350,
       child: TableCalendar(
@@ -308,12 +311,12 @@ class _AddReminderScreenState extends State<AddReminderScreen> {
           titleTextStyle: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
         ),
         calendarStyle: CalendarStyle(
-          selectedDecoration: const BoxDecoration(
-            color: Colors.orange,
+          selectedDecoration: BoxDecoration(
+            color: themeProvider.selectedColor,
             shape: BoxShape.circle,
           ),
           todayDecoration: BoxDecoration(
-            color: Colors.orange.withOpacity(0.3),
+            color: themeProvider.selectedColor.withOpacity(0.3),
             shape: BoxShape.circle,
           ),
         ),
@@ -322,6 +325,7 @@ class _AddReminderScreenState extends State<AddReminderScreen> {
   }
 
   Widget _buildDateTimePicker(String label, DateTime dateTime, bool isFrom) {
+    final themeProvider = Provider.of<ThemeProvider>(context);
     return Row(
       children: [
         Expanded(
@@ -337,7 +341,7 @@ class _AddReminderScreenState extends State<AddReminderScreen> {
             ),
             child: Text(
               '${dateTime.day} ${_getMonthName(dateTime.month)}, ${dateTime.year}',
-              style: const TextStyle(color: Colors.orange, fontSize: 14),
+              style: TextStyle(color: themeProvider.selectedColor, fontSize: 14),
             ),
           ),
         ),
@@ -354,7 +358,7 @@ class _AddReminderScreenState extends State<AddReminderScreen> {
           ),
           child: Text(
             '${dateTime.hour}:${dateTime.minute.toString().padLeft(2, '0')} ${dateTime.hour >= 12 ? 'PM' : 'AM'}',
-            style: const TextStyle(color: Colors.orange, fontSize: 14),
+            style: TextStyle(color: themeProvider.selectedColor, fontSize: 14),
           ),
         ),
       ],

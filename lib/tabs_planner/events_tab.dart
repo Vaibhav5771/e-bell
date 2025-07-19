@@ -1,8 +1,13 @@
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 import 'package:table_calendar/table_calendar.dart';
 import 'package:e_bell/services/schedule_item.dart';
 import 'package:e_bell/alarm/alarm_model.dart';
 import 'package:e_bell/services/calender.dart';
+import 'package:provider/provider.dart';
+
+import '../services/theme_state.dart';
+
 
 class EventsTab extends StatefulWidget {
   final List<AlarmModel> todaysAlarms;
@@ -25,6 +30,7 @@ class EventsTab extends StatefulWidget {
 class _EventsTabState extends State<EventsTab> {
   @override
   Widget build(BuildContext context) {
+    final themeProvider = Provider.of<ThemeProvider>(context);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -46,9 +52,7 @@ class _EventsTabState extends State<EventsTab> {
             firstDay: widget.calendarLogic.firstDay,
             lastDay: widget.calendarLogic.lastDay,
             focusedDay: widget.calendarLogic.focusedDay,
-            selectedDayPredicate: (day) {
-              return isSameDay(day, widget.calendarLogic.selectedDay);
-            },
+            selectedDayPredicate: (day) => isSameDay(day, widget.calendarLogic.selectedDay),
             onDaySelected: widget.onDaySelected,
             calendarFormat: CalendarFormat.month,
             headerStyle: const HeaderStyle(
@@ -57,27 +61,37 @@ class _EventsTabState extends State<EventsTab> {
                 fontSize: 18,
                 fontWeight: FontWeight.bold,
               ),
+              titleCentered: false,
               leftChevronVisible: true,
               rightChevronVisible: true,
             ),
-            daysOfWeekStyle: const DaysOfWeekStyle(
-              weekdayStyle: TextStyle(color: Colors.black54),
-              weekendStyle: TextStyle(color: Colors.black54),
+            daysOfWeekStyle: DaysOfWeekStyle(
+              weekdayStyle: const TextStyle(color: Colors.black54),
+              weekendStyle: const TextStyle(color: Colors.black54),
+              dowTextFormatter: (date, locale) => DateFormat.E(locale).format(date).toUpperCase(),
             ),
             calendarStyle: CalendarStyle(
-              todayDecoration: const BoxDecoration(
-                color: Colors.transparent,
-              ),
-              todayTextStyle: const TextStyle(
-                fontWeight: FontWeight.bold,
-                color: Colors.black54,
-              ),
-              selectedDecoration: BoxDecoration(
-                color: Colors.orange[300],
+              todayDecoration: BoxDecoration(
+                color: themeProvider.selectedColor,
                 shape: BoxShape.circle,
               ),
-              defaultTextStyle: const TextStyle(color: Colors.black54),
-              weekendTextStyle: const TextStyle(color: Colors.black54),
+              todayTextStyle: TextStyle(
+                fontWeight: FontWeight.bold,
+                color: themeProvider.selectedColor,
+                fontSize: 16,
+              ),
+              selectedDecoration: BoxDecoration(
+                color: themeProvider.selectedColor,
+                shape: BoxShape.circle,
+              ),
+              defaultTextStyle: const TextStyle(
+                color: Colors.black,
+                fontSize: 16,
+              ),
+              weekendTextStyle: const TextStyle(
+                color: Colors.black,
+                fontSize: 16,
+              ),
             ),
           ),
         ),
@@ -86,12 +100,11 @@ class _EventsTabState extends State<EventsTab> {
         const Text(
           "Today's Schedule",
           style: TextStyle(
-            fontSize: 18,
+            fontSize: 20,
             fontWeight: FontWeight.bold,
           ),
         ),
         const SizedBox(height: 12),
-
         // Scrollable Schedule Items
         Expanded(
           child: SingleChildScrollView(
@@ -100,33 +113,33 @@ class _EventsTabState extends State<EventsTab> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: widget.todaysAlarms.isEmpty
                   ? [
-                      const Text(
-                        'No alarms scheduled for today',
-                        style: TextStyle(
-                          fontSize: 16,
-                          color: Colors.grey,
-                        ),
-                      ),
-                    ]
+                const Text(
+                  'No alarms scheduled for today',
+                  style: TextStyle(
+                    fontSize: 16,
+                    color: Colors.grey,
+                  ),
+                ),
+              ]
                   : widget.todaysAlarms.map((alarm) {
-                      final alarmDateTime = DateTime(
-                        DateTime.now().year,
-                        DateTime.now().month,
-                        DateTime.now().day,
-                        alarm.time.hour,
-                        alarm.time.minute,
-                      );
-                      final isChecked = alarmDateTime.isBefore(DateTime.now());
-                      final timeString = alarm.time.format(context);
-                      return Padding(
-                        padding: const EdgeInsets.only(bottom: 8),
-                        child: ScheduleItem(
-                          time: timeString,
-                          title: alarm.label,
-                          isChecked: isChecked,
-                        ),
-                      );
-                    }).toList(),
+                final alarmDateTime = DateTime(
+                  DateTime.now().year,
+                  DateTime.now().month,
+                  DateTime.now().day,
+                  alarm.time.hour,
+                  alarm.time.minute,
+                );
+                final isChecked = alarmDateTime.isBefore(DateTime.now());
+                final timeString = alarm.time.format(context);
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: ScheduleItem(
+                    time: timeString,
+                    title: alarm.label,
+                    isChecked: isChecked,
+                  ),
+                );
+              }).toList(),
             ),
           ),
         ),

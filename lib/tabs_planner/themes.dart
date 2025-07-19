@@ -1,9 +1,9 @@
 import 'package:e_bell/pages/home_page.dart';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
+import '../services/theme_state.dart';
 
-// Global variable to store the selected theme color (you can replace this with SharedPreferences or state management later)
-Color? selectedThemeColor;
 
 class ThemePage extends StatefulWidget {
   const ThemePage({super.key});
@@ -13,7 +13,6 @@ class ThemePage extends StatefulWidget {
 }
 
 class _ThemePageState extends State<ThemePage> {
-  // List of available theme colors (matching the image)
   final List<Color> themeColors = [
     Colors.orange,
     Colors.lightBlue,
@@ -25,7 +24,6 @@ class _ThemePageState extends State<ThemePage> {
     Colors.teal,
   ];
 
-  // Navigate to HomePage
   void _navigateToHomePage() {
     Navigator.pushReplacement(
       context,
@@ -35,11 +33,11 @@ class _ThemePageState extends State<ThemePage> {
 
   @override
   Widget build(BuildContext context) {
+    final themeProvider = Provider.of<ThemeProvider>(context);
     return Scaffold(
       body: SafeArea(
         child: Column(
           children: [
-            // Top row with "Skip" button
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
               child: Row(
@@ -56,13 +54,11 @@ class _ThemePageState extends State<ThemePage> {
               ),
             ),
             const Spacer(),
-            // "Select theme" title
             const Text(
               'Select theme',
               style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 40),
-            // Grid of colored circles
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 40.0),
               child: GridView.builder(
@@ -76,13 +72,11 @@ class _ThemePageState extends State<ThemePage> {
                 itemCount: themeColors.length,
                 itemBuilder: (context, index) {
                   final color = themeColors[index];
-                  final isSelected = selectedThemeColor == color;
+                  final isSelected = themeProvider.selectedColor == color;
 
                   return GestureDetector(
                     onTap: () {
-                      setState(() {
-                        selectedThemeColor = color;
-                      });
+                      themeProvider.setColor(color);
                     },
                     child: Container(
                       decoration: BoxDecoration(
@@ -98,13 +92,12 @@ class _ThemePageState extends State<ThemePage> {
               ),
             ),
             const Spacer(),
-            // "Get Started" button
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 30.0),
               child: ElevatedButton(
                 onPressed: _navigateToHomePage,
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.orange,
+                  backgroundColor: themeProvider.selectedColor,
                   minimumSize: const Size(double.infinity, 50),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(10),

@@ -22,12 +22,11 @@ class BellService {
         return false;
       }
 
-      // Convert mp3File to uppercase to match HTML logs (e.g., FILE1.MP3)
       final upperMp3File = mp3File.toUpperCase();
       final encodedMp3File = Uri.encodeComponent(upperMp3File);
-      final uri = 'http://192.168.2.1/settime/$encodedMp3File';
+      final encodedTimeFormat = Uri.encodeComponent(timeFormat); // Encode if needed
+      final uri = 'http://192.168.2.1/settime/$encodedMp3File/$encodedTimeFormat';
       final headers = {
-        'Content-Type': 'application/x-www-form-urlencoded',
         'Referer': 'http://192.168.2.1/',
         'Origin': 'http://192.168.2.1',
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
@@ -35,14 +34,12 @@ class BellService {
         'Connection': 'keep-alive',
       };
 
-      debugPrint("Sending time: $timeFormat (24-hour HH:mm) for $upperMp3File to $uri");
+      debugPrint("Sending time: $timeFormat (oooooHHoooMM) for $upperMp3File to $uri");
       debugPrint("Request headers: $headers");
-      debugPrint("Request body: time=$timeFormat");
 
       final response = await http.post(
         Uri.parse(uri),
         headers: headers,
-        body: 'time=$timeFormat',
       ).timeout(const Duration(seconds: 10), onTimeout: () {
         throw TimeoutException('POST request timed out');
       });
@@ -147,17 +144,16 @@ class BellService {
   }
 
   /// Uploads an MP3 file to the bell device.
-  Future<void> uploadMp3(BuildContext context, bool isWifiConnected) async {
+  Future<String?> uploadMp3(BuildContext context, bool isWifiConnected) async {
     if (!isWifiConnected) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
             content: Text("Please connect to IoGen_Speaker Wi-Fi first")),
       );
-      return;
+      return null;
     }
 
     try {
-      // Pick an MP3 file
       FilePickerResult? result = await FilePicker.platform.pickFiles(
         type: FileType.custom,
         allowedExtensions: ['mp3'],
@@ -168,7 +164,7 @@ class BellService {
           const SnackBar(content: Text("No file selected")),
         );
         debugPrint("No file selected");
-        return;
+        return null;
       }
 
       final filePath = result.files.single.path;
@@ -178,7 +174,7 @@ class BellService {
           const SnackBar(content: Text("Invalid MP3 file selected")),
         );
         debugPrint("Invalid file: $fileName");
-        return;
+        return null;
       }
 
       final file = File(filePath);
@@ -187,36 +183,33 @@ class BellService {
           const SnackBar(content: Text("Selected file does not exist")),
         );
         debugPrint("File does not exist: $filePath");
-        return;
+        return null;
       }
 
       final fileSize = await file.length();
       if (fileSize > 10 * 1024 * 1024) {
-        // Check if file is larger than 10MB
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text("File is too large (>10MB)")),
         );
         debugPrint("File too large: $fileSize bytes");
-        return;
+        return null;
       }
 
       if (!await pingServer()) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text("Server is not reachable")),
         );
-        return;
+        return null;
       }
 
       final encodedFileName = Uri.encodeComponent(fileName);
       final uri = 'http://192.168.2.1/upload/$encodedFileName';
       debugPrint("Uploading file: $fileName, size: $fileSize bytes to $uri");
 
-      // Create multipart request
       var request = http.MultipartRequest('POST', Uri.parse(uri))
         ..headers['Connection'] = 'keep-alive'
         ..files.add(await http.MultipartFile.fromPath('file', filePath));
 
-      // Send request with retries
       int retries = 3;
       for (int i = 0; i < retries; i++) {
         try {
@@ -232,7 +225,7 @@ class BellService {
               SnackBar(content: Text("File $fileName uploaded successfully")),
             );
             debugPrint("Upload successful: $fileName");
-            return;
+            return fileName; // Return the file name on success
           } else {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
@@ -254,11 +247,13 @@ class BellService {
           }
         }
       }
+      return null;
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text("Error uploading file: $e")),
       );
       debugPrint("Upload error: $e");
+      return null;
     }
   }
 }
