@@ -1,126 +1,176 @@
+import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
+import 'dart:convert';
+import 'package:provider/provider.dart';
+import 'package:table_calendar/table_calendar.dart';
 import 'package:e_bell/remainder/remainder_model.dart';
 import 'package:e_bell/remainder/remainder_service.dart';
 import 'package:e_bell/remainder/shared_preferences_remainder.dart';
-import 'package:flutter/material.dart';
-import 'package:table_calendar/table_calendar.dart';
-import 'package:provider/provider.dart';
 import '../services/theme_state.dart';
 
-class AddReminderScreen extends StatefulWidget {
-  const AddReminderScreen({super.key});
+class ReminderPage extends StatefulWidget {
+  const ReminderPage({super.key});
 
   @override
-  _AddReminderScreenState createState() => _AddReminderScreenState();
+  State<ReminderPage> createState() => _ReminderPageState();
 }
 
-class _AddReminderScreenState extends State<AddReminderScreen> {
+class _ReminderPageState extends State<ReminderPage> {
   DateTime _focusedDay = DateTime.now();
   DateTime? _selectedDay;
-  DateTime _fromDateTime = DateTime.now();
-  DateTime _toDateTime = DateTime.now();
+  TimeOfDay _selectedTime = TimeOfDay.now();
+  String _period = TimeOfDay.now().hour < 12 ? 'AM' : 'PM';
+  String _title = '';
+  String _description = '';
   bool _isImportant = false;
-  final TextEditingController _titleController = TextEditingController();
-  final TextEditingController _descriptionController = TextEditingController();
-  String _selectedSound = 'opening';
+  String _soundOption = '';
+  List<String> _soundOptions = [];
+  bool isLoading = false;
 
   @override
   void initState() {
     super.initState();
     _selectedDay = _focusedDay;
+    _loadUploadedFiles();
   }
 
-  @override
-  void dispose() {
-    _titleController.dispose();
-    _descriptionController.dispose();
-    super.dispose();
+  Future<void> _loadUploadedFiles() async {
+    try {
+      final response = await http.get(Uri.parse('http://192.168.2.1/')).timeout(
+        const Duration(seconds: 10),
+        onTimeout: () {
+          throw Exception('Request to IoT device timed out');
+        },
+      );
+
+      if (response.statusCode == 200) {
+        final jsonData = jsonDecode(response.body);
+        final alarmData = jsonData['alarmData'] as List<dynamic>?;
+        if (alarmData != null && alarmData.isNotEmpty) {
+          final filenames = (alarmData[0]['Filenames'] as List<dynamic>?)?.map((file) {
+            return (file as List<dynamic>)[0] as String;
+          }).toList() ?? [];
+          setState(() {
+            _soundOptions = filenames;
+            _soundOption = _soundOptions.isNotEmpty ? _soundOptions[0] : '';
+          });
+        } else {
+          setState(() {
+            _soundOptions = [];
+            _soundOption = '';
+          });
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('No sound files found on device.')),
+          );
+        }
+      } else {
+        setState(() {
+          _soundOptions = [];
+          _soundOption = '';
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to fetch sounds from device: ${response.statusCode}'),
+          ),
+        );
+      }
+    } catch (e) {
+      setState(() {
+        _soundOptions = [];
+        _soundOption = '';
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error fetching sounds: Ensure you are connected to the speaker\'s Wi-Fi. Error: $e'),
+        ),
+      );
+    }
   }
 
   void _onDaySelected(DateTime selectedDay, DateTime focusedDay) {
     setState(() {
       _selectedDay = selectedDay;
       _focusedDay = focusedDay;
-      _fromDateTime = DateTime(
-        selectedDay.year,
-        selectedDay.month,
-        selectedDay.day,
-        _fromDateTime.hour,
-        _fromDateTime.minute,
-      );
-      _toDateTime = DateTime(
-        selectedDay.year,
-        selectedDay.month,
-        selectedDay.day,
-        _toDateTime.hour,
-        _toDateTime.minute,
-      );
     });
   }
 
-  Future<void> _selectTime(BuildContext context, bool isFrom) async {
-    final TimeOfDay? picked = await showTimePicker(
-      context: context,
-      initialTime: TimeOfDay.fromDateTime(isFrom ? _fromDateTime : _toDateTime),
-    );
-    if (picked != null) {
-      setState(() {
-        if (isFrom) {
-          _fromDateTime = DateTime(
-            _fromDateTime.year,
-            _fromDateTime.month,
-            _fromDateTime.day,
-            picked.hour,
-            picked.minute,
-          );
-        } else {
-          _toDateTime = DateTime(
-            _toDateTime.year,
-            _toDateTime.month,
-            _toDateTime.day,
-            picked.hour,
-            picked.minute,
-          );
-        }
-      });
-    }
-  }
-
   Future<void> _saveReminder() async {
-    final title = _titleController.text.trim();
-    final description = _descriptionController.text.trim();
-    if (title.isEmpty) {
+    if (_title.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Title is required')),
       );
       return;
     }
 
-    final id = await ReminderModel.generateUniqueId();
+    if (_selectedDay == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please select a date')),
+      );
+      return;
+    }
+
+    if (_soundOptions.isEmpty || _soundOption.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No sound files available. Please check the device connection.')),
+      );
+      return;
+    }
+
+    final reminderDateTime = DateTime(
+      _selectedDay!.year,
+      _selectedDay!.month,
+      _selectedDay!.day,
+      _selectedTime.hour,
+      _selectedTime.minute,
+    );
+
     final reminder = ReminderModel(
-      id: id,
-      title: title,
-      description: description,
-      startDateTime: _fromDateTime,
-      endDateTime: _toDateTime,
+      id: await ReminderModel.generateUniqueId(),
+      title: _title,
+      description: _description,
+      startDateTime: reminderDateTime,
+      endDateTime: reminderDateTime, // Same as start for non-recurring
       isImportant: _isImportant,
-      sound: _selectedSound,
+      sound: _soundOption,
       isActive: true,
     );
 
     await ReminderSharedPreferencesService.saveReminder(reminder);
-    final scheduled = await ReminderService.scheduleReminder(reminder);
+
+    setState(() => isLoading = true);
+
+    final scheduled = await ReminderService.scheduleReminder(reminder, _soundOptions);
     if (scheduled) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Reminder set for ${reminder.startDateTime} with ${_soundOption}'),
+        ),
+      );
       Navigator.pop(context);
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Failed to schedule reminder')),
+        const SnackBar(content: Text('Failed to set reminder on device')),
       );
     }
+
+    setState(() => isLoading = false);
+  }
+
+  Widget _buildDivider() {
+    return Divider(
+      height: 1,
+      thickness: 1,
+      indent: 16,
+      endIndent: 16,
+      color: Colors.grey[200],
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     final themeProvider = Provider.of<ThemeProvider>(context);
+    final isSmallScreen = MediaQuery.of(context).size.width < 360;
+
     return Scaffold(
       backgroundColor: Colors.grey[50],
       appBar: AppBar(
@@ -142,23 +192,30 @@ class _AddReminderScreenState extends State<AddReminderScreen> {
         ),
         actions: [
           TextButton(
-            onPressed: _saveReminder,
+            onPressed: _soundOptions.isEmpty ? null : _saveReminder,
             child: Text(
               'Save',
-              style: TextStyle(color: themeProvider.selectedColor, fontSize: 16),
+              style: TextStyle(
+                color: _soundOptions.isEmpty ? Colors.grey : themeProvider.selectedColor,
+                fontSize: 16,
+              ),
             ),
           ),
         ],
         centerTitle: true,
+        backgroundColor: Colors.white,
+        elevation: 0.5,
       ),
-      body: SingleChildScrollView(
+      body: isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : SingleChildScrollView(
         physics: const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.all(16.0),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             TextField(
-              controller: _titleController,
+              onChanged: (value) => setState(() => _title = value),
               decoration: const InputDecoration(
                 labelText: 'Title',
                 labelStyle: TextStyle(fontSize: 20),
@@ -167,9 +224,9 @@ class _AddReminderScreenState extends State<AddReminderScreen> {
                 focusedBorder: InputBorder.none,
               ),
             ),
-            Divider(color: Colors.grey[300], thickness: 0.5, height: 0),
+            _buildDivider(),
             TextField(
-              controller: _descriptionController,
+              onChanged: (value) => setState(() => _description = value),
               decoration: const InputDecoration(
                 labelText: 'Description',
                 labelStyle: TextStyle(fontSize: 16),
@@ -179,114 +236,44 @@ class _AddReminderScreenState extends State<AddReminderScreen> {
               ),
               maxLines: 1,
             ),
-            Divider(color: Colors.grey[300], thickness: 0.5, height: 0),
+            _buildDivider(),
             const SizedBox(height: 16),
             const Center(
               child: Text(
-                'Select Date & Time',
+                'Select Date',
                 style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
               ),
             ),
             const SizedBox(height: 8),
             _buildCalendarPicker(),
             const SizedBox(height: 16),
-            Divider(color: Colors.grey[300], thickness: 0.5, height: 0),
-            const SizedBox(height: 16),
-            Row(
-              children: [
-                const Text('Important'),
-                const Spacer(),
-                Checkbox(
-                  value: _isImportant,
-                  activeColor: themeProvider.selectedColor,
-                  onChanged: (value) {
-                    setState(() {
-                      _isImportant = value ?? false;
-                    });
-                  },
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            Divider(color: Colors.grey[300], thickness: 0.5, height: 0),
-            const SizedBox(height: 16),
-            const Text(
-              'Schedule',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            const Center(
+              child: Text(
+                'Select Time',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+              ),
             ),
             const SizedBox(height: 8),
-            Row(
-              children: [
-                const SizedBox(
-                  width: 40,
-                  child: Text('From', style: TextStyle(fontSize: 16)),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: _buildDateTimePicker('From', _fromDateTime, true),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                const SizedBox(
-                  width: 40,
-                  child: Text('To', style: TextStyle(fontSize: 16)),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: _buildDateTimePicker('To', _toDateTime, false),
-                ),
-              ],
-            ),
+            _buildTimePicker(),
             const SizedBox(height: 16),
-            Divider(color: Colors.grey[300], thickness: 0.5, height: 0),
+            _buildDivider(),
             const SizedBox(height: 16),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                const Text(
-                  'Sound',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w400),
-                ),
-                DropdownButton<String>(
-                  value: _selectedSound,
-                  items: ['Beep', 'Chime', 'Opening', 'Radar']
-                      .map((sound) => DropdownMenuItem(
-                    value: sound.toLowerCase(),
-                    child: Text(
-                      sound,
-                      style:
-                      const TextStyle(fontWeight: FontWeight.w400),
-                    ),
-                  ))
-                      .toList(),
-                  onChanged: (value) {
-                    setState(() {
-                      _selectedSound = value!;
-                    });
-                  },
-                  underline: const SizedBox(),
-                  icon: const Icon(Icons.chevron_right, color: Colors.grey),
-                  isDense: true,
-                  alignment: Alignment.centerRight,
-                  style: const TextStyle(
-                      fontWeight: FontWeight.w400, color: Colors.black),
-                  selectedItemBuilder: (BuildContext context) {
-                    return ['Beep', 'Chime', 'Opening', 'Radar'].map((sound) {
-                      return Align(
-                        alignment: Alignment.centerLeft,
-                        child: Text(
-                          sound,
-                          style: const TextStyle(fontWeight: FontWeight.w400),
-                        ),
-                      );
-                    }).toList();
-                  },
-                ),
-              ],
+            _buildOptionTile(
+              context,
+              title: 'Sound',
+              value: _soundOption.isEmpty ? 'Select a sound' : _soundOption,
+              onTap: _soundOptions.isEmpty ? null : _selectSoundOption,
             ),
+            _buildDivider(),
+            const SizedBox(height: 16),
+            _buildOptionTile(
+              context,
+              title: 'Important',
+              isSwitch: true,
+              switchValue: _isImportant,
+              onSwitchChanged: (value) => setState(() => _isImportant = value),
+            ),
+            _buildDivider(),
           ],
         ),
       ),
@@ -324,62 +311,222 @@ class _AddReminderScreenState extends State<AddReminderScreen> {
     );
   }
 
-  Widget _buildDateTimePicker(String label, DateTime dateTime, bool isFrom) {
+  Widget _buildTimePicker() {
     final themeProvider = Provider.of<ThemeProvider>(context);
-    return Row(
-      children: [
-        Expanded(
-          child: ElevatedButton(
-            onPressed: () {},
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.grey[100],
-              foregroundColor: Colors.black,
-              elevation: 0,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(10),
+    final isSmallScreen = MediaQuery.of(context).size.width < 360;
+
+    return Container(
+      height: isSmallScreen ? 200.0 : 240.0,
+      color: Colors.grey[50],
+      padding: const EdgeInsets.symmetric(vertical: 16),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          SizedBox(
+            width: isSmallScreen ? 80 : 100,
+            child: ListWheelScrollView.useDelegate(
+              itemExtent: 60,
+              perspective: 0.005,
+              diameterRatio: 1.2,
+              physics: const FixedExtentScrollPhysics(),
+              onSelectedItemChanged: (index) {
+                setState(() {
+                  int hour = (index % 12) + 1;
+                  _selectedTime = _selectedTime.replacing(
+                    hour: _period == 'AM'
+                        ? (hour == 12 ? 0 : hour)
+                        : (hour == 12 ? 12 : hour + 12),
+                  );
+                });
+              },
+              childDelegate: ListWheelChildLoopingListDelegate(
+                children: List.generate(12, (i) {
+                  final displayHour = (i % 12) + 1;
+                  return Center(
+                    child: Text(
+                      displayHour.toString().padLeft(2, '0'),
+                      style: TextStyle(
+                        fontSize: 32,
+                        fontWeight: FontWeight.bold,
+                        color: displayHour ==
+                            (_selectedTime.hourOfPeriod == 0 ? 12 : _selectedTime.hourOfPeriod)
+                            ? themeProvider.selectedColor
+                            : Colors.black,
+                      ),
+                    ),
+                  );
+                }),
               ),
             ),
-            child: Text(
-              '${dateTime.day} ${_getMonthName(dateTime.month)}, ${dateTime.year}',
-              style: TextStyle(color: themeProvider.selectedColor, fontSize: 14),
+          ),
+          SizedBox(
+            width: isSmallScreen ? 80 : 100,
+            child: ListWheelScrollView.useDelegate(
+              itemExtent: 60,
+              perspective: 0.005,
+              diameterRatio: 1.2,
+              physics: const FixedExtentScrollPhysics(),
+              onSelectedItemChanged: (index) {
+                setState(() {
+                  _selectedTime = _selectedTime.replacing(minute: index % 60);
+                });
+              },
+              childDelegate: ListWheelChildLoopingListDelegate(
+                children: List.generate(60, (minute) {
+                  return Center(
+                    child: Text(
+                      minute.toString().padLeft(2, '0'),
+                      style: TextStyle(
+                        fontSize: 32,
+                        fontWeight: FontWeight.bold,
+                        color: minute == _selectedTime.minute
+                            ? themeProvider.selectedColor
+                            : Colors.black,
+                      ),
+                    ),
+                  );
+                }),
+              ),
             ),
           ),
-        ),
-        const SizedBox(width: 8),
-        ElevatedButton(
-          onPressed: () => _selectTime(context, isFrom),
-          style: ElevatedButton.styleFrom(
-            backgroundColor: Colors.grey[100],
-            foregroundColor: Colors.black,
-            elevation: 0,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(10),
+          SizedBox(
+            width: isSmallScreen ? 80 : 100,
+            child: ListWheelScrollView(
+              itemExtent: 60,
+              perspective: 0.005,
+              diameterRatio: 1.2,
+              physics: const FixedExtentScrollPhysics(),
+              controller: FixedExtentScrollController(initialItem: _period == 'AM' ? 0 : 1),
+              onSelectedItemChanged: (index) {
+                setState(() {
+                  _period = index == 0 ? 'AM' : 'PM';
+                  int currentHour = _selectedTime.hour;
+                  if (_period == 'AM' && currentHour >= 12) {
+                    _selectedTime = _selectedTime.replacing(hour: currentHour - 12);
+                  } else if (_period == 'PM' && currentHour < 12) {
+                    _selectedTime = _selectedTime.replacing(hour: currentHour + 12);
+                  }
+                });
+              },
+              children: ['AM', 'PM'].map((period) {
+                return Center(
+                  child: Text(
+                    period,
+                    style: TextStyle(
+                      fontSize: 32,
+                      fontWeight: FontWeight.bold,
+                      color: period == _period ? themeProvider.selectedColor : Colors.black,
+                    ),
+                  ),
+                );
+              }).toList(),
             ),
           ),
-          child: Text(
-            '${dateTime.hour}:${dateTime.minute.toString().padLeft(2, '0')} ${dateTime.hour >= 12 ? 'PM' : 'AM'}',
-            style: TextStyle(color: themeProvider.selectedColor, fontSize: 14),
-          ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 
-  String _getMonthName(int month) {
-    const months = [
-      'Jan',
-      'Feb',
-      'Mar',
-      'Apr',
-      'May',
-      'Jun',
-      'Jul',
-      'Aug',
-      'Sep',
-      'Oct',
-      'Nov',
-      'Dec'
-    ];
-    return months[month - 1];
+  void _selectSoundOption() {
+    if (_soundOptions.isEmpty) return;
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      builder: (context) {
+        return _buildOptionSelectionSheet(
+          title: 'Sound',
+          options: _soundOptions,
+          selectedOption: _soundOption,
+          onSelect: (value) {
+            setState(() => _soundOption = value);
+            Navigator.pop(context);
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildOptionSelectionSheet({
+    required String title,
+    required List<String> options,
+    required String selectedOption,
+    required Function(String) onSelect,
+  }) {
+    final themeProvider = Provider.of<ThemeProvider>(context);
+    final maxHeight = MediaQuery.of(context).size.height * 0.6;
+
+    return ConstrainedBox(
+      constraints: BoxConstraints(
+        maxHeight: maxHeight,
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: Text(
+              title,
+              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+          ),
+          Expanded(
+            child: ListView.builder(
+              shrinkWrap: true,
+              itemCount: options.length,
+              itemBuilder: (context, index) {
+                final option = options[index];
+                return ListTile(
+                  title: Text(
+                    option,
+                    style: const TextStyle(fontSize: 16),
+                  ),
+                  trailing: option == selectedOption
+                      ? Icon(Icons.check, color: themeProvider.selectedColor)
+                      : null,
+                  onTap: () => onSelect(option),
+                );
+              },
+            ),
+          ),
+          const SizedBox(height: 8),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildOptionTile(
+      BuildContext context, {
+        required String title,
+        String? value,
+        bool isSwitch = false,
+        bool? switchValue,
+        Function()? onTap,
+        Function(bool)? onSwitchChanged,
+      }) {
+    return ListTile(
+      contentPadding: const EdgeInsets.symmetric(vertical: 8),
+      title: Text(
+        title,
+        style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+      ),
+      trailing: isSwitch
+          ? Switch(
+        value: switchValue!,
+        onChanged: onSwitchChanged,
+        activeColor: Colors.lightGreen,
+      )
+          : Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            value!,
+            style: TextStyle(color: Colors.grey[600], fontSize: 16),
+          ),
+          const SizedBox(width: 4),
+          const Icon(Icons.chevron_right, color: Colors.grey, size: 20),
+        ],
+      ),
+      onTap: onTap,
+    );
   }
 }

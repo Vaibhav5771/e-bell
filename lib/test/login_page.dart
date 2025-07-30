@@ -1,36 +1,52 @@
 import 'package:flutter/material.dart';
-import '../services/login_service.dart';
-import 'device_page.dart';
+import 'package:e_bell/test/auth_service.dart';
 
+class LoginScreen extends StatefulWidget {
+  final VoidCallback onTap;
 
-class LoginPage extends StatefulWidget {
-  const LoginPage({super.key});
+  const LoginScreen({super.key, required this.onTap});
 
   @override
-  State<LoginPage> createState() => _LoginPageState();
+  State<LoginScreen> createState() => _LoginScreenState();
 }
 
-class _LoginPageState extends State<LoginPage> {
-  final TextEditingController _userIdController = TextEditingController();
-  final TextEditingController _passwordController = TextEditingController();
+class _LoginScreenState extends State<LoginScreen> {
+  final _emailController = TextEditingController();
+  final _passwordController = TextEditingController();
+  final _authService = AuthService();
+  bool _isLoading = false;
   bool _isPasswordVisible = false;
-  final LoginService _loginService = LoginService();
 
-  void _login() {
-    bool isValid = _loginService.validateCredentials(
-      _userIdController.text,
-      _passwordController.text,
-    );
+  @override
+  void dispose() {
+    _emailController.dispose();
+    _passwordController.dispose();
+    super.dispose();
+  }
 
-    if (isValid) {
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(builder: (context) => const DevicePage()),
+  Future<void> _login() async {
+    setState(() {
+      _isLoading = true;
+    });
+
+    try {
+      await _authService.signInWithEmailAndPassword(
+        _emailController.text.trim(),
+        _passwordController.text.trim(),
       );
-    } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Invalid User ID or Password')),
-      );
+      // AuthGate will handle navigation via authStateChanges
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Login failed: ${e.toString()}')),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
     }
   }
 
@@ -42,7 +58,7 @@ class _LoginPageState extends State<LoginPage> {
           child: Column(
             children: [
               const SizedBox(height: 150),
-              // ✅ Replace text with illustration image
+              // Illustration image
               SizedBox(
                 height: 250,
                 child: Image.asset(
@@ -56,13 +72,14 @@ class _LoginPageState extends State<LoginPage> {
                   children: [
                     const SizedBox(height: 50),
                     TextField(
-                      controller: _userIdController,
+                      controller: _emailController,
                       decoration: InputDecoration(
-                        labelText: 'User ID',
+                        labelText: 'Email',
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(10),
                         ),
                       ),
+                      keyboardType: TextInputType.emailAddress,
                     ),
                     const SizedBox(height: 20),
                     TextField(
@@ -88,7 +105,9 @@ class _LoginPageState extends State<LoginPage> {
                       ),
                     ),
                     const SizedBox(height: 30),
-                    ElevatedButton(
+                    _isLoading
+                        ? const CircularProgressIndicator()
+                        : ElevatedButton(
                       onPressed: _login,
                       style: ElevatedButton.styleFrom(
                         backgroundColor: Colors.orange,
@@ -99,22 +118,29 @@ class _LoginPageState extends State<LoginPage> {
                       ),
                       child: const Text(
                         'Login',
-                        style: TextStyle(fontSize: 18, color: Colors.white),
+                        style: TextStyle(
+                            fontSize: 18, color: Colors.white),
                       ),
                     ),
-                    const SizedBox(height: 150),
-
-                    // ✅ Replace text with IOGenies logo image
+                    const SizedBox(height: 16),
+                    TextButton(
+                      onPressed: widget.onTap,
+                      child: const Text(
+                        'New to E-Bell? Sign Up',
+                        style: TextStyle(color: Colors.black), // Add this line to make text black
+                      ),
+                    ),
+                    const SizedBox(height: 50),
+                    // IOGenies logo image
                     Row(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
                         Image.asset(
                           'assets/iogicon.png',
-                          height: 60, // Adjust size as needed
+                          height: 60,
                         ),
                       ],
                     ),
-
                     const SizedBox(height: 20),
                   ],
                 ),

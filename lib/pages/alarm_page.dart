@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:http/http.dart' as http;
+import 'dart:convert';
 import '../alarm/alarm_model.dart';
 import '../alarm/permission_handler.dart';
 import '../alarm/shared_preferences.dart';
-import '../alarm/alarm_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:provider/provider.dart';
 import '../services/theme_state.dart';
@@ -19,12 +19,12 @@ class AlarmPage extends StatefulWidget {
 class _AlarmPageState extends State<AlarmPage> {
   TimeOfDay _selectedTime = TimeOfDay.now();
   bool _isSnoozeEnabled = true;
+  bool _isRepeatEnabled = false; // New state for repeat toggle
   String _alarmLabel = '';
-  String _repeatOption = 'Never';
-  String _soundOption = 'file1';
-  String _period = TimeOfDay.now().hour < 12 ? 'AM' : 'PM'; // Initialize AM/PM
+  String _soundOption = 'namaz/fajr.mp3';
+  String _period = TimeOfDay.now().hour < 12 ? 'AM' : 'PM';
   final AudioPlayer _audioPlayer = AudioPlayer();
-  List<String> _soundOptions = ['file1', 'file2', 'file3'];
+  List<String> _soundOptions = ['namaz/fajr.mp3', 'namaz/sunrise.mp3', 'namaz/dhuhr.mp3'];
 
   @override
   void initState() {
@@ -33,14 +33,60 @@ class _AlarmPageState extends State<AlarmPage> {
   }
 
   Future<void> _loadUploadedFiles() async {
-    final prefs = await SharedPreferences.getInstance();
-    final uploadedFiles = prefs.getStringList('uploaded_files') ?? [];
-    setState(() {
-      _soundOptions = ['file1', 'file2', 'file3', ...uploadedFiles];
-      if (!_soundOptions.contains(_soundOption)) {
-        _soundOption = _soundOptions.isNotEmpty ? _soundOptions[0] : 'file1';
+    List<String> defaultSounds = ['namaz/fajr.mp3', 'namaz/sunrise.mp3', 'namaz/dhuhr.mp3'];
+
+    try {
+      final response = await http.get(Uri.parse('http://192.168.2.1/')).timeout(
+        const Duration(seconds: 10),
+        onTimeout: () {
+          throw Exception('Request to IoT device timed out');
+        },
+      );
+
+      if (response.statusCode == 200) {
+        final jsonData = jsonDecode(response.body);
+        final alarmData = jsonData['alarmData'] as List<dynamic>?;
+        if (alarmData != null && alarmData.isNotEmpty) {
+          final filenames = (alarmData[0]['Filenames'] as List<dynamic>?)?.map((file) {
+            return (file as List<dynamic>)[0] as String;
+          }).toList() ?? [];
+          setState(() {
+            _soundOptions = filenames.isNotEmpty ? filenames : defaultSounds;
+            if (!_soundOptions.contains(_soundOption)) {
+              _soundOption = _soundOptions.isNotEmpty ? _soundOptions[0] : 'namaz/fajr.mp3';
+            }
+          });
+        } else {
+          setState(() {
+            _soundOptions = defaultSounds;
+            _soundOption = _soundOptions[0];
+          });
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('No sound files found on device. Using default sounds.')),
+          );
+        }
+      } else {
+        setState(() {
+          _soundOptions = defaultSounds;
+          _soundOption = _soundOptions[0];
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to fetch sounds from device: ${response.statusCode}'),
+          ),
+        );
       }
-    });
+    } catch (e) {
+      setState(() {
+        _soundOptions = defaultSounds;
+        _soundOption = _soundOptions[0];
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error fetching sounds: Ensure you are connected to the speaker\'s Wi-Fi. Error: $e'),
+        ),
+      );
+    }
   }
 
   @override
@@ -66,12 +112,21 @@ class _AlarmPageState extends State<AlarmPage> {
   }
 
   Future<void> _saveAlarm() async {
-    bool hasNotificationPermission =
-    await PermissionHandler.requestNotificationPermission();
+    bool hasNotificationPermission = await PermissionHandler.requestNotificationPermission();
     if (!hasNotificationPermission) {
       ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Notification permission is required to set alarms.')),
+      );
+      return;
+    }
+
+    bool hasExactAlarmPermission = await PermissionHandler.requestExactAlarmPermission();
+    if (!hasExactAlarmPermission) {
+      ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-            content: Text('Notification permission is required to set alarms.')),
+          content: Text(
+              'Exact alarm permission is required to schedule alarms. Please enable it in system settings.'),
+        ),
       );
       return;
     }
@@ -80,7 +135,7 @@ class _AlarmPageState extends State<AlarmPage> {
       id: await AlarmModel.generateUniqueId(),
       time: _selectedTime,
       label: _alarmLabel.isEmpty ? 'Alarm' : _alarmLabel,
-      repeatOption: _repeatOption,
+      repeatOption: _isRepeatEnabled ? 'Daily' : 'Never', // Updated to use toggle state
       sound: _soundOption,
       isSnoozeEnabled: _isSnoozeEnabled,
       isActive: true,
@@ -88,49 +143,52 @@ class _AlarmPageState extends State<AlarmPage> {
 
     await SharedPreferencesService.saveAlarm(alarm);
 
-    bool scheduled = await AlarmService.scheduleAlarm(alarm);
-    if (!scheduled) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Failed to schedule alarm. Go to Settings > Apps > eBell > Alarms & Reminders and enable "Allow setting exact alarms".',
-          ),
-          duration: Duration(seconds: 5),
-        ),
-      );
-      return;
-    }
+    String soundFile = _soundOption;
 
-    String mp3File;
-    if (_soundOption == 'file1' || _soundOption == 'file2' || _soundOption == 'file3') {
-      mp3File = '${_soundOption.toUpperCase()}.MP3';
-    } else {
-      mp3File = _soundOption.toUpperCase();
-    }
+    final now = DateTime.now();
+    final alarmDateTime = DateTime(
+      now.year,
+      now.month,
+      now.day,
+      _selectedTime.hour,
+      _selectedTime.minute,
+    );
+    final epochTime = (alarmDateTime.millisecondsSinceEpoch / 1000).floor().toString();
 
-    String url = 'http://192.168.2.1/settime/$mp3File';
-    String data = _formatDataString(_selectedTime);
+    String data = '$epochTime,${alarm.isActive ? 1 : 0},${alarm.isSnoozeEnabled ? 1 : 0}';
+    String url = 'http://192.168.2.1/settime/$soundFile';
 
     setState(() => isLoading = true);
 
     try {
-      final response = await http.post(Uri.parse(url), body: data);
+      final response = await http.post(
+        Uri.parse(url),
+        body: data,
+        headers: {'Content-Type': 'text/plain'},
+      );
+
       if (response.statusCode == 200) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Alarm set on server for ${alarm.time.format(context)} with $mp3File')),
+          SnackBar(
+            content: Text('Alarm set on server for ${alarm.time.format(context)} with $soundFile'),
+          ),
         );
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to set alarm on server: ${response.statusCode}')),
+          SnackBar(
+            content: Text('Failed to set alarm on server: ${response.statusCode} - ${response.reasonPhrase}'),
+          ),
         );
       }
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("Error setting alarm: Make sure you're connected to the speaker's Wi-Fi. Error: $e")),
+        SnackBar(
+          content: Text('Error setting alarm: Ensure you are connected to the speaker\'s Wi-Fi. Error: $e'),
+        ),
       );
+    } finally {
+      setState(() => isLoading = false);
     }
-
-    setState(() => isLoading = false);
 
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Alarm saved successfully!')),
@@ -145,7 +203,6 @@ class _AlarmPageState extends State<AlarmPage> {
   Widget build(BuildContext context) {
     final themeProvider = Provider.of<ThemeProvider>(context);
     final isSmallScreen = MediaQuery.of(context).size.width < 360;
-    final timeTextSize = isSmallScreen ? 28.0 : 32.0;
 
     return Scaffold(
       appBar: AppBar(
@@ -195,7 +252,6 @@ class _AlarmPageState extends State<AlarmPage> {
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  // Hour picker
                   SizedBox(
                     width: isSmallScreen ? 80 : 100,
                     child: ListWheelScrollView.useDelegate(
@@ -205,7 +261,7 @@ class _AlarmPageState extends State<AlarmPage> {
                       physics: const FixedExtentScrollPhysics(),
                       onSelectedItemChanged: (index) {
                         setState(() {
-                          int hour = (index % 12) + 1; // Cycle 1 to 12
+                          int hour = (index % 12) + 1;
                           _selectedTime = _selectedTime.replacing(
                             hour: _period == 'AM'
                                 ? (hour == 12 ? 0 : hour)
@@ -215,14 +271,17 @@ class _AlarmPageState extends State<AlarmPage> {
                       },
                       childDelegate: ListWheelChildLoopingListDelegate(
                         children: List.generate(12, (i) {
-                          final displayHour = (i % 12) + 1; // Generate 1 to 12
+                          final displayHour = (i % 12) + 1;
                           return Center(
                             child: Text(
                               displayHour.toString().padLeft(2, '0'),
                               style: TextStyle(
                                 fontSize: 32,
                                 fontWeight: FontWeight.bold,
-                                color: displayHour == (_selectedTime.hourOfPeriod == 0 ? 12 : _selectedTime.hourOfPeriod)
+                                color: displayHour ==
+                                    (_selectedTime.hourOfPeriod == 0
+                                        ? 12
+                                        : _selectedTime.hourOfPeriod)
                                     ? themeProvider.selectedColor
                                     : Colors.black,
                               ),
@@ -232,8 +291,6 @@ class _AlarmPageState extends State<AlarmPage> {
                       ),
                     ),
                   ),
-
-                  // Minute picker
                   SizedBox(
                     width: isSmallScreen ? 80 : 100,
                     child: ListWheelScrollView.useDelegate(
@@ -243,7 +300,8 @@ class _AlarmPageState extends State<AlarmPage> {
                       physics: const FixedExtentScrollPhysics(),
                       onSelectedItemChanged: (index) {
                         setState(() {
-                          _selectedTime = _selectedTime.replacing(minute: index % 60);
+                          _selectedTime =
+                              _selectedTime.replacing(minute: index % 60);
                         });
                       },
                       childDelegate: ListWheelChildLoopingListDelegate(
@@ -264,8 +322,6 @@ class _AlarmPageState extends State<AlarmPage> {
                       ),
                     ),
                   ),
-
-                  // AM/PM picker
                   SizedBox(
                     width: isSmallScreen ? 80 : 100,
                     child: ListWheelScrollView(
@@ -273,15 +329,18 @@ class _AlarmPageState extends State<AlarmPage> {
                       perspective: 0.005,
                       diameterRatio: 1.2,
                       physics: const FixedExtentScrollPhysics(),
-                      controller: FixedExtentScrollController(initialItem: _period == 'AM' ? 0 : 1),
+                      controller: FixedExtentScrollController(
+                          initialItem: _period == 'AM' ? 0 : 1),
                       onSelectedItemChanged: (index) {
                         setState(() {
                           _period = index == 0 ? 'AM' : 'PM';
                           int currentHour = _selectedTime.hour;
                           if (_period == 'AM' && currentHour >= 12) {
-                            _selectedTime = _selectedTime.replacing(hour: currentHour - 12);
+                            _selectedTime =
+                                _selectedTime.replacing(hour: currentHour - 12);
                           } else if (_period == 'PM' && currentHour < 12) {
-                            _selectedTime = _selectedTime.replacing(hour: currentHour + 12);
+                            _selectedTime =
+                                _selectedTime.replacing(hour: currentHour + 12);
                           }
                         });
                       },
@@ -310,9 +369,11 @@ class _AlarmPageState extends State<AlarmPage> {
                 children: [
                   _buildOptionTile(
                     context,
-                    title: 'Repeat',
-                    value: _repeatOption,
-                    onTap: _selectRepeatOption,
+                    title: 'Repeat Daily',
+                    isSwitch: true,
+                    switchValue: _isRepeatEnabled,
+                    onSwitchChanged: (value) =>
+                        setState(() => _isRepeatEnabled = value),
                   ),
                   _buildDivider(),
                   _buildOptionTile(
@@ -326,7 +387,7 @@ class _AlarmPageState extends State<AlarmPage> {
                   _buildOptionTile(
                     context,
                     title: 'Sound',
-                    value: _soundOption,
+                    value: _soundOption.split('/').last,
                     onTap: _selectSoundOption,
                   ),
                   _buildDivider(),
@@ -348,32 +409,10 @@ class _AlarmPageState extends State<AlarmPage> {
     );
   }
 
-  void _selectRepeatOption() {
-    showModalBottomSheet(
-      context: context,
-      builder: (context) {
-        return _buildOptionSelectionSheet(
-          title: 'Repeat',
-          options: const [
-            'Never',
-            'Every Day',
-            'Weekdays',
-            'Weekends',
-            'Custom...'
-          ],
-          selectedOption: _repeatOption,
-          onSelect: (value) {
-            setState(() => _repeatOption = value);
-            Navigator.pop(context);
-          },
-        );
-      },
-    );
-  }
-
   void _selectSoundOption() {
     showModalBottomSheet(
       context: context,
+      isScrollControlled: true,
       builder: (context) {
         return _buildOptionSelectionSheet(
           title: 'Sound',
@@ -395,25 +434,44 @@ class _AlarmPageState extends State<AlarmPage> {
     required Function(String) onSelect,
   }) {
     final themeProvider = Provider.of<ThemeProvider>(context);
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Padding(
-          padding: const EdgeInsets.all(16),
-          child: Text(
-            title,
-            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+    final maxHeight = MediaQuery.of(context).size.height * 0.6;
+
+    return ConstrainedBox(
+      constraints: BoxConstraints(
+        maxHeight: maxHeight,
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: Text(
+              title,
+              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
           ),
-        ),
-        ...options.map((option) => ListTile(
-          title: Text(option),
-          trailing: option == selectedOption
-              ? Icon(Icons.check, color: themeProvider.selectedColor)
-              : null,
-          onTap: () => onSelect(option),
-        )),
-        const SizedBox(height: 8),
-      ],
+          Expanded(
+            child: ListView.builder(
+              shrinkWrap: true,
+              itemCount: options.length,
+              itemBuilder: (context, index) {
+                final option = options[index];
+                return ListTile(
+                  title: Text(
+                    option.split('/').last,
+                    style: const TextStyle(fontSize: 16),
+                  ),
+                  trailing: option == selectedOption
+                      ? Icon(Icons.check, color: themeProvider.selectedColor)
+                      : null,
+                  onTap: () => onSelect(option),
+                );
+              },
+            ),
+          ),
+          const SizedBox(height: 8),
+        ],
+      ),
     );
   }
 

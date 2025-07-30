@@ -8,7 +8,6 @@ import 'package:provider/provider.dart';
 
 import '../services/theme_state.dart';
 
-
 class EventsTab extends StatefulWidget {
   final List<AlarmModel> todaysAlarms;
   final CalendarLogic calendarLogic;
@@ -31,6 +30,9 @@ class _EventsTabState extends State<EventsTab> {
   @override
   Widget build(BuildContext context) {
     final themeProvider = Provider.of<ThemeProvider>(context);
+    final today = DateTime.now();
+    final selectedDay = widget.calendarLogic.selectedDay;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -52,7 +54,7 @@ class _EventsTabState extends State<EventsTab> {
             firstDay: widget.calendarLogic.firstDay,
             lastDay: widget.calendarLogic.lastDay,
             focusedDay: widget.calendarLogic.focusedDay,
-            selectedDayPredicate: (day) => isSameDay(day, widget.calendarLogic.selectedDay),
+            selectedDayPredicate: (day) => isSameDay(day, selectedDay),
             onDaySelected: widget.onDaySelected,
             calendarFormat: CalendarFormat.month,
             headerStyle: const HeaderStyle(
@@ -71,19 +73,27 @@ class _EventsTabState extends State<EventsTab> {
               dowTextFormatter: (date, locale) => DateFormat.E(locale).format(date).toUpperCase(),
             ),
             calendarStyle: CalendarStyle(
+              // Today's date style (grey with black digits)
               todayDecoration: BoxDecoration(
-                color: themeProvider.selectedColor,
+                color: Colors.grey[300],
                 shape: BoxShape.circle,
               ),
-              todayTextStyle: TextStyle(
+              todayTextStyle: const TextStyle(
                 fontWeight: FontWeight.bold,
-                color: themeProvider.selectedColor,
+                color: Colors.black,
                 fontSize: 16,
               ),
+              // Selected date style (theme color with white digits)
               selectedDecoration: BoxDecoration(
                 color: themeProvider.selectedColor,
                 shape: BoxShape.circle,
               ),
+              selectedTextStyle: const TextStyle(
+                fontWeight: FontWeight.bold,
+                color: Colors.white,
+                fontSize: 16,
+              ),
+              // Default style for other dates
               defaultTextStyle: const TextStyle(
                 color: Colors.black,
                 fontSize: 16,
@@ -97,9 +107,11 @@ class _EventsTabState extends State<EventsTab> {
         ),
         const SizedBox(height: 24),
         // Today's Schedule
-        const Text(
-          "Today's Schedule",
-          style: TextStyle(
+        Text(
+          isSameDay(selectedDay, today)
+              ? "Today's Schedule"
+              : DateFormat('MMMM d, y').format(selectedDay),
+          style: const TextStyle(
             fontSize: 20,
             fontWeight: FontWeight.bold,
           ),
@@ -114,7 +126,7 @@ class _EventsTabState extends State<EventsTab> {
               children: widget.todaysAlarms.isEmpty
                   ? [
                 const Text(
-                  'No alarms scheduled for today',
+                  'No alarms scheduled for this day',
                   style: TextStyle(
                     fontSize: 16,
                     color: Colors.grey,
@@ -123,9 +135,9 @@ class _EventsTabState extends State<EventsTab> {
               ]
                   : widget.todaysAlarms.map((alarm) {
                 final alarmDateTime = DateTime(
-                  DateTime.now().year,
-                  DateTime.now().month,
-                  DateTime.now().day,
+                  selectedDay.year,
+                  selectedDay.month,
+                  selectedDay.day,
                   alarm.time.hour,
                   alarm.time.minute,
                 );

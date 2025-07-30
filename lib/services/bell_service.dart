@@ -1,18 +1,41 @@
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:async';
-import 'package:intl/intl.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:flutter/foundation.dart';
 import 'package:file_picker/file_picker.dart';
 import 'dart:io';
+import 'package:http_parser/http_parser.dart';
 
 class BellService {
   // Singleton pattern
   static final BellService _instance = BellService._internal();
+
   factory BellService() => _instance;
+
   BellService._internal();
 
-  Future<bool> setAlarmTime(String mp3File, DateTime alarmTime, BuildContext context, String timeFormat) async {
+
+  /// Pings the bell server to check if it's reachable.
+  Future<bool> pingServer() async {
+    for (int i = 0; i < 3; i++) {
+      try {
+        final pingResponse = await http.get(Uri.parse('http://192.168.2.1'))
+            .timeout(const Duration(seconds: 3));
+        debugPrint("Ping result: ${pingResponse.statusCode}");
+        if (pingResponse.statusCode == 200) {
+          return true;
+        }
+      } catch (e) {
+        debugPrint("Ping attempt ${i + 1} failed: $e");
+      }
+    }
+    return false;
+  }
+
+  /// Syncs the current time with the bell device.
+  Future<bool> setAlarmTime(String mp3File, DateTime alarmTime,
+      BuildContext context, String timeFormat) async {
     try {
       if (!await pingServer()) {
         debugPrint("Server not reachable for setting alarm");
@@ -24,7 +47,7 @@ class BellService {
 
       final upperMp3File = mp3File.toUpperCase();
       final encodedMp3File = Uri.encodeComponent(upperMp3File);
-      final encodedTimeFormat = Uri.encodeComponent(timeFormat); // Encode if needed
+      final encodedTimeFormat = Uri.encodeComponent(timeFormat);
       final uri = 'http://192.168.2.1/settime/$encodedMp3File/$encodedTimeFormat';
       final headers = {
         'Referer': 'http://192.168.2.1/',
@@ -34,7 +57,8 @@ class BellService {
         'Connection': 'keep-alive',
       };
 
-      debugPrint("Sending time: $timeFormat (oooooHHoooMM) for $upperMp3File to $uri");
+      debugPrint(
+          "Sending time: $timeFormat (oooooHHoooMM) for $upperMp3File to $uri");
       debugPrint("Request headers: $headers");
 
       final response = await http.post(
@@ -70,28 +94,6 @@ class BellService {
     }
   }
 
-
-
-
-
-  /// Pings the bell server to check if it's reachable.
-  Future<bool> pingServer() async {
-    for (int i = 0; i < 3; i++) {
-      try {
-        final pingResponse = await http.get(Uri.parse('http://192.168.2.1'))
-            .timeout(const Duration(seconds: 3));
-        debugPrint("Ping result: ${pingResponse.statusCode}");
-        if (pingResponse.statusCode == 200) {
-          return true;
-        }
-      } catch (e) {
-        debugPrint("Ping attempt ${i + 1} failed: $e");
-      }
-    }
-    return false;
-  }
-
-  /// Syncs the current time with the bell device.
   Future<void> syncTime(BuildContext context) async {
     try {
       if (!await pingServer()) {
@@ -101,14 +103,17 @@ class BellService {
         return;
       }
 
-      final now = DateTime.now();
-      final timeFormat = DateFormat('MM:dd:yyyy:hh:mm:ss:a').format(now);
-      debugPrint("Sending time: $timeFormat");
+      final now = DateTime.now().toUtc().add(
+          const Duration(hours: 5, minutes: 30)); // UTC → IST
+      final epochTime = (now.millisecondsSinceEpoch / 1000).floor().toString();
+      debugPrint("Sending epoch time: $epochTime");
       int retries = 3;
       for (int i = 0; i < retries; i++) {
         try {
-          final response = await http.get(
-            Uri.parse('http://192.168.2.1/time/$timeFormat'),
+          final response = await http.post(
+            Uri.parse('http://192.168.2.1/time/d-'),
+            body: epochTime,
+            headers: {'Content-Type': 'text/plain'},
           ).timeout(const Duration(seconds: 5), onTimeout: () {
             throw TimeoutException('Sync time request timed out');
           });
@@ -123,7 +128,8 @@ class BellService {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
                 content: Text(
-                    "Failed to sync time: ${response.statusCode}, ${response.body}"),
+                    "Failed to sync time: ${response.statusCode}, ${response
+                        .body}"),
               ),
             );
             debugPrint(
@@ -144,7 +150,8 @@ class BellService {
   }
 
   /// Uploads an MP3 file to the bell device.
-  Future<String?> uploadMp3(BuildContext context, bool isWifiConnected) async {
+  Future<String?> uploadMp3(BuildContext context, String? filePath,
+      bool isWifiConnected) async {
     if (!isWifiConnected) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -154,35 +161,48 @@ class BellService {
     }
 
     try {
-      FilePickerResult? result = await FilePicker.platform.pickFiles(
-        type: FileType.custom,
-        allowedExtensions: ['mp3'],
-      );
+      String? selectedFilePath = filePath;
+      String? fileName;
 
-      if (result == null || result.files.isEmpty) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("No file selected")),
+      // If no filePath is provided, use FilePicker to select a file
+      if (selectedFilePath == null) {
+        FilePickerResult? result = await FilePicker.platform.pickFiles(
+          type: FileType.custom,
+          allowedExtensions: ['mp3', 'wav'],
         );
-        debugPrint("No file selected");
-        return null;
+
+        if (result == null || result.files.isEmpty) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text("No file selected")),
+          );
+          debugPrint("No file selected");
+          return null;
+        }
+
+        selectedFilePath = result.files.single.path;
+        fileName = result.files.single.name;
+      } else {
+        fileName = selectedFilePath
+            .split('/')
+            .last;
       }
 
-      final filePath = result.files.single.path;
-      final fileName = result.files.single.name;
-      if (filePath == null || !fileName.toLowerCase().endsWith('.mp3')) {
+      if (selectedFilePath == null ||
+          (!fileName.toLowerCase().endsWith('.mp3') &&
+              !fileName.toLowerCase().endsWith('.wav'))) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Invalid MP3 file selected")),
+          const SnackBar(content: Text("Invalid audio file selected")),
         );
         debugPrint("Invalid file: $fileName");
         return null;
       }
 
-      final file = File(filePath);
+      final file = File(selectedFilePath);
       if (!await file.exists()) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text("Selected file does not exist")),
         );
-        debugPrint("File does not exist: $filePath");
+        debugPrint("File does not exist: $selectedFilePath");
         return null;
       }
 
@@ -196,58 +216,73 @@ class BellService {
       }
 
       if (!await pingServer()) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Server is not reachable")),
-        );
-        return null;
+        debugPrint("Server not reachable, proceeding with upload anyway");
       }
 
       final encodedFileName = Uri.encodeComponent(fileName);
       final uri = 'http://192.168.2.1/upload/$encodedFileName';
-      debugPrint("Uploading file: $fileName, size: $fileSize bytes to $uri");
+      debugPrint("Sending file: $fileName, size: $fileSize bytes to $uri");
 
       var request = http.MultipartRequest('POST', Uri.parse(uri))
         ..headers['Connection'] = 'keep-alive'
-        ..files.add(await http.MultipartFile.fromPath('file', filePath));
+        ..files.add(
+            await http.MultipartFile.fromPath('file', selectedFilePath));
 
-      int retries = 3;
-      for (int i = 0; i < retries; i++) {
-        try {
-          final streamedResponse = await request.send().timeout(
-            const Duration(seconds: 30),
-            onTimeout: () => throw TimeoutException('Upload request timed out'),
+      // Show loading SnackBar
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Row(
+            children: [
+              const CircularProgressIndicator(),
+              const SizedBox(width: 16),
+              Text("Uploading $fileName..."),
+            ],
+          ),
+          duration: const Duration(seconds: 15), // Slightly longer than 12.84s
+        ),
+      );
+
+      // Send the request and handle response in background
+      request.send().then((streamedResponse) async {
+        final response = await http.Response.fromStream(streamedResponse);
+        debugPrint("Upload response: ${response.statusCode}, ${response.body}");
+        if (response.statusCode == 200) {
+          debugPrint("Upload successful: $fileName");
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text("Successfully uploaded $fileName")),
           );
-          final response = await http.Response.fromStream(streamedResponse);
-          debugPrint(
-              "Upload response: ${response.statusCode}, ${response.body}");
-          if (response.statusCode == 200) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text("File $fileName uploaded successfully")),
-            );
-            debugPrint("Upload successful: $fileName");
-            return fileName; // Return the file name on success
-          } else {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                  content: Text(
-                      "Failed to upload file: ${response.statusCode}, ${response.body}")),
-            );
-            debugPrint(
-                "Upload failed: ${response.statusCode}, ${response.body}");
-          }
-        } catch (e) {
-          debugPrint("Upload retry ${i + 1} failed: $e");
-          if (i == retries - 1) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                  content:
-                  Text("Error uploading file after $retries retries: $e")),
-            );
-            debugPrint("Upload error after retries: $e");
-          }
+        } else {
+          debugPrint("Upload failed: ${response.statusCode}, ${response.body}");
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(
+                "Upload failed: ${response.statusCode}, ${response.body}")),
+          );
         }
-      }
-      return null;
+      }).catchError((e) {
+        debugPrint("Upload error: $e");
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("Upload error: $e")),
+        );
+      });
+
+      // Fallback success SnackBar after 13 seconds
+      Future.delayed(const Duration(seconds: 13), () {
+        if (ScaffoldMessenger
+            .of(context)
+            .mounted) {
+          ScaffoldMessenger.of(context).hideCurrentSnackBar();
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text("Successfully uploaded $fileName")),
+          );
+        }
+      });
+
+      debugPrint("File sent: $fileName");
+      // Copy file to documents directory for persistence
+      final directory = await getApplicationDocumentsDirectory();
+      final newPath = '${directory.path}/$fileName';
+      await file.copy(newPath);
+      return newPath; // Return path in documents directory
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text("Error uploading file: $e")),

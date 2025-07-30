@@ -1,5 +1,6 @@
 import 'package:e_bell/pages/music_library.dart';
 import 'package:e_bell/pages/tablogic1.dart';
+import 'package:e_bell/test/login_page.dart';
 import 'package:flutter/material.dart';
 import 'package:table_calendar/table_calendar.dart';
 import 'package:e_bell/pages/alarm_page.dart';
@@ -9,6 +10,7 @@ import 'package:e_bell/alarm/shared_preferences.dart';
 import 'package:e_bell/alarm/alarm_model.dart';
 import 'package:e_bell/remainder/remainder_page.dart';
 import 'dart:async';
+import 'package:location/location.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:network_info_plus/network_info_plus.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -20,6 +22,8 @@ import '../tabs_planner/events_tab.dart';
 import '../tabs_planner/tab_logic1.dart';
 import 'package:flutter/foundation.dart';
 import 'package:provider/provider.dart';
+import '../test/auth_service.dart';
+import 'namaz_Sunrise.dart';
 
 
 class HomeScreen extends StatefulWidget {
@@ -41,6 +45,7 @@ class _HomeScreenState extends State<HomeScreen> {
   bool isWifiConnected = false;
   Timer? wifiCheckTimer;
   final String targetSsid = "IoGen_Speaker";
+  bool _hasSynced = false;
 
   @override
   void initState() {
@@ -50,7 +55,12 @@ class _HomeScreenState extends State<HomeScreen> {
     _calendarLogic = CalendarLogic();
     _loadTodaysAlarms();
     _requestPermissions();
-    _startWifiMonitoring();
+    // Start Wi-Fi monitoring and sync after initial check
+    _startWifiMonitoring().then((_) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _autoSyncTime();
+      });
+    });
     _timer = Timer.periodic(const Duration(minutes: 1), (timer) {
       setState(() {});
     });
@@ -64,19 +74,88 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _requestPermissions() async {
-    Map<Permission, PermissionStatus> statuses = await [
-      Permission.location,
-      Permission.nearbyWifiDevices,
-    ].request();
+    // First check if location service is enabled
+    Location location = Location();
+    bool serviceEnabled = await location.serviceEnabled();
+    if (!serviceEnabled) {
+      serviceEnabled = await location.requestService();
+      if (!serviceEnabled) {
+        setState(() {
+          connectionStatus = "Location service is disabled";
+        });
+        _showLocationServiceDialog();
+        return;
+      }
+    }
 
-    if (statuses[Permission.location]!.isDenied) {
+    // Now only request location permission (removed nearbyWifiDevices)
+    var status = await Permission.location.request();
+
+    if (status.isDenied) {
       setState(() {
         connectionStatus = "Location permission denied";
       });
-      debugPrint("Location permission denied");
+      _showPermissionDialog();
+    } else if (status.isPermanentlyDenied) {
+      setState(() {
+        connectionStatus = "Location permission permanently denied";
+      });
+      _showPermissionDialog();
     } else {
       debugPrint("Location permission granted");
     }
+  }
+
+  void _showLocationServiceDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text("Location Service Required"),
+        content: const Text(
+          "E-Bell needs location services to detect Wi-Fi networks. "
+              "Please enable location services in your device settings.",
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text("Cancel"),
+          ),
+          TextButton(
+            onPressed: () async {
+              Navigator.pop(context);
+              await openAppSettings();
+            },
+            child: const Text("Open Settings"),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showPermissionDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text("Location Permission Required"),
+        content: const Text(
+          "E-Bell needs location permission to sync with the bell. "
+              "Please grant this permission in app settings.",
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text("Cancel"),
+          ),
+          TextButton(
+            onPressed: () async {
+              Navigator.pop(context);
+              await openAppSettings();
+            },
+            child: const Text("Open Settings"),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _startWifiMonitoring() async {
@@ -99,25 +178,45 @@ class _HomeScreenState extends State<HomeScreen> {
           if (cleanedSSID != null &&
               cleanedSSID.toLowerCase() == targetSsid.toLowerCase()) {
             connectionStatus = "Connected to $targetSsid";
+            if (!_hasSynced) {
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                _autoSyncTime();
+              });
+            }
           } else {
             connectionStatus = "Connected to Wi-Fi: ${cleanedSSID ?? 'Unknown'}";
+            _hasSynced = false;
           }
         });
-        debugPrint("Connection Status: $connectionStatus");
       } else {
         setState(() {
           isWifiConnected = false;
           connectionStatus = "Not connected to Wi-Fi";
+          _hasSynced = false;
         });
-        debugPrint("Not connected to Wi-Fi");
       }
     } catch (e) {
       setState(() {
         isWifiConnected = false;
         connectionStatus = "Error checking Wi-Fi: $e";
+        _hasSynced = false;
       });
       debugPrint("Error checking Wi-Fi: $e");
     }
+  }
+
+  Future<void> _autoSyncTime() async {
+    if (_hasSynced) return;
+
+    debugPrint(
+        "Attempting auto-sync with isWifiConnected: $isWifiConnected, connectionStatus: $connectionStatus");
+
+    if (isWifiConnected && connectionStatus.contains(targetSsid)) {
+      setState(() => _hasSynced = true);
+      await Future.delayed(const Duration(milliseconds: 500)); // Ensure UI readiness
+      await BellService().syncTime(context);
+    }
+    // Removed the else block that showed the snackbar
   }
 
   Future<void> _loadTodaysAlarms() async {
@@ -229,11 +328,12 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
       ),
       MusicLibrary(tabLogic: _musicTabLogic),
-       ProfileScreen(),
+      ProfileScreen(),
     ];
 
     return Scaffold(
       appBar: AppBar(
+        automaticallyImplyLeading: false, // 🔴 Hides the leading icon
         title: Text(
           'E-Bell',
           style: TextStyle(
@@ -244,25 +344,81 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
         actions: [
           IconButton(
-            icon: const Icon(Icons.sync),
-            onPressed: () async {
-              if (isWifiConnected) {
-                await BellService().syncTime(context);
-              } else {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text("Please connect to IoGen_Speaker Wi-Fi first"),
-                  ),
-                );
-              }
-            },
-          ),
-          IconButton(
             icon: const Icon(Icons.notifications),
             onPressed: () {},
           ),
+          IconButton(
+            icon: const Icon(Icons.logout),
+            onPressed: () async {
+              bool confirmLogout = await showDialog(
+                context: context,
+                builder: (context) => AlertDialog(
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14.0),
+                  ),
+                  content: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const SizedBox(height: 20),
+                      const Text(
+                        "Do you really want to logout?",
+                        style: TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.w500,
+                          color: Colors.black,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                      const SizedBox(height: 20),
+                      Divider(
+                        height: 1,
+                        thickness: 0.5,
+                        color: Colors.grey[400],
+                      ),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                        children: [
+                          TextButton(
+                            onPressed: () => Navigator.pop(context, false),
+                            child: const Text(
+                              "Cancel",
+                              style: TextStyle(
+                                fontSize: 18,
+                                color: Colors.grey,
+                              ),
+                            ),
+                          ),
+                          TextButton(
+                            onPressed: () => Navigator.pop(context, true),
+                            child: Text(
+                              "Confirm",
+                              style: TextStyle(
+                                fontSize: 18,
+                                color: Provider.of<ThemeProvider>(context, listen: false).selectedColor,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              );
+
+              if (confirmLogout == true) {
+                try {
+                  await AuthService().signOut();
+                } catch (e) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Logout failed: $e')),
+                  );
+                }
+              }
+            },
+          ),
         ],
       ),
+
       body: Stack(
         children: [
           screens[_selectedIndex],
@@ -281,6 +437,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     _buildFabOption('Reminder', true),
                     _buildFabOption('Alarm', false),
                     _buildFabOption('Bell', false),
+                    _buildFabOption('Regional Calendar', false),
                   ],
                 ),
               ),
@@ -344,14 +501,20 @@ class _HomeScreenState extends State<HomeScreen> {
             case 'Reminder':
               await Navigator.push(
                 context,
-                MaterialPageRoute(builder: (context) => const AddReminderScreen()),
+                MaterialPageRoute(
+                    builder: (context) => const ReminderPage()),
               );
               break;
             case 'Bell':
               await Navigator.push(
                 context,
-                MaterialPageRoute(
-                    builder: (context) => BellSoundChanger()),
+                MaterialPageRoute(builder: (context) => BellSoundChanger()),
+              );
+              break;
+            case 'Regional Calendar':
+              await Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const ReligiousAlarms()),
               );
               break;
           }
@@ -374,7 +537,28 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               ),
               const SizedBox(width: 16),
-              Text(
+              title == 'Regional Calendar'
+                  ? Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: const [
+                  Text(
+                    'Regional',
+                    style: TextStyle(
+                      fontSize: 16,
+                      color: Colors.black87,
+                    ),
+                  ),
+                  Text(
+                    'Calendar',
+                    style: TextStyle(
+                      fontSize: 16,
+                      color: Colors.black87,
+                    ),
+                  ),
+                ],
+              )
+                  : Text(
                 title,
                 style: const TextStyle(
                   fontSize: 16,
