@@ -444,7 +444,7 @@ class _MusicLibraryState extends State<MusicLibrary> {
               final newRecordingPath = await Navigator.push<String>(
                 context,
                 MaterialPageRoute(
-                  builder: (context) => const RecordMusicPage(),
+                  builder: (context) => const AudioRecorderPage(),
                 ),
               );
               if (newRecordingPath != null) {
