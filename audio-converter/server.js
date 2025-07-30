@@ -1,82 +1,94 @@
 const express = require('express');
 const cors = require('cors');
+const multer = require('multer');
 const { exec } = require('child_process');
 const fs = require('fs').promises;
 const path = require('path');
-const axios = require('axios');
 
 const app = express();
 
 app.use(cors());
 app.use(express.json());
 
-// Create directories on startup
+// Setup multer upload directory
+const upload = multer({ dest: 'uploads/' });
+
+// Create necessary directories
 const setupDirectories = async () => {
   try {
     await fs.mkdir('uploads', { recursive: true });
     await fs.mkdir('converted', { recursive: true });
-    console.log('Directories created successfully');
+    console.log('✅ Directories created or already exist');
   } catch (err) {
-    console.error('Error creating directories:', err);
+    console.error('❌ Error creating directories:', err);
   }
 };
 setupDirectories();
 
-app.post('/convert', async (req, res) => {
-  const { audioUrl } = req.body;
-  if (!audioUrl) {
-    return res.status(400).send('No audio URL provided');
+// Health check route
+app.get('/health', (req, res) => {
+  console.log('🔍 Health check called');
+  res.status(200).send('✅ Server is running');
+});
+
+// Audio conversion endpoint
+app.post('/convert', upload.single('audio'), async (req, res) => {
+  console.log('📥 Received POST /convert');
+
+  if (!req.file) {
+    console.error('❌ No audio file uploaded');
+    return res.status(400).send('No audio file uploaded');
   }
 
-  const inputName = `${Date.now().millisecondsSinceEpoch}.aac`;
-  const inputPath = path.join('uploads', inputName);
-  const outputName = `${Date.now().millisecondsSinceEpoch}.wav`;
+  const inputPath = req.file.path;
+  const outputName = `${Date.now()}.wav`;
   const outputPath = path.join('converted', outputName);
 
-  try {
-    // Download file from Firebase Storage
-    const response = await axios.get(audioUrl, { responseType: 'arraybuffer' });
-    await fs.writeFile(inputPath, response.data);
+  console.log(`📁 Input file saved at: ${inputPath}`);
+  console.log(`🔧 Converting to: ${outputPath}`);
 
-    // Convert with FFmpeg
-    const cmd = `ffmpeg -i "${inputPath}" "${outputPath}"`;
-    exec(cmd, async (error, stdout, stderr) => {
+  const cmd = `ffmpeg -y -i "${inputPath}" "${outputPath}"`;
+  console.log(`🛠️ Running command: ${cmd}`);
+
+  exec(cmd, async (error, stdout, stderr) => {
+    console.log('🖨️ FFmpeg stdout:', stdout);
+    console.log('⚠️ FFmpeg stderr:', stderr);
+
+    // Delete original file
+    try {
+      await fs.unlink(inputPath);
+      console.log(`🧹 Deleted input file: ${inputPath}`);
+    } catch (err) {
+      console.error('❌ Error deleting input file:', err);
+    }
+
+    if (error) {
+      console.error('❌ FFmpeg conversion error:', error);
+      return res.status(500).send('Conversion failed');
+    }
+
+    // Send converted file to client
+    res.download(outputPath, outputName, async (err) => {
+      if (err) {
+        console.error('❌ Error sending file:', err);
+        return res.status(500).send('Download failed');
+      }
+
+      console.log(`✅ File sent successfully: ${outputName}`);
+
+      // Delete converted file
       try {
-        await fs.unlink(inputPath); // Delete input file
+        await fs.unlink(outputPath);
+        console.log(`🧹 Deleted converted file: ${outputPath}`);
       } catch (err) {
-        console.error('Error deleting input file:', err);
+        console.error('❌ Error deleting output file:', err);
       }
-
-      if (error) {
-        console.error('FFmpeg error:', stderr);
-        return res.status(500).send('Conversion failed');
-      }
-
-      // Send converted file
-      res.download(outputPath, outputName, async (err) => {
-        if (err) {
-          console.error('Download error:', err);
-          return res.status(500).send('Download failed');
-        }
-
-        try {
-          await fs.unlink(outputPath); // Delete output file
-        } catch (err) {
-          console.error('Error deleting output file:', err);
-        }
-      });
     });
-  } catch (err) {
-    console.error('Error downloading file:', err);
-    return res.status(500).send('File download failed');
-  }
+  });
 });
 
-app.get('/health', (req, res) => {
-  res.status(200).send('Server is running');
-});
-
-const PORT = process.env.PORT || 4365;
+// Start server
+const PORT = process.env.PORT || 10000;
 app.listen(PORT, '0.0.0.0', () => {
-  console.log(`Server running on port ${PORT}`);
+  console.log(`🚀 Server running on port ${PORT}`);
 });

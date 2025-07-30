@@ -1,14 +1,17 @@
 {
   "name": "audio-converter",
   "version": "1.0.0",
-  "description": "Node.js server for audio conversion",
-  "main": "server.js",
+  "main": "index.js",
   "scripts": {
-    "start": "node server.js"
+    "test": "echo \"Error: no test specified\" && exit 1"
   },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
   "dependencies": {
-    "express": "^4.18.2",
     "cors": "^2.8.5",
-    "axios": "^1.6.2"
+    "express": "^5.1.0",
+    "multer": "^2.0.2"
   }
 }

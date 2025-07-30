@@ -46,27 +46,25 @@ class _AudioRecorderPageState extends State<AudioRecorderPage> {
     });
 
     try {
-      final uri = Uri.parse(
-          'http://192.168.29.28:4365/convert'); // For Android emulator
-      // For physical device, use server's local IP, e.g., 'http://192.168.29.28:4365/convert'
+      final uri = Uri.parse('https://e-bell.onrender.com/convert');
       final request = http.MultipartRequest('POST', uri);
       request.files.add(await http.MultipartFile.fromPath('audio', _filePath!));
 
-      final response = await request.send();
+      final streamedResponse = await request.send();
 
-      if (response.statusCode == 200) {
-        final bytes = await response.stream.toBytes();
+      if (streamedResponse.statusCode == 200) {
+        final bytes = await streamedResponse.stream.toBytes();
         final dir = await getApplicationDocumentsDirectory();
-        final convertedFile = File('${dir.path}/converted.wav');
-        await convertedFile.writeAsBytes(bytes);
+        final outputPath = '${dir.path}/converted.wav';
+        final file = File(outputPath);
+        await file.writeAsBytes(bytes);
 
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-              content: Text('Converted and saved at ${convertedFile.path}')),
+          SnackBar(content: Text('WAV saved at: $outputPath')),
         );
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Conversion failed: ${response.statusCode}')),
+          SnackBar(content: Text('Conversion failed: ${streamedResponse.statusCode}')),
         );
       }
     } catch (e) {
