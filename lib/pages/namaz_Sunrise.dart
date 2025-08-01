@@ -47,7 +47,7 @@ class _ReligiousAlarmsState extends State<ReligiousAlarms> {
       builder: (context) => AlertDialog(
         title: const Text("Location Service Required"),
         content: const Text(
-          "Namaz settings require location services to determine prayer times. "
+          "This feature requires location services to determine times. "
               "Please enable location services in your device settings.",
         ),
         actions: [
@@ -74,7 +74,7 @@ class _ReligiousAlarmsState extends State<ReligiousAlarms> {
       builder: (context) => AlertDialog(
         title: const Text("Location Permission Required"),
         content: const Text(
-          "Namaz settings need location permission to determine prayer times. "
+          "This feature needs location permission to determine times. "
               "Please grant this permission in app settings.",
         ),
         actions: [
@@ -139,7 +139,7 @@ class _ReligiousAlarmsState extends State<ReligiousAlarms> {
     }
   }
 
-  // Send POST request to the IoT device
+  // Send POST request to the IoT device for Namaz
   Future<void> _sendNamazRequest(bool enabled) async {
     const String url = 'http://192.168.2.1/namaz/';
     final now = DateTime.now();
@@ -160,8 +160,8 @@ class _ReligiousAlarmsState extends State<ReligiousAlarms> {
     }
 
     final String body = enabled
-        ? '1,$lat,$lng,$tz,$year,$month,$weekday'
-        : '0,$lat,$lng,$tz,$year,$month,$weekday';
+        ? '1,1,$lat,$lng,$tz,$year,$month,$weekday'
+        : '1,0,$lat,$lng,$tz,$year,$month,$weekday';
 
     try {
       final response = await http.post(
@@ -193,6 +193,59 @@ class _ReligiousAlarmsState extends State<ReligiousAlarms> {
     }
   }
 
+  // Send POST request to the IoT device for Sunrise & Sunset
+  Future<void> _sendSunriseSunsetRequest(bool enabled) async {
+    const String url = 'http://192.168.2.1/namaz/';
+    final now = DateTime.now();
+    final int year = now.year;
+    final int month = now.month;
+    final int date = now.day; // Use day of the month
+
+    double lat = 18.520;
+    double lng = 73.8567;
+    const double tz = 5.3; // Hardcoded timezone
+
+    if (enabled) {
+      final location = await _getDeviceLocation();
+      if (location != null) {
+        lat = location['latitude']!;
+        lng = location['longitude']!;
+      }
+    }
+
+    final String body = enabled
+        ? '0,1,$lat,$lng,$tz,$year,$month,$date'
+        : '0,0,$lat,$lng,$tz,$year,$month,$date';
+
+    try {
+      final response = await http.post(
+        Uri.parse(url),
+        body: body,
+      );
+
+      if (response.statusCode == 200) {
+        print('Sunrise & Sunset request sent successfully: $body');
+      } else {
+        print('Failed to send Sunrise & Sunset request: ${response.statusCode}');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Failed to send Sunrise & Sunset request: ${response.statusCode}'),
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      print('Error sending Sunrise & Sunset request: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Error sending Sunrise & Sunset request'),
+          ),
+        );
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -271,8 +324,8 @@ class _ReligiousAlarmsState extends State<ReligiousAlarms> {
                     setState(() {
                       _namazEnabled = value;
                     });
-                    await _sendNamazRequest(value); // Send POST request with dynamic location
-                    await _saveSettings(); // Save the setting immediately
+                    await _sendNamazRequest(value);
+                    await _saveSettings();
                   },
                   activeColor: themeProvider.selectedColor,
                 ),
@@ -303,7 +356,8 @@ class _ReligiousAlarmsState extends State<ReligiousAlarms> {
                     setState(() {
                       _sunriseEnabled = value;
                     });
-                    await _saveSettings(); // Save the setting immediately
+                    await _sendSunriseSunsetRequest(value);
+                    await _saveSettings();
                   },
                   activeColor: themeProvider.selectedColor,
                 ),

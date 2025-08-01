@@ -5,7 +5,6 @@ import 'dart:convert';
 import '../alarm/alarm_model.dart';
 import '../alarm/permission_handler.dart';
 import '../alarm/shared_preferences.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:provider/provider.dart';
 import '../services/theme_state.dart';
 
@@ -19,16 +18,16 @@ class AlarmPage extends StatefulWidget {
 class _AlarmPageState extends State<AlarmPage> {
   TimeOfDay _selectedTime = TimeOfDay.now();
   bool _isSnoozeEnabled = true;
-  bool _isRepeatEnabled = false; // New state for repeat toggle
+  bool _isRepeatEnabled = false;
   String _alarmLabel = '';
-  String _soundOption = 'namaz/fajr.mp3';
+  String _soundOption = '';
   String _period = TimeOfDay.now().hour < 12 ? 'AM' : 'PM';
   final AudioPlayer _audioPlayer = AudioPlayer();
-  List<String> _soundOptions = ['namaz/fajr.mp3', 'namaz/sunrise.mp3', 'namaz/dhuhr.mp3'];
+  List<String> _soundOptions = [];
   late FixedExtentScrollController _hourController;
   late FixedExtentScrollController _minuteController;
   late FixedExtentScrollController _periodController;
-
+  bool isLoading = false;
 
   @override
   void initState() {
@@ -43,10 +42,7 @@ class _AlarmPageState extends State<AlarmPage> {
     _periodController = FixedExtentScrollController(initialItem: _selectedTime.period == DayPeriod.am ? 0 : 1);
   }
 
-
   Future<void> _loadUploadedFiles() async {
-    List<String> defaultSounds = ['namaz/fajr.mp3', 'namaz/sunrise.mp3', 'namaz/dhuhr.mp3'];
-
     try {
       final response = await http.get(Uri.parse('http://192.168.2.1/')).timeout(
         const Duration(seconds: 10),
@@ -62,25 +58,37 @@ class _AlarmPageState extends State<AlarmPage> {
           final filenames = (alarmData[0]['Filenames'] as List<dynamic>?)?.map((file) {
             return (file as List<dynamic>)[0] as String;
           }).toList() ?? [];
+          // Debug print to verify fetched files
+          print('Fetched filenames: $filenames');
           setState(() {
-            _soundOptions = filenames.isNotEmpty ? filenames : defaultSounds;
-            if (!_soundOptions.contains(_soundOption)) {
-              _soundOption = _soundOptions.isNotEmpty ? _soundOptions[0] : 'namaz/fajr.mp3';
-            }
+            // Filter files: exclude those with '/' and include only .mp3 or .wav
+            _soundOptions = filenames
+                .where((file) =>
+            !file.contains('/') &&
+                (file.toLowerCase().endsWith('.mp3') ||
+                    file.toLowerCase().endsWith('.wav')))
+                .toList();
+            _soundOption = _soundOptions.isNotEmpty ? _soundOptions[0] : '';
           });
+          if (_soundOptions.isEmpty) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                  content: Text('No valid audio files (MP3 or WAV) found in root directory.')),
+            );
+          }
         } else {
           setState(() {
-            _soundOptions = defaultSounds;
-            _soundOption = _soundOptions[0];
+            _soundOptions = [];
+            _soundOption = '';
           });
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('No sound files found on device. Using default sounds.')),
+            const SnackBar(content: Text('No sound files found in root directory.')),
           );
         }
       } else {
         setState(() {
-          _soundOptions = defaultSounds;
-          _soundOption = _soundOptions[0];
+          _soundOptions = [];
+          _soundOption = '';
         });
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -90,8 +98,8 @@ class _AlarmPageState extends State<AlarmPage> {
       }
     } catch (e) {
       setState(() {
-        _soundOptions = defaultSounds;
-        _soundOption = _soundOptions[0];
+        _soundOptions = [];
+        _soundOption = '';
       });
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -109,7 +117,6 @@ class _AlarmPageState extends State<AlarmPage> {
     _audioPlayer.dispose();
     super.dispose();
   }
-
 
   Widget _buildDivider() {
     return Divider(
@@ -151,7 +158,7 @@ class _AlarmPageState extends State<AlarmPage> {
       id: await AlarmModel.generateUniqueId(),
       time: _selectedTime,
       label: _alarmLabel.isEmpty ? 'Alarm' : _alarmLabel,
-      repeatOption: _isRepeatEnabled ? 'Daily' : 'Never', // Updated to use toggle state
+      repeatOption: _isRepeatEnabled ? 'Daily' : 'Never',
       sound: _soundOption,
       isSnoozeEnabled: _isSnoozeEnabled,
       isActive: true,
@@ -169,7 +176,9 @@ class _AlarmPageState extends State<AlarmPage> {
       _selectedTime.hour,
       _selectedTime.minute,
     );
-    final epochTime = (alarmDateTime.millisecondsSinceEpoch / 1000).floor().toString();
+
+// Convert to UTC and get epoch seconds
+    final epochTime = (alarmDateTime.toUtc().millisecondsSinceEpoch / 1000).floor().toString();
 
     String data = '$epochTime,${alarm.isActive ? 1 : 0},${alarm.isSnoozeEnabled ? 1 : 0}';
     String url = 'http://192.168.2.1/settime/$soundFile';
@@ -213,8 +222,6 @@ class _AlarmPageState extends State<AlarmPage> {
     Navigator.pop(context);
   }
 
-  bool isLoading = false;
-
   @override
   Widget build(BuildContext context) {
     final themeProvider = Provider.of<ThemeProvider>(context);
@@ -242,11 +249,11 @@ class _AlarmPageState extends State<AlarmPage> {
         ),
         actions: [
           TextButton(
-            onPressed: _saveAlarm,
+            onPressed: _soundOptions.isEmpty ? null : _saveAlarm,
             child: Text(
               'Save',
               style: TextStyle(
-                color: themeProvider.selectedColor,
+                color: _soundOptions.isEmpty ? Colors.grey : themeProvider.selectedColor,
                 fontSize: 16,
                 fontWeight: FontWeight.bold,
               ),
@@ -309,7 +316,6 @@ class _AlarmPageState extends State<AlarmPage> {
                       ),
                     ),
                   ),
-
                   // Minutes
                   SizedBox(
                     width: isSmallScreen ? 80 : 100,
@@ -342,7 +348,6 @@ class _AlarmPageState extends State<AlarmPage> {
                       ),
                     ),
                   ),
-
                   // AM/PM
                   SizedBox(
                     width: isSmallScreen ? 80 : 100,
@@ -408,8 +413,8 @@ class _AlarmPageState extends State<AlarmPage> {
                   _buildOptionTile(
                     context,
                     title: 'Sound',
-                    value: _soundOption.split('/').last,
-                    onTap: _selectSoundOption,
+                    value: _soundOption.isEmpty ? 'Select a sound' : _soundOption,
+                    onTap: _soundOptions.isEmpty ? null : _selectSoundOption,
                   ),
                   _buildDivider(),
                   _buildOptionTile(
@@ -431,13 +436,14 @@ class _AlarmPageState extends State<AlarmPage> {
   }
 
   void _selectSoundOption() {
+    if (_soundOptions.isEmpty) return;
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       builder: (context) {
         return _buildOptionSelectionSheet(
           title: 'Sound',
-          options: [..._soundOptions, 'Custom...'],
+          options: _soundOptions,
           selectedOption: _soundOption,
           onSelect: (value) {
             setState(() => _soundOption = value);
@@ -479,7 +485,7 @@ class _AlarmPageState extends State<AlarmPage> {
                 final option = options[index];
                 return ListTile(
                   title: Text(
-                    option.split('/').last,
+                    option,
                     style: const TextStyle(fontSize: 16),
                   ),
                   trailing: option == selectedOption

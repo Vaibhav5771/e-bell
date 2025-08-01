@@ -1,4 +1,3 @@
-import 'package:android_alarm_manager_plus/android_alarm_manager_plus.dart';
 import 'package:e_bell/services/theme_state.dart';
 import 'package:e_bell/test/auth_state.dart';
 import 'package:e_bell/test/auth_wrapper.dart';
@@ -12,7 +11,6 @@ void main() async {
   await Firebase.initializeApp(
     options: DefaultFirebaseOptions.currentPlatform,
   );
-  await AndroidAlarmManager.initialize();
   runApp(
     MultiProvider(
       providers: [

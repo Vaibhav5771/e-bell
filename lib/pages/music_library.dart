@@ -58,6 +58,28 @@ class _MusicLibraryState extends State<MusicLibrary> {
 
   Future<void> _initPlayer() async {
     try {
+      _playerStateSubscription = _player?.playerStateStream.listen((state) {
+        setState(() {
+          if (state.processingState == ProcessingState.completed) {
+            debugPrint("Playback completed");
+            _currentlyPlayingIndex = null;
+          } else if (!state.playing && _currentlyPlayingIndex != null) {
+            debugPrint("Audio paused");
+          } else if (state.playing && _currentlyPlayingIndex != null) {
+            debugPrint("Audio playing");
+          }
+        });
+      }, onError: (e) {
+        debugPrint("Player state stream error: $e");
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Playback error: $e')),
+          );
+        }
+        setState(() {
+          _currentlyPlayingIndex = null;
+        });
+      });
       debugPrint("AudioPlayer initialized successfully");
     } catch (e) {
       debugPrint('Failed to initialize player: $e');
@@ -126,49 +148,29 @@ class _MusicLibraryState extends State<MusicLibrary> {
       }
 
       if (_currentlyPlayingIndex == index && _player?.playing == true) {
-        await _player?.pause();
         setState(() {
-          debugPrint("Paused audio: $filePath");
+          debugPrint("Pausing audio: $filePath");
         });
+        await _player?.pause();
         return;
       }
 
       if (_currentlyPlayingIndex == index && _player?.playing == false) {
-        await _player?.play();
         setState(() {
-          debugPrint("Resumed audio: $filePath");
+          debugPrint("Resuming audio: $filePath");
         });
+        await _player?.play();
         return;
       }
 
       await _player?.stop();
-      _playerStateSubscription?.cancel();
+      setState(() {
+        _currentlyPlayingIndex = index;
+        debugPrint("Starting new audio: $filePath");
+      });
 
       await _player?.setFilePath(filePath);
       await _player?.play();
-
-      _playerStateSubscription = _player?.playerStateStream.listen((state) {
-        if (state.processingState == ProcessingState.completed) {
-          debugPrint("Playback finished for: $filePath");
-          setState(() {
-            _currentlyPlayingIndex = null;
-          });
-        }
-      }, onError: (e) {
-        debugPrint("Playback error: $e");
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Playback error: $e')),
-          );
-        }
-        setState(() {
-          _currentlyPlayingIndex = null;
-        });
-      });
-
-      setState(() {
-        _currentlyPlayingIndex = index;
-      });
     } catch (e) {
       debugPrint('Error playing audio: $e');
       if (mounted) {

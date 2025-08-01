@@ -32,7 +32,6 @@ class _ReminderPageState extends State<ReminderPage> {
   late FixedExtentScrollController _minuteController;
   late FixedExtentScrollController _periodController;
 
-
   @override
   void initState() {
     super.initState();
@@ -45,7 +44,6 @@ class _ReminderPageState extends State<ReminderPage> {
 
     _loadUploadedFiles();
   }
-
 
   Future<void> _loadUploadedFiles() async {
     try {
@@ -66,10 +64,21 @@ class _ReminderPageState extends State<ReminderPage> {
           // Debug print to verify fetched files
           print('Fetched filenames: $filenames');
           setState(() {
-            // Only include files without '/' to ensure root-level files
-            _soundOptions = filenames.where((file) => !file.contains('/')).toList();
+            // Filter files: exclude those with '/' and include only .mp3 or .wav
+            _soundOptions = filenames
+                .where((file) =>
+            !file.contains('/') &&
+                (file.toLowerCase().endsWith('.mp3') ||
+                    file.toLowerCase().endsWith('.wav')))
+                .toList();
             _soundOption = _soundOptions.isNotEmpty ? _soundOptions[0] : '';
           });
+          if (_soundOptions.isEmpty) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                  content: Text('No valid audio files (MP3 or WAV) found in root directory.')),
+            );
+          }
         } else {
           setState(() {
             _soundOptions = [];
@@ -132,16 +141,13 @@ class _ReminderPageState extends State<ReminderPage> {
       return;
     }
 
-    final now = DateTime.now().toUtc();
-    final gmtOffset = Duration(hours: 5, minutes: 30);
     final reminderDateTime = DateTime(
       _selectedDay!.year,
       _selectedDay!.month,
       _selectedDay!.day,
       _selectedTime.hour,
       _selectedTime.minute,
-    ).add(gmtOffset);
-
+    );
 
     final reminder = ReminderModel(
       id: await ReminderModel.generateUniqueId(),
@@ -158,12 +164,29 @@ class _ReminderPageState extends State<ReminderPage> {
 
     setState(() => isLoading = true);
 
-    final scheduled = await ReminderService.scheduleReminder(reminder, _soundOptions);
+    // Convert to UTC epoch seconds
+    final epochTime = (reminderDateTime.toUtc().millisecondsSinceEpoch / 1000).floor();
+    final isActiveFlag = 1;
+    final isRepeatFlag = 1;
+
+    final data = '$epochTime,$isActiveFlag,$isRepeatFlag';
+    final url = 'http://192.168.2.1/settime/${Uri.encodeComponent(_soundOption)}';
+
+    bool scheduled = false;
+    try {
+      final response = await http.post(
+        Uri.parse(url),
+        headers: {'Content-Type': 'text/plain'},
+        body: data,
+      );
+      scheduled = response.statusCode == 200;
+    } catch (e) {
+      scheduled = false;
+    }
+
     if (scheduled) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Reminder set for ${reminder.startDateTime} with ${_soundOption}'),
-        ),
+        SnackBar(content: Text('Reminder set for ${reminder.startDateTime} with $_soundOption')),
       );
       Navigator.pop(context);
     } else {
@@ -174,6 +197,8 @@ class _ReminderPageState extends State<ReminderPage> {
 
     setState(() => isLoading = false);
   }
+
+
 
   Widget _buildDivider() {
     return Divider(
@@ -284,7 +309,6 @@ class _ReminderPageState extends State<ReminderPage> {
             if (_showCalendar) _buildCalendarPicker(themeProvider),
             _buildDivider(),
             const SizedBox(height: 16),
-
             // Collapsible Time Section
             GestureDetector(
               onTap: () {
@@ -334,9 +358,8 @@ class _ReminderPageState extends State<ReminderPage> {
   }
 
   Widget _buildCalendarPicker(ThemeProvider themeProvider) {
-    final themeProvider = Provider.of<ThemeProvider>(context);
     return SizedBox(
-      height: 350,
+      height: 410,
       child: TableCalendar(
         firstDay: DateTime.utc(2020, 1, 1),
         lastDay: DateTime.utc(2030, 12, 31),
@@ -365,9 +388,6 @@ class _ReminderPageState extends State<ReminderPage> {
   }
 
   Widget _buildTimePicker(bool isSmallScreen, ThemeProvider themeProvider) {
-    final themeProvider = Provider.of<ThemeProvider>(context);
-    final isSmallScreen = MediaQuery.of(context).size.width < 360;
-
     return Container(
       height: isSmallScreen ? 200.0 : 240.0,
       color: Colors.grey[50],
@@ -584,6 +604,7 @@ class _ReminderPageState extends State<ReminderPage> {
       onTap: onTap,
     );
   }
+
   @override
   void dispose() {
     _hourController.dispose();

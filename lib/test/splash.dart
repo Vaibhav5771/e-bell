@@ -11,7 +11,7 @@ class SplashScreen extends StatelessWidget {
           children: [
             Expanded(
               child: Center(
-                child: Image.asset('assets/Splash.png', height: 200),
+                child: Image.asset('assets/appicon.png', height: 200),
               ),
             ),
             Padding(

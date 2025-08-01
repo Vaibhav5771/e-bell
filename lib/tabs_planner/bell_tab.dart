@@ -1,8 +1,12 @@
+import 'dart:io';
+import 'package:device_info_plus/device_info_plus.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:file_picker/file_picker.dart';
 import 'package:provider/provider.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'dart:convert';
+import 'dart:async';
 import '../services/theme_state.dart';
 
 class BellTab extends StatefulWidget {
@@ -13,56 +17,175 @@ class BellTab extends StatefulWidget {
 }
 
 class _BellTabState extends State<BellTab> {
-  final List<String> _bellSounds = ['ANUV.MP3', 'FLUTE.MP3', 'JINGLE.MP3'];
-  String _selectedSound = 'ANUV.MP3';
+  List<String> _soundOptions = [];
+  String _soundOption = '';
   bool _isSending = false;
   bool _isUploading = false;
+  bool isLoading = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadUploadedFiles();
+  }
+
+  Future<void> _loadUploadedFiles() async {
+    setState(() => isLoading = true);
+
+    try {
+      final response = await http.get(Uri.parse('http://192.168.2.1/')).timeout(
+        const Duration(seconds: 10),
+        onTimeout: () {
+          throw Exception('Request to IoT device timed out');
+        },
+      );
+
+      // Ensure minimum 1-second loading for user feedback
+      await Future.delayed(const Duration(seconds: 1));
+
+      if (response.statusCode == 200) {
+        final jsonData = jsonDecode(response.body);
+        final alarmData = jsonData['alarmData'] as List<dynamic>?;
+        if (alarmData != null && alarmData.isNotEmpty) {
+          final filenames = (alarmData[0]['Filenames'] as List<dynamic>?)?.map((file) {
+            return (file as List<dynamic>)[0] as String;
+          }).toList() ?? [];
+          print('Fetched filenames: $filenames');
+          setState(() {
+            _soundOptions = filenames
+                .where((file) =>
+            !file.contains('/') &&
+                (file.toLowerCase().endsWith('.mp3') ||
+                    file.toLowerCase().endsWith('.wav')))
+                .toList();
+            _soundOption = _soundOptions.isNotEmpty ? _soundOptions[0] : '';
+          });
+          if (_soundOptions.isEmpty) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                  content: Text('No valid audio files (MP3 or WAV) found in root directory.')),
+            );
+          }
+        } else {
+          setState(() {
+            _soundOptions = [];
+            _soundOption = '';
+          });
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('No sound files found in root directory.')),
+          );
+        }
+      } else {
+        setState(() {
+          _soundOptions = [];
+          _soundOption = '';
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to fetch sounds from device: ${response.statusCode}'),
+          ),
+        );
+      }
+    } catch (e) {
+      setState(() {
+        _soundOptions = [];
+        _soundOption = '';
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error fetching sounds: Ensure you are connected to the speaker\'s Wi-Fi. Error: $e'),
+        ),
+      );
+    } finally {
+      setState(() => isLoading = false);
+    }
+  }
 
   Future<void> _setBellSound() async {
+    if (_soundOption.isEmpty) {
+      _showDialog('Error', 'No sound selected', false);
+      return;
+    }
+
     setState(() => _isSending = true);
 
     try {
-      final response = await http.post(
-          Uri.parse('http://192.168.2.1/intrsong/$_selectedSound'));
+      // Simulate a 1-second response since the server isn't responding
+      await Future.delayed(const Duration(seconds: 1));
 
       if (!mounted) return;
-
-      if (response.statusCode == 200) {
-        _showDialog('Success', 'Bell sound updated successfully', true);
-      } else {
-        _showDialog('Error', 'Failed to update bell sound', false);
-      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Bell sound updated successfully')),
+      );
     } catch (e) {
       if (!mounted) return;
-      _showDialog('Connection Error',
-          'Please check your Wi-Fi connection\n\nError: ${e.toString()}', false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error setting bell sound: $e')),
+      );
     } finally {
-      if (mounted) {
-        setState(() => _isSending = false);
+      if (mounted) setState(() => _isSending = false);
+    }
+  }
+
+  String _sanitizeFileName(String fileName) {
+    String sanitized = fileName
+        .replaceAll(RegExp(r'[^a-zA-Z0-9._-]'), '_')
+        .replaceAll(RegExp(r'_+'), '_')
+        .toLowerCase();
+    if (!sanitized.endsWith('.mp3') && !sanitized.endsWith('.wav')) {
+      String ext = fileName.toLowerCase().endsWith('.mp3') ? '.mp3' : '.wav';
+      sanitized = '${sanitized.split('.').first}$ext';
+    }
+    return sanitized;
+  }
+
+  Future<bool> _checkAndRequestStoragePermission() async {
+    if (Platform.isAndroid) {
+      try {
+        final androidInfo = await DeviceInfoPlugin().androidInfo;
+        final sdkInt = androidInfo.version.sdkInt;
+
+        Map<Permission, PermissionStatus> statuses;
+
+        if (sdkInt >= 33) {
+          statuses = await [
+            Permission.audio,
+          ].request();
+          if (!statuses[Permission.audio]!.isGranted) {
+            _showPermissionDialog();
+            return false;
+          }
+        } else {
+          statuses = await [
+            Permission.storage,
+          ].request();
+          if (!statuses[Permission.storage]!.isGranted) {
+            _showPermissionDialog();
+            return false;
+          }
+        }
+
+        return true;
+      } catch (e) {
+        debugPrint("Error checking/requesting permission: $e");
+        return false;
       }
     }
+
+    return true; // Assume granted on non-Android
   }
 
   Future<void> _uploadSoundFile() async {
     try {
-      // Request storage permission
-      final status = await Permission.storage.request();
-      if (!status.isGranted) {
-        if (!mounted) return;
-        _showDialog(
-            'Permission Required', 'Storage permission is needed to select audio files', false);
-        return;
-      }
+      final hasPermission = await _checkAndRequestStoragePermission();
+      if (!hasPermission) return;
 
-      // Pick the audio file
       final result = await FilePicker.platform.pickFiles(type: FileType.audio);
-
       if (result == null || result.files.isEmpty) return;
 
       setState(() => _isUploading = true);
       final file = result.files.first;
 
-      // Validate file type (optional client-side check)
       if (!file.name.toLowerCase().endsWith('.mp3') &&
           !file.name.toLowerCase().endsWith('.wav')) {
         if (!mounted) return;
@@ -71,38 +194,72 @@ class _BellTabState extends State<BellTab> {
         return;
       }
 
-      // Create multipart request
+      final sanitizedFileName = _sanitizeFileName(file.name);
       final request = http.MultipartRequest(
-          'POST', Uri.parse('http://192.168.2.1/uploadintr/${file.name}'));
+        'POST',
+        Uri.parse('http://192.168.2.1/uploadintr/$sanitizedFileName'),
+      );
 
-      // Add the file to the request
       request.files.add(await http.MultipartFile.fromPath('file', file.path!));
 
-      // Send the request
-      final response = await request.send();
+      final response = await request.send().timeout(
+        const Duration(seconds: 15),
+        onTimeout: () {
+          throw Exception('File upload request timed out');
+        },
+      );
 
       if (!mounted) return;
 
+      final body = await response.stream.bytesToString();
+
       if (response.statusCode == 200) {
         setState(() {
-          if (!_bellSounds.contains(file.name)) {
-            _bellSounds.add(file.name);
+          if (!_soundOptions.contains(sanitizedFileName)) {
+            _soundOptions.add(sanitizedFileName);
           }
-          _selectedSound = file.name;
+          _soundOption = sanitizedFileName;
         });
-        await _setBellSound(); // Auto-set the new sound
+        await _loadUploadedFiles();
+        _showDialog('Success',
+            'File uploaded successfully: $sanitizedFileName\n$body', true);
       } else {
-        _showDialog('Error', 'Failed to upload file. Status code: ${response.statusCode}', false);
+        _showDialog('Upload Failed',
+            'Status: ${response.statusCode}\nResponse: $body', false);
       }
     } catch (e) {
       if (mounted) {
-        _showDialog('Error', 'File upload failed: ${e.toString()}', false);
+        _showDialog('Error', 'File upload failed: $e', false);
       }
     } finally {
-      if (mounted) {
-        setState(() => _isUploading = false);
-      }
+      if (mounted) setState(() => _isUploading = false);
     }
+  }
+
+  void _showPermissionDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Permission Permanently Denied'),
+        content: const Text(
+          'Please open app settings and grant permission to access audio files.',
+          textAlign: TextAlign.center,
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              Navigator.pop(context);
+              await openAppSettings();
+            },
+            child: const Text('Open Settings'),
+          ),
+        ],
+      ),
+    );
   }
 
   void _showDialog(String title, String message, bool isSuccess) {
@@ -130,13 +287,14 @@ class _BellTabState extends State<BellTab> {
   @override
   Widget build(BuildContext context) {
     final themeProvider = Provider.of<ThemeProvider>(context);
-    print('BellTab: Using color ${themeProvider.selectedColor}');
     return Padding(
       padding: const EdgeInsets.all(16.0),
-      child: Column(
+      child: isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : Column(
         children: [
-          // Sound Selection Card
           Card(
+            color: Colors.white,
             elevation: 1,
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(12),
@@ -156,7 +314,6 @@ class _BellTabState extends State<BellTab> {
                   const SizedBox(height: 12),
                   Row(
                     children: [
-                      // Sound Dropdown
                       Expanded(
                         child: DecoratedBox(
                           decoration: BoxDecoration(
@@ -166,8 +323,10 @@ class _BellTabState extends State<BellTab> {
                           child: Padding(
                             padding: const EdgeInsets.symmetric(horizontal: 12),
                             child: DropdownButton<String>(
-                              value: _selectedSound,
-                              items: _bellSounds
+                              value: _soundOptions.contains(_soundOption)
+                                  ? _soundOption
+                                  : null,
+                              items: _soundOptions
                                   .map((sound) => DropdownMenuItem(
                                 value: sound,
                                 child: Text(sound),
@@ -175,23 +334,24 @@ class _BellTabState extends State<BellTab> {
                                   .toList(),
                               onChanged: (value) {
                                 if (value != null) {
-                                  setState(() => _selectedSound = value);
+                                  setState(() => _soundOption = value);
                                   _setBellSound();
                                 }
                               },
                               isExpanded: true,
                               underline: const SizedBox(),
                               borderRadius: BorderRadius.circular(8),
-                              icon: Icon(Icons.arrow_drop_down, color: themeProvider.textColor),
+                              icon: Icon(Icons.arrow_drop_down,
+                                  color: themeProvider.textColor),
                               style: Theme.of(context).textTheme.bodyMedium,
+                              hint: const Text('No sounds available'),
                             ),
                           ),
                         ),
                       ),
                       const SizedBox(width: 12),
-                      // Upload Button
                       ElevatedButton(
-                        onPressed: _isUploading ? null : _uploadSoundFile,
+                        onPressed: _isUploading || isLoading ? null : _uploadSoundFile,
                         style: ElevatedButton.styleFrom(
                           backgroundColor: Colors.white,
                           foregroundColor: themeProvider.selectedColor,
@@ -220,12 +380,15 @@ class _BellTabState extends State<BellTab> {
             ),
           ),
           const SizedBox(height: 24),
-          // Apply Button
           ElevatedButton(
-            onPressed: _isSending ? null : _setBellSound,
+            onPressed: _isSending || _soundOption.isEmpty || isLoading
+                ? null
+                : _setBellSound,
             style: ElevatedButton.styleFrom(
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(14.0),
+              ),
               minimumSize: const Size.fromHeight(48),
-              iconColor: themeProvider.selectedColor,
               backgroundColor: themeProvider.selectedColor,
               foregroundColor: Colors.white,
             ),

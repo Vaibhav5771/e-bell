@@ -62,6 +62,11 @@ class _AudioRecorderPageState extends State<AudioRecorderPage> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('WAV saved at: $outputPath')),
         );
+
+        // Return the converted WAV file path to the MusicLibrary
+        if (mounted) {
+          Navigator.pop(context, outputPath);
+        }
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Conversion failed: ${streamedResponse.statusCode}')),
