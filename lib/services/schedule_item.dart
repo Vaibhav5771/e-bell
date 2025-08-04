@@ -1,19 +1,21 @@
-import 'package:e_bell/services/theme_state.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'theme_state.dart';
 
 class ScheduleItem extends StatelessWidget {
   final String time;
   final String title;
   final bool isChecked;
   final bool isLast;
+  final IconData? icon; // Added to allow custom icons
 
   const ScheduleItem({
     super.key,
     required this.time,
     required this.title,
     required this.isChecked,
-    this.isLast = false,
+    this.isLast = false, // Made optional with default value
+    this.icon = Icons.alarm, // Default to alarm icon
   });
 
   @override
@@ -33,7 +35,7 @@ class ScheduleItem extends StatelessWidget {
                   shape: BoxShape.circle,
                 ),
                 child: Icon(
-                  Icons.alarm,
+                  icon, // Use custom icon
                   color: themeProvider.selectedColor,
                   size: 30,
                 ),
@@ -41,7 +43,7 @@ class ScheduleItem extends StatelessWidget {
               if (!isLast)
                 Expanded(
                   child: Padding(
-                    padding: const EdgeInsets.only(top: 10.0), // Add padding here
+                    padding: const EdgeInsets.only(top: 10.0),
                     child: CustomPaint(
                       painter: DottedLinePainter(),
                     ),

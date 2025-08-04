@@ -110,13 +110,19 @@ class _BellTabState extends State<BellTab> {
     setState(() => _isSending = true);
 
     try {
-      // Simulate a 1-second response since the server isn't responding
-      await Future.delayed(const Duration(seconds: 1));
+      final response = await http.post(
+        Uri.parse('http://192.168.2.1/intrsong/$_soundOption'),
+        // Optionally include headers or body if required
+      ).timeout(const Duration(seconds: 10));
 
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Bell sound updated successfully')),
-      );
+      if (response.statusCode == 200) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Bell sound updated successfully')),
+        );
+      } else {
+        throw Exception('Failed to set bell sound: ${response.statusCode}');
+      }
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -220,6 +226,7 @@ class _BellTabState extends State<BellTab> {
           }
           _soundOption = sanitizedFileName;
         });
+        // Refresh the file list after successful upload
         await _loadUploadedFiles();
         _showDialog('Success',
             'File uploaded successfully: $sanitizedFileName\n$body', true);

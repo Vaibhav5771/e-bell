@@ -1,15 +1,15 @@
-import 'package:http/http.dart' as http;
+import 'dart:io';
 import 'package:e_bell/remainder/remainder_model.dart';
+import 'package:flutter/cupertino.dart';
+import 'package:http/http.dart' as http;
 
 class ReminderService {
   static const String _baseUrl = 'http://192.168.2.1';
 
   static String _mapSound(String sound, List<String> availableSounds) {
-    // If sound is already a valid file name (e.g., from UI selection), use it
     if (availableSounds.contains(sound)) {
       return sound;
     }
-    // Map legacy sound values to the first available sound or a fallback
     switch (sound.toLowerCase()) {
       case 'beep':
       case 'chime':
@@ -26,7 +26,7 @@ class ReminderService {
       final soundFile = _mapSound(reminder.sound, availableSounds);
       final url = Uri.parse('$_baseUrl/settime/$soundFile');
       final epochTime = (reminder.startDateTime.millisecondsSinceEpoch / 1000).floor().toString();
-      final data = '$epochTime,${reminder.isActive ? 1 : 0},0'; // Repeat flag set to 0
+      final data = '$epochTime,${reminder.isActive ? 1 : 0},0';
 
       final response = await http.post(
         url,
@@ -43,6 +43,25 @@ class ReminderService {
       }
     } catch (e) {
       print('Error scheduling reminder on IoT device: $e');
+      return false;
+    }
+  }
+
+  static Future<bool> uploadAudio(String filePath) async {
+    try {
+      final uri = Uri.parse('$_baseUrl/upload');
+      final request = http.MultipartRequest('POST', uri);
+      request.files.add(await http.MultipartFile.fromPath('audio', filePath));
+      final response = await request.send();
+      if (response.statusCode == 200) {
+        debugPrint('Audio uploaded successfully: $filePath');
+        return true;
+      } else {
+        debugPrint('Failed to upload audio: ${response.statusCode}');
+        return false;
+      }
+    } catch (e) {
+      debugPrint('Error uploading audio: $e');
       return false;
     }
   }

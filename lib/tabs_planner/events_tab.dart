@@ -5,21 +5,25 @@ import 'package:e_bell/services/schedule_item.dart';
 import 'package:e_bell/alarm/alarm_model.dart';
 import 'package:e_bell/services/calender.dart';
 import 'package:provider/provider.dart';
-
+import '../remainder/remainder_model.dart';
 import '../services/theme_state.dart';
 
 class EventsTab extends StatefulWidget {
   final List<AlarmModel> todaysAlarms;
+  final List<ReminderModel> todaysReminders;
   final CalendarLogic calendarLogic;
   final Function(DateTime, DateTime) onDaySelected;
   final Future<void> Function() loadTodaysAlarms;
+  final Future<void> Function() loadTodaysReminders;
 
   const EventsTab({
     super.key,
     required this.todaysAlarms,
+    required this.todaysReminders,
     required this.calendarLogic,
     required this.onDaySelected,
     required this.loadTodaysAlarms,
+    required this.loadTodaysReminders,
   });
 
   @override
@@ -73,7 +77,6 @@ class _EventsTabState extends State<EventsTab> {
               dowTextFormatter: (date, locale) => DateFormat.E(locale).format(date).toUpperCase(),
             ),
             calendarStyle: CalendarStyle(
-              // Today's date style (grey with black digits)
               todayDecoration: BoxDecoration(
                 color: Colors.grey[300],
                 shape: BoxShape.circle,
@@ -83,7 +86,6 @@ class _EventsTabState extends State<EventsTab> {
                 color: Colors.black,
                 fontSize: 16,
               ),
-              // Selected date style (theme color with white digits)
               selectedDecoration: BoxDecoration(
                 color: themeProvider.selectedColor,
                 shape: BoxShape.circle,
@@ -93,7 +95,6 @@ class _EventsTabState extends State<EventsTab> {
                 color: Colors.white,
                 fontSize: 16,
               ),
-              // Default style for other dates
               defaultTextStyle: const TextStyle(
                 color: Colors.black,
                 fontSize: 16,
@@ -106,7 +107,7 @@ class _EventsTabState extends State<EventsTab> {
           ),
         ),
         const SizedBox(height: 24),
-        // Today's Schedule
+        // Schedule Header
         Text(
           isSameDay(selectedDay, today)
               ? "Today's Schedule"
@@ -123,35 +124,88 @@ class _EventsTabState extends State<EventsTab> {
             padding: const EdgeInsets.only(bottom: 16),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
-              children: widget.todaysAlarms.isEmpty
-                  ? [
-                const Text(
-                  'No alarms scheduled for this day',
-                  style: TextStyle(
-                    fontSize: 16,
-                    color: Colors.grey,
+              children: [
+                // Alarms Section
+                if (widget.todaysAlarms.isNotEmpty) ...[
+                  const Padding(
+                    padding: EdgeInsets.only(left: 8, bottom: 8),
+                    child: Text(
+                      'Alarms',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.black87,
+                      ),
+                    ),
                   ),
-                ),
-              ]
-                  : widget.todaysAlarms.map((alarm) {
-                final alarmDateTime = DateTime(
-                  selectedDay.year,
-                  selectedDay.month,
-                  selectedDay.day,
-                  alarm.time.hour,
-                  alarm.time.minute,
-                );
-                final isChecked = alarmDateTime.isBefore(DateTime.now());
-                final timeString = alarm.time.format(context);
-                return Padding(
-                  padding: const EdgeInsets.only(bottom: 8),
-                  child: ScheduleItem(
-                    time: timeString,
-                    title: alarm.label,
-                    isChecked: isChecked,
+                  ...widget.todaysAlarms.asMap().entries.map((entry) {
+                    final index = entry.key;
+                    final alarm = entry.value;
+                    final alarmDateTime = DateTime(
+                      selectedDay.year,
+                      selectedDay.month,
+                      selectedDay.day,
+                      alarm.time.hour,
+                      alarm.time.minute,
+                    );
+                    final isChecked = alarmDateTime.isBefore(DateTime.now());
+                    final timeString = alarm.time.format(context);
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: ScheduleItem(
+                        time: timeString,
+                        title: alarm.label,
+                        isChecked: isChecked,
+                        isLast: index == widget.todaysAlarms.length - 1, // Set isLast
+                        icon: Icons.alarm, // Explicitly set alarm icon
+                      ),
+                    );
+                  }),
+                ],
+                // Reminders Section
+                if (widget.todaysReminders.isNotEmpty) ...[
+                  const Padding(
+                    padding: EdgeInsets.only(left: 8, top: 8, bottom: 8),
+                    child: Text(
+                      'Reminders',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.black87,
+                      ),
+                    ),
                   ),
-                );
-              }).toList(),
+                  ...widget.todaysReminders.asMap().entries.map((entry) {
+                    final index = entry.key;
+                    final reminder = entry.value;
+                    final timeString =
+                        '${DateFormat('HH:mm').format(reminder.startDateTime)} - ${DateFormat('HH:mm').format(reminder.endDateTime)}';
+                    final isChecked = reminder.endDateTime.isBefore(DateTime.now());
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: ScheduleItem(
+                        time: timeString,
+                        title: reminder.title,
+                        isChecked: isChecked,
+                        isLast: index == widget.todaysReminders.length - 1, // Set isLast
+                        icon: Icons.event, // Use event icon for reminders
+                      ),
+                    );
+                  }),
+                ],
+                // Empty State
+                if (widget.todaysAlarms.isEmpty && widget.todaysReminders.isEmpty)
+                  const Padding(
+                    padding: EdgeInsets.all(8),
+                    child: Text(
+                      'No alarms or reminders scheduled for this day',
+                      style: TextStyle(
+                        fontSize: 16,
+                        color: Colors.grey,
+                      ),
+                    ),
+                  ),
+              ],
             ),
           ),
         ),

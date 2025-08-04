@@ -1,20 +1,20 @@
-import 'package:e_bell/pages/music_library.dart';
-import 'package:e_bell/pages/tablogic1.dart';
-import 'package:e_bell/test/login_page.dart';
 import 'package:flutter/material.dart';
 import 'package:table_calendar/table_calendar.dart';
 import 'package:e_bell/pages/alarm_page.dart';
+import 'package:e_bell/pages/music_library.dart';
+import 'package:e_bell/pages/tablogic1.dart';
 import 'package:e_bell/bell/schedule_bell.dart';
 import 'package:e_bell/services/calender.dart';
 import 'package:e_bell/alarm/shared_preferences.dart';
 import 'package:e_bell/alarm/alarm_model.dart';
 import 'package:e_bell/remainder/remainder_page.dart';
-import 'dart:async';
 import 'package:location/location.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:network_info_plus/network_info_plus.dart';
 import 'package:permission_handler/permission_handler.dart';
 import '../profile/profile_page.dart';
+import '../remainder/remainder_model.dart';
+import '../remainder/shared_preferences_remainder.dart';
 import '../services/bell_service.dart';
 import '../services/theme_state.dart';
 import '../tabs_planner/bell_tab.dart';
@@ -24,7 +24,7 @@ import 'package:flutter/foundation.dart';
 import 'package:provider/provider.dart';
 import '../test/auth_service.dart';
 import 'namaz_Sunrise.dart';
-
+import 'dart:async';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -39,6 +39,7 @@ class _HomeScreenState extends State<HomeScreen> {
   late CalendarLogic _calendarLogic;
   bool _isFabMenuOpen = false;
   List<AlarmModel> _todaysAlarms = [];
+  List<ReminderModel> _todaysReminders = [];
   Timer? _timer;
   int _selectedIndex = 0;
   String connectionStatus = "Checking Wi-Fi...";
@@ -54,15 +55,18 @@ class _HomeScreenState extends State<HomeScreen> {
     _musicTabLogic = TabLogic1();
     _calendarLogic = CalendarLogic();
     _loadTodaysAlarms();
+    _loadRemindersForSelectedDay();
     _requestPermissions();
-    // Start Wi-Fi monitoring and sync after initial check
     _startWifiMonitoring().then((_) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         _autoSyncTime();
       });
     });
     _timer = Timer.periodic(const Duration(minutes: 1), (timer) {
-      setState(() {});
+      setState(() {
+        _loadTodaysAlarms();
+        _loadRemindersForSelectedDay();
+      });
     });
   }
 
@@ -74,7 +78,6 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _requestPermissions() async {
-    // First check if location service is enabled
     Location location = Location();
     bool serviceEnabled = await location.serviceEnabled();
     if (!serviceEnabled) {
@@ -88,9 +91,7 @@ class _HomeScreenState extends State<HomeScreen> {
       }
     }
 
-    // Now only request location permission (removed nearbyWifiDevices)
     var status = await Permission.location.request();
-
     if (status.isDenied) {
       setState(() {
         connectionStatus = "Location permission denied";
@@ -207,16 +208,13 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _autoSyncTime() async {
     if (_hasSynced) return;
-
     debugPrint(
         "Attempting auto-sync with isWifiConnected: $isWifiConnected, connectionStatus: $connectionStatus");
-
     if (isWifiConnected && connectionStatus.contains(targetSsid)) {
       setState(() => _hasSynced = true);
-      await Future.delayed(const Duration(milliseconds: 500)); // Ensure UI readiness
+      await Future.delayed(const Duration(milliseconds: 500));
       await BellService().syncTime(context);
     }
-    // Removed the else block that showed the snackbar
   }
 
   Future<void> _loadTodaysAlarms() async {
@@ -239,11 +237,28 @@ class _HomeScreenState extends State<HomeScreen> {
     });
   }
 
+  Future<void> _loadRemindersForSelectedDay() async {
+    final reminders = await ReminderSharedPreferencesService.getReminders();
+    final selectedDay = _calendarLogic.selectedDay;
+    setState(() {
+      _todaysReminders = reminders.where((reminder) {
+        final reminderDate = DateTime(
+          reminder.startDateTime.year,
+          reminder.startDateTime.month,
+          reminder.startDateTime.day,
+        );
+        return isSameDay(reminderDate, selectedDay);
+      }).toList()
+        ..sort((a, b) => b.id.compareTo(a.id));
+    });
+  }
+
   void _onDaySelected(DateTime selectedDay, DateTime focusedDay) {
     setState(() {
       _calendarLogic.setSelectedDay(selectedDay);
       _calendarLogic.setFocusedDay(focusedDay);
       _loadTodaysAlarms();
+      _loadRemindersForSelectedDay();
     });
   }
 
@@ -317,9 +332,11 @@ class _HomeScreenState extends State<HomeScreen> {
                 child: _tabLogic.selectedTabIndex == 0
                     ? EventsTab(
                   todaysAlarms: _todaysAlarms,
+                  todaysReminders: _todaysReminders,
                   calendarLogic: _calendarLogic,
                   onDaySelected: _onDaySelected,
                   loadTodaysAlarms: _loadTodaysAlarms,
+                  loadTodaysReminders: _loadRemindersForSelectedDay,
                 )
                     : const BellTab(),
               ),
@@ -334,9 +351,9 @@ class _HomeScreenState extends State<HomeScreen> {
     return Scaffold(
       appBar: AppBar(
         backgroundColor: Colors.white,
-        surfaceTintColor: Colors.white, // Prevents tinting (e.g., purple overlay)
-        elevation: 0, // Removes shadow and overlay effect
-        automaticallyImplyLeading: false, // 🔴 Hides the leading icon
+        surfaceTintColor: Colors.white,
+        elevation: 0,
+        automaticallyImplyLeading: false,
         title: Text(
           'E-Bell',
           style: TextStyle(
@@ -346,7 +363,6 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ),
       ),
-
       body: Stack(
         children: [
           screens[_selectedIndex],
@@ -388,7 +404,7 @@ class _HomeScreenState extends State<HomeScreen> {
           : null,
       floatingActionButtonLocation: FloatingActionButtonLocation.miniEndFloat,
       bottomNavigationBar: SizedBox(
-        height: 66, // Default is ~80, reduce as needed
+        height: 66,
         child: BottomNavigationBar(
           currentIndex: _selectedIndex,
           onTap: _onNavBarTapped,
@@ -435,9 +451,9 @@ class _HomeScreenState extends State<HomeScreen> {
             case 'Reminder':
               await Navigator.push(
                 context,
-                MaterialPageRoute(
-                    builder: (context) => const ReminderPage()),
+                MaterialPageRoute(builder: (context) => const ReminderPage()),
               );
+              await _loadRemindersForSelectedDay();
               break;
             case 'Regional Planner':
               await Navigator.push(
@@ -490,7 +506,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 title,
                 style: const TextStyle(
                   fontSize: 16,
-                  color: Colors.black87,
+                  color: Colors.black,
                 ),
               ),
             ],

@@ -203,7 +203,7 @@ class _ReligiousAlarmsState extends State<ReligiousAlarms> {
 
     double lat = 18.520;
     double lng = 73.8567;
-    const double tz = 5.3; // Hardcoded timezone
+    const double tz = 5.5; // Hardcoded timezone
 
     if (enabled) {
       final location = await _getDeviceLocation();
