@@ -33,7 +33,7 @@ class _BellTabState extends State<BellTab> {
     setState(() => isLoading = true);
 
     try {
-      final response = await http.get(Uri.parse('http://192.168.2.1/')).timeout(
+      final response = await http.get(Uri.parse('http://192.168.2.1/intrsong/')).timeout(
         const Duration(seconds: 10),
         onTimeout: () {
           throw Exception('Request to IoT device timed out');

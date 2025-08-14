@@ -1,9 +1,9 @@
 import 'package:e_bell/services/theme_state.dart';
-import 'package:e_bell/test/auth_state.dart';
-import 'package:e_bell/test/auth_wrapper.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'authentication/auth_state.dart';
+import 'authentication/auth_wrapper.dart';
 import 'firebase_options.dart';
 
 void main() async {

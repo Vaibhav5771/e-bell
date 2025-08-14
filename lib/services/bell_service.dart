@@ -5,7 +5,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:flutter/foundation.dart';
 import 'package:file_picker/file_picker.dart';
 import 'dart:io';
-import 'package:http_parser/http_parser.dart';
+
 
 class BellService {
   // Singleton pattern
@@ -94,7 +94,7 @@ class BellService {
     }
   }
 
-  Future<void> syncTime(BuildContext context) async {
+  Future<void> syncTime(BuildContext context, {required DateTime selectedTime}) async {
     try {
       if (!await pingServer()) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -103,43 +103,28 @@ class BellService {
         return;
       }
 
-      final now = DateTime.now().toUtc().add(
-          const Duration(hours: 5, minutes: 30)); // UTC → IST
-      final epochTime = (now.millisecondsSinceEpoch / 1000).floor().toString();
-      debugPrint("Sending epoch time: $epochTime");
-      int retries = 3;
-      for (int i = 0; i < retries; i++) {
-        try {
-          final response = await http.post(
-            Uri.parse('http://192.168.2.1/time/d-'),
-            body: epochTime,
-            headers: {'Content-Type': 'text/plain'},
-          ).timeout(const Duration(seconds: 5), onTimeout: () {
-            throw TimeoutException('Sync time request timed out');
-          });
-          debugPrint(
-              "Sync time response: ${response.statusCode}, ${response.body}");
-          if (response.statusCode == 200) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text("Time synced successfully")),
-            );
-            return;
-          } else {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text(
-                    "Failed to sync time: ${response.statusCode}, ${response
-                        .body}"),
-              ),
-            );
-            debugPrint(
-                "Sync time failed: ${response.statusCode}, ${response.body}");
-          }
-          break;
-        } catch (e) {
-          debugPrint("Sync time retry ${i + 1} failed: $e");
-          if (i == retries - 1) throw e;
-        }
+      // Convert selectedTime (assumed in local time) to UTC
+      final utcTime = selectedTime.toUtc();
+      final epochTime = (utcTime.millisecondsSinceEpoch / 1000).floor().toString();
+
+      debugPrint("Selected time: $selectedTime → UTC: $utcTime → Epoch: $epochTime");
+
+      final response = await http.post(
+        Uri.parse('http://192.168.2.1/time/d-'),
+        body: epochTime,
+        headers: {'Content-Type': 'text/plain'},
+      ).timeout(const Duration(seconds: 5));
+
+      debugPrint("Sync time response: ${response.statusCode}, ${response.body}");
+
+      if (response.statusCode == 200) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Time synced successfully")),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("Failed to sync time: ${response.statusCode}")),
+        );
       }
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(

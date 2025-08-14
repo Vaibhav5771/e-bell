@@ -1,8 +1,5 @@
 plugins {
     id "com.android.application"
-    // START: FlutterFire Configuration
-    id 'com.google.gms.google-services'
-    // END: FlutterFire Configuration
     id "kotlin-android"
     id "dev.flutter.flutter-gradle-plugin"
 }
@@ -21,18 +18,12 @@ android {
         jvmTarget = JavaVersion.VERSION_1_8
     }
 
-    sourceSets {
-        main {
-            res.srcDirs += ['res'] // Append 'res' instead of replacing
-        }
-    }
-
     defaultConfig {
         applicationId = "com.example.e_bell"
         minSdk = 24
-        targetSdk = 35
-        versionCode = 1
-        versionName = "1.0"
+        targetSdk = flutter.targetSdkVersion
+        versionCode = flutter.versionCode
+        versionName = flutter.versionName
     }
 
     buildTypes {
@@ -42,6 +33,37 @@ android {
     }
 }
 
+repositories {
+    flatDir {
+        dirs 'libs'
+    }
+}
+
+dependencies {
+    implementation(name: 'ffmpeg-kit-full-gpl-6.0-2.LTS', ext: 'aar')
+    implementation 'com.arthenica:smart-exception-java:0.2.1'
+    implementation "org.jetbrains.kotlin:kotlin-stdlib:1.9.10"
+}
+
 flutter {
     source = "../.."
+}
+
+flutter {
+    source = "../.."
+}
+
+allprojects {
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
+
+rootProject.buildDir = "../build"
+subprojects {
+    project.buildDir = "${rootProject.buildDir}/${project.name}"
+}
+subprojects {
+    project.evaluationDependsOn(":app")
 }

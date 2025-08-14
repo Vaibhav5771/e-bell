@@ -1,158 +1,117 @@
+import 'dart:async';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_sound/flutter_sound.dart';
-import 'package:permission_handler/permission_handler.dart';
 import 'package:path_provider/path_provider.dart';
-import 'package:http/http.dart' as http;
-import 'dart:io';
+import 'package:permission_handler/permission_handler.dart';
 
 class AudioRecorderPage extends StatefulWidget {
   const AudioRecorderPage({super.key});
 
   @override
-  State<AudioRecorderPage> createState() => _AudioRecorderPageState();
+  _AudioRecorderPageState createState() => _AudioRecorderPageState();
 }
 
 class _AudioRecorderPageState extends State<AudioRecorderPage> {
   FlutterSoundRecorder? _recorder;
-  FlutterSoundPlayer? _player;
+  bool _isRecording = false;
   String? _filePath;
-  bool _isConverting = false;
 
   @override
   void initState() {
     super.initState();
     _recorder = FlutterSoundRecorder();
-    _player = FlutterSoundPlayer();
-    _initAudio();
-  }
-
-  Future<void> _initAudio() async {
-    await _recorder!.openRecorder();
-    await _player!.openPlayer();
-    await Permission.microphone.request();
-    await Permission.storage.request(); // For file access
-  }
-
-  Future<void> _convertToWav() async {
-    if (_filePath == null || !File(_filePath!).existsSync()) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('No recording found')),
-      );
-      return;
-    }
-
-    setState(() {
-      _isConverting = true;
-    });
-
-    try {
-      final uri = Uri.parse('https://e-bell.onrender.com/convert');
-      final request = http.MultipartRequest('POST', uri);
-      request.files.add(await http.MultipartFile.fromPath('audio', _filePath!));
-
-      final streamedResponse = await request.send();
-
-      if (streamedResponse.statusCode == 200) {
-        final bytes = await streamedResponse.stream.toBytes();
-        final dir = await getApplicationDocumentsDirectory();
-        final outputPath = '${dir.path}/converted.wav';
-        final file = File(outputPath);
-        await file.writeAsBytes(bytes);
-
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('WAV saved at: $outputPath')),
-        );
-
-        // Return the converted WAV file path to the MusicLibrary
-        if (mounted) {
-          Navigator.pop(context, outputPath);
-        }
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Conversion failed: ${streamedResponse.statusCode}')),
-        );
-      }
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error: $e')),
-      );
-    } finally {
-      setState(() {
-        _isConverting = false;
-      });
-    }
-  }
-
-  Future<String> _getFilePath() async {
-    final dir = await getApplicationDocumentsDirectory();
-    return "${dir.path}/recorded.aac";
-  }
-
-  Future<void> _startRecording() async {
-    if (await Permission.microphone.isDenied) {
-      throw Exception('Microphone permission not granted');
-    }
-
-    _filePath = await _getFilePath();
-    await _recorder!.startRecorder(
-      toFile: _filePath,
-      codec: Codec.aacADTS,
-    );
-
-    setState(() {});
-  }
-
-  Future<void> _stopRecording() async {
-    await _recorder!.stopRecorder();
-    setState(() {});
-  }
-
-  Future<void> _playRecording() async {
-    if (_filePath == null || !File(_filePath!).existsSync()) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('No recording found')),
-      );
-      return;
-    }
-    await _player!.startPlayer(fromURI: _filePath);
+    _initRecorder();
   }
 
   @override
   void dispose() {
-    _recorder!.closeRecorder();
-    _player!.closePlayer();
+    _recorder?.stopRecorder();
+    _recorder?.closeRecorder();
+    _recorder = null;
     super.dispose();
+  }
+
+  Future<void> _initRecorder() async {
+    await _recorder?.openRecorder();
+  }
+
+  Future<void> _startRecording() async {
+    if (await Permission.microphone.request().isGranted) {
+      final directory = await getTemporaryDirectory();
+      _filePath =
+      '${directory.path}/recording_${DateTime.now().millisecondsSinceEpoch}.aac';
+      await _recorder?.startRecorder(
+        toFile: _filePath,
+        codec: Codec.aacADTS,
+      );
+      setState(() {
+        _isRecording = true;
+      });
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Microphone permission denied')),
+      );
+    }
+  }
+
+  Future<void> _stopRecording() async {
+    await _recorder?.stopRecorder();
+    setState(() {
+      _isRecording = false;
+    });
+    if (_filePath != null) {
+      Navigator.pop(context, _filePath);
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Audio Recorder (AAC)')),
-      body: Padding(
-        padding: const EdgeInsets.all(16.0),
+      backgroundColor: Colors.white,
+      appBar: AppBar(
+        backgroundColor: Colors.orange,
+        title: const Text(
+          'Record Audio',
+          style: TextStyle(color: Colors.white),
+        ),
+        iconTheme: const IconThemeData(color: Colors.white),
+      ),
+      body: Center(
         child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            ElevatedButton(
-              onPressed: _recorder!.isRecording
-                  ? _stopRecording
-                  : _startRecording,
-              child: Text(_recorder!.isRecording
-                  ? 'Stop Recording'
-                  : 'Start Recording'),
+            Icon(
+              _isRecording ? Icons.mic : Icons.mic_none,
+              size: 80,
+              color: _isRecording ? Colors.orange : Colors.grey[400],
             ),
             const SizedBox(height: 20),
-            ElevatedButton(
-              onPressed: _playRecording,
-              child: const Text('Play Recording'),
+            Text(
+              _isRecording ? 'Recording...' : 'Ready to record',
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.bold,
+                color: _isRecording ? Colors.orange : Colors.black,
+              ),
             ),
-            const SizedBox(height: 20),
-            Text(_filePath ?? 'No file recorded yet.'),
-            const SizedBox(height: 20),
+            const SizedBox(height: 30),
             ElevatedButton(
-              onPressed: _isConverting ? null : _convertToWav,
-              child: _isConverting
-                  ? const CircularProgressIndicator()
-                  : const Text('Convert to WAV'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: _isRecording ? Colors.red : Colors.orange,
+                padding:
+                const EdgeInsets.symmetric(horizontal: 30, vertical: 15),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                elevation: 4,
+              ),
+              onPressed:
+              _isRecording ? _stopRecording : _startRecording,
+              child: Text(
+                _isRecording ? 'Stop Recording' : 'Start Recording',
+                style: const TextStyle(fontSize: 18, color: Colors.white),
+              ),
             ),
           ],
         ),

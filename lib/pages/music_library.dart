@@ -14,6 +14,7 @@ import 'package:e_bell/pages/tablogic1.dart';
 import 'package:e_bell/services/bell_service.dart';
 import '../services/theme_state.dart';
 import 'comingsoon.dart';
+import 'package:flutter/services.dart'; // For MethodChannel
 
 class MusicLibrary extends StatefulWidget {
   final TabLogic1 tabLogic;
@@ -35,6 +36,7 @@ class _MusicLibraryState extends State<MusicLibrary> {
   AudioPlayer? _player;
   int? _currentlyPlayingIndex;
   StreamSubscription<PlayerState>? _playerStateSubscription;
+  static const MethodChannel _ffmpegChannel = MethodChannel('ffmpeg'); // FFmpeg channel
 
   @override
   void initState() {
@@ -113,13 +115,17 @@ class _MusicLibraryState extends State<MusicLibrary> {
 
   Future<void> _loadRecordings() async {
     final directory = await getApplicationDocumentsDirectory();
-    final files = await directory.list().toList();
-    debugPrint("Documents directory: ${directory.path}");
+    final musicDir = Directory('${directory.path}/Music');
+    if (!await musicDir.exists()) {
+      await musicDir.create(recursive: true);
+    }
+    final files = await musicDir.list().toList();
+    debugPrint("Music directory: ${musicDir.path}");
     debugPrint("Found files: ${files.map((f) => f.path).toList()}");
 
     final existingPaths = recordings.toSet();
     final newRecordings = files
-        .where((file) => file is File && (file.path.toLowerCase().endsWith('.wav') || file.path.toLowerCase().endsWith('.mp3')))
+        .where((file) => file is File && file.path.toLowerCase().endsWith('.mp3'))
         .map((file) => file.path)
         .where((path) => !existingPaths.contains(path))
         .toList();
@@ -129,6 +135,44 @@ class _MusicLibraryState extends State<MusicLibrary> {
       _isLoading = false;
       debugPrint("Updated recordings: $recordings");
     });
+  }
+
+  Future<String?> _convertAacToMp3(String aacPath) async {
+    try {
+      final directory = await getApplicationDocumentsDirectory();
+      final outputDir = Directory('${directory.path}/Music');
+      if (!await outputDir.exists()) {
+        await outputDir.create(recursive: true);
+      }
+      final outputPath = '${outputDir.path}/${DateTime.now().millisecondsSinceEpoch}.mp3';
+      final command = '-i "$aacPath" -c:a mp3 -b:a 192k "$outputPath"';
+      debugPrint("FFmpeg command: ffmpeg $command");
+
+      final result = await _ffmpegChannel.invokeMethod('run', {'command': command});
+      debugPrint("FFmpeg result: $result");
+
+      if (result == 'success') {
+        // Delete the original AAC file
+        final aacFile = File(aacPath);
+        if (await aacFile.exists()) {
+          await aacFile.delete();
+          debugPrint("Deleted original AAC file: $aacPath");
+        }
+        return outputPath;
+      } else {
+        debugPrint("FFmpeg conversion failed: $result");
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Conversion failed: $result')),
+        );
+        return null;
+      }
+    } catch (e) {
+      debugPrint("Error converting AAC to MP3: $e");
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error converting audio: $e')),
+      );
+      return null;
+    }
   }
 
   Future<void> _playRecording(int index) async {
@@ -265,18 +309,21 @@ class _MusicLibraryState extends State<MusicLibrary> {
           Permission.location,
           Permission.nearbyWifiDevices,
           Permission.audio,
+          Permission.microphone, // Add microphone permission for recording
         ].request();
       } else {
         statuses = await [
           Permission.location,
           Permission.nearbyWifiDevices,
           Permission.storage,
+          Permission.microphone, // Add microphone permission for recording
         ].request();
       }
     } else {
       statuses = await [
         Permission.location,
         Permission.nearbyWifiDevices,
+        Permission.microphone, // Add microphone permission for recording
       ].request();
     }
 
@@ -311,6 +358,15 @@ class _MusicLibraryState extends State<MusicLibrary> {
           debugPrint("Storage permission granted");
         }
       }
+    }
+
+    if (statuses[Permission.microphone]!.isDenied) {
+      debugPrint("Microphone permission denied");
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Microphone permission denied; cannot record audio")),
+      );
+    } else {
+      debugPrint("Microphone permission granted");
     }
   }
 
@@ -465,19 +521,30 @@ class _MusicLibraryState extends State<MusicLibrary> {
               }
               break;
             case 'Record Music':
-              final newRecordingPath = await Navigator.push<String>(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => const AudioRecorderPage(),
-                ),
-              );
-              if (newRecordingPath != null) {
-                setState(() {
-                  recordings.add(newRecordingPath);
-                  debugPrint("Added recording: $newRecordingPath");
-                  debugPrint("After recording, recordings: $recordings");
-                  widget.tabLogic.setSelectedTab(1); // Switch to My Music tab
-                });
+              if (await Permission.microphone.isGranted) {
+                final newRecordingPath = await Navigator.push<String>(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => const AudioRecorderPage(),
+                  ),
+                );
+                if (newRecordingPath != null) {
+                  // Convert AAC to MP3
+                  final mp3Path = await _convertAacToMp3(newRecordingPath);
+                  if (mp3Path != null) {
+                    setState(() {
+                      recordings.add(mp3Path);
+                      debugPrint("Added MP3 recording: $mp3Path");
+                      debugPrint("After recording, recordings: $recordings");
+                      widget.tabLogic.setSelectedTab(1); // Switch to My Music tab
+                    });
+                  }
+                }
+              } else {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text("Microphone permission required to record")),
+                );
+                await Permission.microphone.request();
               }
               break;
           }

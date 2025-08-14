@@ -1,12 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../authentication/auth_service.dart';
 import '../services/theme_state.dart';
 import 'account_screen.dart';
 import 'app_setting.dart';
 import 'device_setting.dart';
 import 'app_info.dart';
 import 'help_privacy_screen.dart';
-import '../test/auth_service.dart';
+
 
 class ProfileScreen extends StatefulWidget {
   @override
