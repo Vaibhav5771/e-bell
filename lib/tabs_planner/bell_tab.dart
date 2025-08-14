@@ -33,72 +33,95 @@ class _BellTabState extends State<BellTab> {
     setState(() => isLoading = true);
 
     try {
-      final response = await http.get(Uri.parse('http://192.168.2.1/intrsong/')).timeout(
-        const Duration(seconds: 10),
-        onTimeout: () {
-          throw Exception('Request to IoT device timed out');
-        },
-      );
+      final response = await http.get(
+        Uri.parse('http://192.168.2.1/intrsong/'),
+      ).timeout(const Duration(seconds: 10));
 
-      // Ensure minimum 1-second loading for user feedback
-      await Future.delayed(const Duration(seconds: 1));
+      debugPrint('Raw response: ${response.body}');
 
       if (response.statusCode == 200) {
         final jsonData = jsonDecode(response.body);
-        final alarmData = jsonData['alarmData'] as List<dynamic>?;
-        if (alarmData != null && alarmData.isNotEmpty) {
-          final filenames = (alarmData[0]['Filenames'] as List<dynamic>?)?.map((file) {
-            return (file as List<dynamic>)[0] as String;
-          }).toList() ?? [];
-          print('Fetched filenames: $filenames');
-          setState(() {
-            _soundOptions = filenames
-                .where((file) =>
-            !file.contains('/') &&
-                (file.toLowerCase().endsWith('.mp3') ||
-                    file.toLowerCase().endsWith('.wav')))
-                .toList();
-            _soundOption = _soundOptions.isNotEmpty ? _soundOptions[0] : '';
-          });
-          if (_soundOptions.isEmpty) {
+        debugPrint('Parsed JSON: $jsonData');
+
+        List<String> files = [];
+
+        // Handle the specific nested structure
+        if (jsonData['intrData'] != null && jsonData['intrData'] is List) {
+          final intrDataList = jsonData['intrData'] as List;
+
+          for (final intrData in intrDataList) {
+            if (intrData['files'] != null && intrData['files'] is List) {
+              final filesList = intrData['files'] as List;
+
+              for (final fileEntry in filesList) {
+                if (fileEntry is List && fileEntry.isNotEmpty) {
+                  final fileName = fileEntry[0] as String?;
+                  if (fileName != null) {
+                    files.add(fileName);
+                  }
+                }
+              }
+            }
+          }
+        }
+
+        debugPrint('Extracted files: $files');
+
+        setState(() {
+          _soundOptions = files;
+          _soundOption = files.isNotEmpty ? files[0] : '';
+        });
+
+        if (files.isEmpty) {
+          debugPrint('No valid files found in response');
+          if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                  content: Text('No valid audio files (MP3 or WAV) found in root directory.')),
+              const SnackBar(content: Text('No audio files found on device')),
             );
           }
-        } else {
-          setState(() {
-            _soundOptions = [];
-            _soundOption = '';
-          });
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('No sound files found in root directory.')),
-          );
         }
       } else {
-        setState(() {
-          _soundOptions = [];
-          _soundOption = '';
-        });
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Failed to fetch sounds from device: ${response.statusCode}'),
-          ),
-        );
+        debugPrint('API error: ${response.statusCode}');
       }
     } catch (e) {
-      setState(() {
-        _soundOptions = [];
-        _soundOption = '';
-      });
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Error fetching sounds: Ensure you are connected to the speaker\'s Wi-Fi. Error: $e'),
-        ),
-      );
+      debugPrint('Error loading files: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: ${e.toString()}')),
+        );
+      }
     } finally {
-      setState(() => isLoading = false);
+      if (mounted) {
+        setState(() => isLoading = false);
+      }
     }
+  }
+
+  List<String> _extractStringsFromList(List<dynamic> list) {
+    return list
+        .whereType<String>()
+        .where((item) => item.trim().isNotEmpty)
+        .toList();
+  }
+
+  List<String> _extractStringsFromJsonObject(Map<dynamic, dynamic> json) {
+    final List<String> result = [];
+
+    // Check common keys that might contain files
+    const possibleKeys = ['files', 'allSongs', 'Filenames', 'songs'];
+
+    for (final key in possibleKeys) {
+      if (json[key] is List) {
+        result.addAll(_extractStringsFromList(json[key]));
+      }
+    }
+
+    // Also check all list values in the JSON
+    json.values.whereType<List>().forEach((list) {
+      result.addAll(_extractStringsFromList(list));
+    });
+
+    return result.toSet().toList(); // Remove duplicates
   }
 
   Future<void> _setBellSound() async {
@@ -387,36 +410,6 @@ class _BellTabState extends State<BellTab> {
             ),
           ),
           const SizedBox(height: 24),
-          ElevatedButton(
-            onPressed: _isSending || _soundOption.isEmpty || isLoading
-                ? null
-                : _setBellSound,
-            style: ElevatedButton.styleFrom(
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(14.0),
-              ),
-              minimumSize: const Size.fromHeight(48),
-              backgroundColor: themeProvider.selectedColor,
-              foregroundColor: Colors.white,
-            ),
-            child: _isSending
-                ? const Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                SizedBox(
-                  width: 20,
-                  height: 20,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2,
-                    color: Colors.white,
-                  ),
-                ),
-                SizedBox(width: 12),
-                Text('Applying...'),
-              ],
-            )
-                : const Text('APPLY BELL SOUND'),
-          ),
         ],
       ),
     );
