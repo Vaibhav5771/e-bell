@@ -9,12 +9,11 @@ import 'package:network_info_plus/network_info_plus.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
 import 'package:path_provider/path_provider.dart';
-import 'package:e_bell/music_tabs/recordingpage.dart';
 import 'package:e_bell/pages/tablogic1.dart';
 import 'package:e_bell/services/bell_service.dart';
+import '../music_tabs/recordingpage.dart';
 import '../services/theme_state.dart';
 import 'comingsoon.dart';
-import 'package:flutter/services.dart'; // For MethodChannel
 
 class MusicLibrary extends StatefulWidget {
   final TabLogic1 tabLogic;
@@ -36,7 +35,6 @@ class _MusicLibraryState extends State<MusicLibrary> {
   AudioPlayer? _player;
   int? _currentlyPlayingIndex;
   StreamSubscription<PlayerState>? _playerStateSubscription;
-  static const MethodChannel _ffmpegChannel = MethodChannel('ffmpeg'); // FFmpeg channel
 
   @override
   void initState() {
@@ -63,12 +61,7 @@ class _MusicLibraryState extends State<MusicLibrary> {
       _playerStateSubscription = _player?.playerStateStream.listen((state) {
         setState(() {
           if (state.processingState == ProcessingState.completed) {
-            debugPrint("Playback completed");
             _currentlyPlayingIndex = null;
-          } else if (!state.playing && _currentlyPlayingIndex != null) {
-            debugPrint("Audio paused");
-          } else if (state.playing && _currentlyPlayingIndex != null) {
-            debugPrint("Audio playing");
           }
         });
       }, onError: (e) {
@@ -82,7 +75,6 @@ class _MusicLibraryState extends State<MusicLibrary> {
           _currentlyPlayingIndex = null;
         });
       });
-      debugPrint("AudioPlayer initialized successfully");
     } catch (e) {
       debugPrint('Failed to initialize player: $e');
       if (mounted) {
@@ -93,85 +85,37 @@ class _MusicLibraryState extends State<MusicLibrary> {
     }
   }
 
-  Future<bool> _checkPermissions() async {
-    if (Platform.isAndroid) {
-      final androidVersion = await _getAndroidVersion();
-      if (androidVersion >= 33) {
-        final audioStatus = await Permission.audio.status;
-        if (!audioStatus.isGranted) {
-          return (await Permission.audio.request()).isGranted;
-        }
-        return true;
-      } else {
-        final storageStatus = await Permission.storage.status;
-        if (!storageStatus.isGranted) {
-          return (await Permission.storage.request()).isGranted;
-        }
-        return true;
-      }
-    }
-    return true;
-  }
-
   Future<void> _loadRecordings() async {
-    final directory = await getApplicationDocumentsDirectory();
-    final musicDir = Directory('${directory.path}/Music');
-    if (!await musicDir.exists()) {
-      await musicDir.create(recursive: true);
-    }
-    final files = await musicDir.list().toList();
-    debugPrint("Music directory: ${musicDir.path}");
-    debugPrint("Found files: ${files.map((f) => f.path).toList()}");
-
-    final existingPaths = recordings.toSet();
-    final newRecordings = files
-        .where((file) => file is File && file.path.toLowerCase().endsWith('.mp3'))
-        .map((file) => file.path)
-        .where((path) => !existingPaths.contains(path))
-        .toList();
-
-    setState(() {
-      recordings.addAll(newRecordings);
-      _isLoading = false;
-      debugPrint("Updated recordings: $recordings");
-    });
-  }
-
-  Future<String?> _convertAacToMp3(String aacPath) async {
     try {
+      setState(() => _isLoading = true);
+
       final directory = await getApplicationDocumentsDirectory();
-      final outputDir = Directory('${directory.path}/Music');
-      if (!await outputDir.exists()) {
-        await outputDir.create(recursive: true);
-      }
-      final outputPath = '${outputDir.path}/${DateTime.now().millisecondsSinceEpoch}.mp3';
-      final command = '-i "$aacPath" -c:a mp3 -b:a 192k "$outputPath"';
-      debugPrint("FFmpeg command: ffmpeg $command");
+      final recordingsDir = Directory('${directory.path}/recordings');
 
-      final result = await _ffmpegChannel.invokeMethod('run', {'command': command});
-      debugPrint("FFmpeg result: $result");
-
-      if (result == 'success') {
-        // Delete the original AAC file
-        final aacFile = File(aacPath);
-        if (await aacFile.exists()) {
-          await aacFile.delete();
-          debugPrint("Deleted original AAC file: $aacPath");
-        }
-        return outputPath;
-      } else {
-        debugPrint("FFmpeg conversion failed: $result");
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Conversion failed: $result')),
-        );
-        return null;
+      if (!await recordingsDir.exists()) {
+        await recordingsDir.create(recursive: true);
       }
+
+      final files = await recordingsDir.list().toList();
+
+      final mp3Files = files
+          .whereType<File>()
+          .where((file) => file.path.toLowerCase().endsWith('.mp3'))
+          .toList();
+
+      mp3Files.sort((a, b) => b.statSync().modified.compareTo(a.statSync().modified));
+
+      setState(() {
+        recordings = mp3Files.map((file) => file.path).toList();
+        _isLoading = false;
+      });
     } catch (e) {
-      debugPrint("Error converting AAC to MP3: $e");
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error converting audio: $e')),
-      );
-      return null;
+      setState(() => _isLoading = false);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error loading recordings: $e')),
+        );
+      }
     }
   }
 
@@ -179,39 +123,28 @@ class _MusicLibraryState extends State<MusicLibrary> {
     try {
       final filePath = recordings[index];
       final file = File(filePath);
-      debugPrint("Attempting to play: $filePath");
 
       if (!await file.exists()) {
-        debugPrint("File does not exist: $filePath");
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('File not found: $filePath')),
+            SnackBar(content: Text('File not found: ${file.path}')),
           );
         }
         return;
       }
 
       if (_currentlyPlayingIndex == index && _player?.playing == true) {
-        setState(() {
-          debugPrint("Pausing audio: $filePath");
-        });
         await _player?.pause();
         return;
       }
 
       if (_currentlyPlayingIndex == index && _player?.playing == false) {
-        setState(() {
-          debugPrint("Resuming audio: $filePath");
-        });
         await _player?.play();
         return;
       }
 
       await _player?.stop();
-      setState(() {
-        _currentlyPlayingIndex = index;
-        debugPrint("Starting new audio: $filePath");
-      });
+      setState(() => _currentlyPlayingIndex = index);
 
       await _player?.setFilePath(filePath);
       await _player?.play();
@@ -222,37 +155,34 @@ class _MusicLibraryState extends State<MusicLibrary> {
           SnackBar(content: Text('Error playing audio: $e')),
         );
       }
-      setState(() {
-        _currentlyPlayingIndex = null;
-      });
+      setState(() => _currentlyPlayingIndex = null);
     }
   }
 
   Future<void> _deleteRecording(int index, String filePath) async {
-    final file = File(filePath);
-    final fileName = file.uri.pathSegments.last;
-
     try {
-      if (fileName.toLowerCase().endsWith('.mp3')) {
-        final url = Uri.parse('http://192.168.2.1/delete/$fileName');
-        final response = await HttpClient().deleteUrl(url).then((req) => req.close());
-
-        if (response.statusCode != 200) {
-          debugPrint("Failed to delete on device: ${response.statusCode}");
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text('Device deletion failed: ${response.statusCode}')),
-            );
-          }
-        } else {
-          debugPrint("Deleted on IoT device: $fileName");
-        }
-      }
-
+      final file = File(filePath);
       await file.delete();
-      debugPrint("Deleted locally: $filePath");
+
+      setState(() {
+        recordings.removeAt(index);
+        if (_currentlyPlayingIndex != null && _currentlyPlayingIndex! >= index) {
+          if (_currentlyPlayingIndex == index) {
+            _currentlyPlayingIndex = null;
+            _player?.stop();
+          } else {
+            _currentlyPlayingIndex = _currentlyPlayingIndex! - 1;
+          }
+        }
+      });
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Recording deleted')),
+        );
+      }
     } catch (e) {
-      debugPrint("Error during delete: $e");
+      debugPrint("Error deleting file: $e");
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Error deleting file: $e')),
@@ -273,113 +203,70 @@ class _MusicLibraryState extends State<MusicLibrary> {
       var connectivityResult = await Connectivity().checkConnectivity();
       if (connectivityResult.contains(ConnectivityResult.wifi)) {
         String? wifiSSID = await NetworkInfo().getWifiName();
-        debugPrint("Raw Wi-Fi SSID: $wifiSSID");
         setState(() {
           isWifiConnected = true;
-          if (wifiSSID != null &&
-              wifiSSID.toLowerCase() == targetSsid.toLowerCase()) {
-            connectionStatus = "Connected to $targetSsid";
-          } else {
-            connectionStatus = "Connected to Wi-Fi: ${wifiSSID ?? 'Unknown'}";
-          }
+          connectionStatus = wifiSSID != null && wifiSSID.toLowerCase() == targetSsid.toLowerCase()
+              ? "Connected to $targetSsid"
+              : "Connected to Wi-Fi: ${wifiSSID ?? 'Unknown'}";
         });
-        debugPrint("Connection Status: $connectionStatus");
       } else {
         setState(() {
           isWifiConnected = false;
           connectionStatus = "Not connected to Wi-Fi";
         });
-        debugPrint("Not connected to Wi-Fi");
       }
     } catch (e) {
       setState(() {
         isWifiConnected = false;
         connectionStatus = "Error checking Wi-Fi: $e";
       });
-      debugPrint("Error checking Wi-Fi: $e");
     }
   }
 
-  Future<void> _requestPermissions() async {
-    Map<Permission, PermissionStatus> statuses;
-
+  Future<bool> _checkPermissions() async {
     if (Platform.isAndroid) {
-      if ((await _getAndroidVersion()) >= 33) {
-        statuses = await [
-          Permission.location,
-          Permission.nearbyWifiDevices,
-          Permission.audio,
-          Permission.microphone, // Add microphone permission for recording
-        ].request();
+      final androidVersion = await _getAndroidVersion();
+      if (androidVersion >= 33) {
+        return (await Permission.audio.request()).isGranted;
       } else {
-        statuses = await [
-          Permission.location,
-          Permission.nearbyWifiDevices,
-          Permission.storage,
-          Permission.microphone, // Add microphone permission for recording
-        ].request();
-      }
-    } else {
-      statuses = await [
-        Permission.location,
-        Permission.nearbyWifiDevices,
-        Permission.microphone, // Add microphone permission for recording
-      ].request();
-    }
-
-    if (statuses[Permission.location]!.isDenied) {
-      setState(() {
-        connectionStatus = "Location permission denied";
-      });
-      debugPrint("Location permission denied");
-    } else {
-      debugPrint("Location permission granted");
-    }
-
-    if (Platform.isAndroid) {
-      if ((await _getAndroidVersion()) >= 33) {
-        if (statuses[Permission.audio]!.isDenied) {
-          debugPrint("Audio permission denied");
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-                content: Text("Audio permission denied; cannot access audio files")),
-          );
-        } else {
-          debugPrint("Audio permission granted");
-        }
-      } else {
-        if (statuses[Permission.storage]!.isDenied) {
-          debugPrint("Storage permission denied");
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-                content: Text("Storage permission denied; cannot access files")),
-          );
-        } else {
-          debugPrint("Storage permission granted");
-        }
+        return (await Permission.storage.request()).isGranted;
       }
     }
-
-    if (statuses[Permission.microphone]!.isDenied) {
-      debugPrint("Microphone permission denied");
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Microphone permission denied; cannot record audio")),
-      );
-    } else {
-      debugPrint("Microphone permission granted");
-    }
+    return true;
   }
 
   Future<int> _getAndroidVersion() async {
-    try {
-      if (Platform.isAndroid) {
-        var version = await DeviceInfoPlugin().androidInfo;
-        return version.version.sdkInt;
-      }
-    } catch (e) {
-      debugPrint("Error getting Android version: $e");
+    if (Platform.isAndroid) {
+      var version = await DeviceInfoPlugin().androidInfo;
+      return version.version.sdkInt;
     }
     return 0;
+  }
+
+  Future<void> _requestPermissions() async {
+    if (Platform.isAndroid) {
+      if ((await _getAndroidVersion()) >= 33) {
+        await [
+          Permission.location,
+          Permission.nearbyWifiDevices,
+          Permission.audio,
+          Permission.microphone,
+        ].request();
+      } else {
+        await [
+          Permission.location,
+          Permission.nearbyWifiDevices,
+          Permission.storage,
+          Permission.microphone,
+        ].request();
+      }
+    } else {
+      await [
+        Permission.location,
+        Permission.nearbyWifiDevices,
+        Permission.microphone,
+      ].request();
+    }
   }
 
   @override
@@ -411,11 +298,7 @@ class _MusicLibraryState extends State<MusicLibrary> {
                               context: context,
                               text: 'Library',
                               index: 0,
-                              onTap: () {
-                                setState(() {
-                                  widget.tabLogic.setSelectedTab(0);
-                                });
-                              },
+                              onTap: () => setState(() => widget.tabLogic.setSelectedTab(0)),
                             ),
                           ),
                           Expanded(
@@ -423,11 +306,7 @@ class _MusicLibraryState extends State<MusicLibrary> {
                               context: context,
                               text: 'My Music',
                               index: 1,
-                              onTap: () {
-                                setState(() {
-                                  widget.tabLogic.setSelectedTab(1);
-                                });
-                              },
+                              onTap: () => setState(() => widget.tabLogic.setSelectedTab(1)),
                             ),
                           ),
                         ],
@@ -465,8 +344,8 @@ class _MusicLibraryState extends State<MusicLibrary> {
                 ),
                 child: Column(
                   children: [
-                    _buildFabOption('Add Music', false),
-                    _buildFabOption('Record Music', false),
+                    _buildFabOption('Add Music'),
+                    _buildFabOption('Record Music'),
                   ],
                 ),
               ),
@@ -494,90 +373,49 @@ class _MusicLibraryState extends State<MusicLibrary> {
     );
   }
 
-  Widget _buildFabOption(String title, bool isChecked) {
+  Widget _buildFabOption(String title) {
     final themeProvider = Provider.of<ThemeProvider>(context);
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: () async {
-          setState(() => _isFabMenuOpen = false);
-          switch (title) {
-            case 'Add Music':
-              if (await _checkPermissions()) {
-                debugPrint("Before upload, recordings: $recordings");
-                final newFilePath = await BellService().uploadMp3(context, null, isWifiConnected);
-                if (newFilePath != null) {
-                  setState(() {
-                    recordings.add(newFilePath);
-                    debugPrint("Added to recordings: $newFilePath");
-                    debugPrint("After upload, recordings: $recordings");
-                    widget.tabLogic.setSelectedTab(1); // Switch to My Music tab
-                  });
-                }
-              } else {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text("Required permissions not granted")),
-                );
-              }
-              break;
-            case 'Record Music':
-              if (await Permission.microphone.isGranted) {
-                final newRecordingPath = await Navigator.push<String>(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => const AudioRecorderPage(),
-                  ),
-                );
-                if (newRecordingPath != null) {
-                  // Convert AAC to MP3
-                  final mp3Path = await _convertAacToMp3(newRecordingPath);
-                  if (mp3Path != null) {
-                    setState(() {
-                      recordings.add(mp3Path);
-                      debugPrint("Added MP3 recording: $mp3Path");
-                      debugPrint("After recording, recordings: $recordings");
-                      widget.tabLogic.setSelectedTab(1); // Switch to My Music tab
-                    });
-                  }
-                }
-              } else {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text("Microphone permission required to record")),
-                );
-                await Permission.microphone.request();
-              }
-              break;
-          }
-        },
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
-          child: Row(
-            children: [
-              Container(
-                width: 24,
-                height: 24,
-                decoration: BoxDecoration(
-                  color: themeProvider.selectedColor,
-                  shape: BoxShape.circle,
-                ),
-                child: Icon(
-                  Icons.add,
-                  color: themeProvider.textColor,
-                  size: 16,
-                ),
-              ),
-              const SizedBox(width: 16),
-              Text(
-                title,
-                style: const TextStyle(
-                  fontSize: 16,
-                  color: Colors.black87,
-                ),
-              ),
-            ],
-          ),
-        ),
+    return ListTile(
+      leading: Icon(
+        title == 'Add Music' ? Icons.add : Icons.mic,
+        color: themeProvider.selectedColor,
       ),
+      title: Text(title),
+      onTap: () async {
+        setState(() => _isFabMenuOpen = false);
+        if (title == 'Add Music') {
+          if (await _checkPermissions()) {
+            final newFilePath = await BellService().uploadMp3(context, null, isWifiConnected);
+            if (newFilePath != null && mounted) {
+              await _loadRecordings();
+              widget.tabLogic.setSelectedTab(1);
+            }
+          }
+        } else {
+          final micStatus = await Permission.microphone.status;
+          if (!micStatus.isGranted) {
+            final result = await Permission.microphone.request();
+            if (!result.isGranted) {
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Microphone permission required')),
+                );
+              }
+              return;
+            }
+          }
+
+          final newRecordingPath = await Navigator.push<String>(
+            context,
+            MaterialPageRoute(builder: (context) => const AudioRecorderPage()),
+          );
+
+          if (newRecordingPath != null && mounted) {
+            await _loadRecordings();
+            widget.tabLogic.setSelectedTab(1);
+          }
+        }
+      },
     );
   }
 
@@ -601,10 +439,9 @@ class _MusicLibraryState extends State<MusicLibrary> {
     if (recordings.isEmpty) {
       return const Center(
         child: Text(
-          'No recordings yet.\nTap the + button to record something!',
-          textAlign: TextAlign.center,
-          style: TextStyle(fontSize: 16),
-        ),
+            'No recordings yet.\nTap the + button to record something!',
+            textAlign: TextAlign.center,
+            style: TextStyle(fontSize: 16)),
       );
     }
 
@@ -621,34 +458,30 @@ class _MusicLibraryState extends State<MusicLibrary> {
         itemCount: recordings.length,
         itemBuilder: (context, index) {
           final filePath = recordings[index];
-          final file = File(filePath);
-          final fileName = file.path.split('/').last;
+          final fileName = filePath.split('/').last;
+
           return Dismissible(
-            key: Key(filePath), // Unique key based on file path
-            onDismissed: (direction) {
-              debugPrint("Dismissed item at index $index: $filePath");
-              setState(() {
-                recordings.removeAt(index);
-                if (_currentlyPlayingIndex != null && _currentlyPlayingIndex! >= index) {
-                  if (_currentlyPlayingIndex == index) {
-                    _currentlyPlayingIndex = null;
-                    _player?.stop();
-                    _playerStateSubscription?.cancel();
-                  } else {
-                    _currentlyPlayingIndex = _currentlyPlayingIndex! - 1;
-                  }
-                  debugPrint("Updated _currentlyPlayingIndex: $_currentlyPlayingIndex");
-                }
-                debugPrint("Remaining recordings: $recordings");
-              });
-              _deleteRecording(index, filePath);
-            },
+            key: Key(filePath),
             background: Container(
               color: Colors.red,
               alignment: Alignment.centerRight,
               padding: const EdgeInsets.only(right: 20),
               child: const Icon(Icons.delete, color: Colors.white),
             ),
+            onDismissed: (direction) {
+              setState(() {
+                recordings.removeAt(index);
+                if (_currentlyPlayingIndex != null && _currentlyPlayingIndex! >= index) {
+                  if (_currentlyPlayingIndex == index) {
+                    _currentlyPlayingIndex = null;
+                    _player?.stop();
+                  } else {
+                    _currentlyPlayingIndex = _currentlyPlayingIndex! - 1;
+                  }
+                }
+              });
+              _deleteRecording(index, filePath);
+            },
             child: Container(
               margin: const EdgeInsets.only(bottom: 12),
               decoration: BoxDecoration(
@@ -673,7 +506,7 @@ class _MusicLibraryState extends State<MusicLibrary> {
                   ),
                 ),
                 title: Text(fileName),
-                subtitle: const Text('00:00'), // Placeholder; update with actual duration if needed
+                subtitle: const Text('00:00'),
                 trailing: Icon(
                   _currentlyPlayingIndex == index && _player?.playing == true
                       ? Icons.pause_circle_filled
@@ -715,35 +548,28 @@ class _MusicLibraryState extends State<MusicLibrary> {
         ),
         itemBuilder: (context, index) {
           return GestureDetector(
-            onTap: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => const ComingSoonPage(),
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (context) => const ComingSoonPage()),
+            ),
+            child: Container(
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(12),
+                image: const DecorationImage(
+                  image: AssetImage('assets/Music.jpg'),
+                  fit: BoxFit.cover,
                 ),
-              );
-            },
-            child: Material(
-              borderRadius: BorderRadius.circular(12),
-              child: Container(
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(12),
-                  image: const DecorationImage(
-                    image: AssetImage('assets/Music.jpg'),
-                    fit: BoxFit.cover,
-                  ),
-                ),
-                child: const Align(
-                  alignment: Alignment.bottomLeft,
-                  child: Padding(
-                    padding: EdgeInsets.all(8.0),
-                    child: Text(
-                      'Category',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 14,
-                        fontWeight: FontWeight.bold,
-                      ),
+              ),
+              child: const Align(
+                alignment: Alignment.bottomLeft,
+                child: Padding(
+                  padding: EdgeInsets.all(8.0),
+                  child: Text(
+                    'Category',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 14,
+                      fontWeight: FontWeight.bold,
                     ),
                   ),
                 ),

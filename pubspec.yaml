@@ -62,6 +62,7 @@ dependencies:
   cloud_firestore: ^5.4.4
   location: ^7.0.1
   flutter_svg: ^2.0.0+1
+  ffmpeg_kit_flutter_new_audio: ^1.1.0 # 60% smaller than full package
 
 
 dev_dependencies:

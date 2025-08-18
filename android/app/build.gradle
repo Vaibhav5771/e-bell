@@ -33,15 +33,8 @@ android {
     }
 }
 
-repositories {
-    flatDir {
-        dirs 'libs'
-    }
-}
 
 dependencies {
-    implementation(name: 'ffmpeg-kit-full-gpl-6.0-2.LTS', ext: 'aar')
-    implementation 'com.arthenica:smart-exception-java:0.2.1'
     implementation "org.jetbrains.kotlin:kotlin-stdlib:1.9.10"
 }
 
