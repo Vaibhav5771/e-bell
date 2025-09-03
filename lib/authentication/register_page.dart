@@ -83,7 +83,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
         child: SingleChildScrollView(
           child: Column(
             children: [
-              const SizedBox(height: 150),
+              const SizedBox(height: 80),
               // Illustration image
               SizedBox(
                 height: 250,
@@ -159,13 +159,25 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       ),
                     ),
                     const SizedBox(height: 16),
-                    TextButton(
-                      onPressed: widget.onTap,
-                      child: const Text(
-                        'Already have an account? Login ',
-                        style: TextStyle(color: Colors.black), // Add this line to make text black
-                      ),
+                  TextButton(
+                    onPressed: widget.onTap,
+                    child: Column(
+                      children: [
+                        const Text(
+                          'Already have an account?',
+                          style: TextStyle(color: Colors.black),
+                        ),
+                        Text(
+                          'Login',
+                          style: TextStyle(
+                            color: Colors.blue,
+                            fontSize: 16,// Make "Login" blue
+                            fontWeight: FontWeight.bold, // Optional: make it bold for emphasis
+                          ),
+                        ),
+                      ],
                     ),
+                  ),
                     const SizedBox(height: 50),
                     // IOGenies logo image
                     Row(

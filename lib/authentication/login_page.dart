@@ -59,7 +59,7 @@ class _LoginScreenState extends State<LoginScreen> {
         child: SingleChildScrollView(
           child: Column(
             children: [
-              const SizedBox(height: 150),
+              const SizedBox(height: 80),
               // Illustration image
               SizedBox(
                 height: 250,
@@ -127,9 +127,21 @@ class _LoginScreenState extends State<LoginScreen> {
                     const SizedBox(height: 16),
                     TextButton(
                       onPressed: widget.onTap,
-                      child: const Text(
-                        'New to E-Bell? Sign Up',
-                        style: TextStyle(color: Colors.black), // Add this line to make text black
+                      child: Column(
+                        children: [
+                          const Text(
+                            'New to E-Bell?',
+                            style: TextStyle(color: Colors.black),
+                          ),
+                          Text(
+                            'Sign Up',
+                            style: TextStyle(
+                              color: Colors.blue,
+                              fontSize: 16,// Make "Sign Up" blue
+                              fontWeight: FontWeight.bold, // Optional: make it bold for emphasis
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                     const SizedBox(height: 50),

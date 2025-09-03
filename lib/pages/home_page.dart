@@ -52,8 +52,6 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _loadingPrayerStatus = false;
   bool _errorLoadingStatus = false;
   final GlobalKey _calendarKey = GlobalKey();
-  double _minChildSize = 0.1; // Fallback minChildSize
-  double _initialChildSize = 0.4; // Fallback initialChildSize
 
   @override
   void initState() {
@@ -67,15 +65,10 @@ class _HomeScreenState extends State<HomeScreen> {
     _startWifiMonitoring();
     _loadPrayerTimesStatus();
     _timer = Timer.periodic(const Duration(minutes: 1), (timer) {
-      setState(() {
-        _loadTodaysAlarms();
-        _loadRemindersForSelectedDay();
-        _loadPrayerTimesStatus();
-      });
-    });
-    // Schedule initial layout measurement
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _calculateSheetSizes();
+      // Only update data without rebuilding the entire UI unnecessarily
+      _loadTodaysAlarms();
+      _loadRemindersForSelectedDay();
+      _loadPrayerTimesStatus();
     });
   }
 
@@ -84,33 +77,6 @@ class _HomeScreenState extends State<HomeScreen> {
     _timer?.cancel();
     wifiCheckTimer?.cancel();
     super.dispose();
-  }
-
-  void _calculateSheetSizes() {
-    final RenderBox? renderBox = _calendarKey.currentContext?.findRenderObject() as RenderBox?;
-    if (renderBox != null) {
-      final position = renderBox.localToGlobal(Offset.zero);
-      final size = renderBox.size;
-      final screenHeight = MediaQuery.of(context).size.height;
-      // Calculate the bottom position of the calendar
-      final calendarBottom = position.dy + size.height;
-      // Add padding to ensure the sheet clears the calendar
-      final padding = 32.0;
-      final minChildSize = 1 - (calendarBottom + padding) / screenHeight;
-      final initialChildSize = minChildSize + 0.15; // Increased offset to show more content
-      debugPrint('Calendar position: $position, size: $size, screenHeight: $screenHeight');
-      debugPrint('Calculated minChildSize: $minChildSize, initialChildSize: $initialChildSize');
-      setState(() {
-        _minChildSize = minChildSize.clamp(0.1, 0.3);
-        _initialChildSize = initialChildSize.clamp(0.2, 0.45); // Adjusted upper bound
-      });
-    } else {
-      debugPrint('RenderBox not found for calendar');
-      setState(() {
-        _minChildSize = 0.1;
-        _initialChildSize = 0.4;
-      });
-    }
   }
 
   Future<void> _requestPermissions() async {
@@ -269,16 +235,20 @@ class _HomeScreenState extends State<HomeScreen> {
 
                 debugPrint('Processing file: $filename, enabled: $isEnabled');
 
-                if (filename.startsWith('namaz/') && !filename.contains('sunrise') && !filename.contains('sunset')) {
+                if (filename.startsWith('namaz/') &&
+                    !filename.contains('sunrise') &&
+                    !filename.contains('sunset')) {
                   namazEnabled = namazEnabled || isEnabled;
-                } else if (filename.contains('sunrise') || filename.contains('sunset')) {
+                } else if (filename.contains('sunrise') ||
+                    filename.contains('sunset')) {
                   sunriseEnabled = sunriseEnabled || isEnabled;
                 }
               }
             }
           }
 
-          debugPrint('namazEnabled: $namazEnabled, sunriseEnabled: $sunriseEnabled');
+          debugPrint(
+              'namazEnabled: $namazEnabled, sunriseEnabled: $sunriseEnabled');
 
           return {
             'namazEnabled': namazEnabled,
@@ -299,11 +269,6 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _loadPrayerTimesStatus() async {
     if (!mounted) return;
 
-    setState(() {
-      _loadingPrayerStatus = true;
-      _errorLoadingStatus = false;
-    });
-
     try {
       final status = await _checkPrayerTimesStatus();
       if (!mounted) return;
@@ -312,20 +277,12 @@ class _HomeScreenState extends State<HomeScreen> {
         _namazEnabled = status['namazEnabled'] ?? false;
         _sunriseEnabled = status['sunriseEnabled'] ?? false;
         _loadingPrayerStatus = false;
-        // Recalculate sheet sizes after status update
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          _calculateSheetSizes();
-        });
       });
     } catch (e) {
       if (!mounted) return;
       setState(() {
         _loadingPrayerStatus = false;
         _errorLoadingStatus = true;
-        // Recalculate sheet sizes after error
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          _calculateSheetSizes();
-        });
       });
 
       ScaffoldMessenger.of(context).showSnackBar(
@@ -455,7 +412,8 @@ class _HomeScreenState extends State<HomeScreen> {
     if (selectedTime != null) {
       if (!isWifiConnected || !connectionStatus.contains(targetSsid)) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Please connect to IoGen_Speaker Wi-Fi to sync time")),
+          const SnackBar(
+              content: Text("Please connect to IoGen_Speaker Wi-Fi to sync time")),
         );
         return;
       }
@@ -480,7 +438,9 @@ class _HomeScreenState extends State<HomeScreen> {
       try {
         await BellService().syncTime(context, selectedTime: selectedDateTime);
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("Time synced successfully: ${selectedTime.format(context)}")),
+          SnackBar(
+              content:
+              Text("Time synced successfully: ${selectedTime.format(context)}")),
         );
       } catch (e) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -528,6 +488,18 @@ class _HomeScreenState extends State<HomeScreen> {
     setState(() {
       _calendarLogic.setSelectedDay(selectedDay);
       _calendarLogic.setFocusedDay(focusedDay);
+      _loadTodaysAlarms();
+      _loadRemindersForSelectedDay();
+    });
+  }
+
+  void _onPageChanged(DateTime focusedDay) {
+    // Update focusedDay when the user navigates to a new week
+    if (!mounted) return;
+    setState(() {
+      _calendarLogic.setFocusedDay(focusedDay);
+      // Optionally update selectedDay to the first day of the new week
+      _calendarLogic.setSelectedDay(focusedDay);
       _loadTodaysAlarms();
       _loadRemindersForSelectedDay();
     });
@@ -633,289 +605,133 @@ class _HomeScreenState extends State<HomeScreen> {
     final selectedDay = _calendarLogic.selectedDay;
 
     final List<Widget> screens = [
-      LayoutBuilder(
-        builder: (context, constraints) {
-          return Stack(
+      SingleChildScrollView(
+        child: Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              SingleChildScrollView(
-                child: Padding(
-                  padding: const EdgeInsets.all(16.0),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Container(
-                        height: 35,
-                        padding: const EdgeInsets.all(2),
-                        decoration: BoxDecoration(
-                          color: Colors.grey[400],
-                          borderRadius: BorderRadius.circular(9),
-                        ),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                          children: [
-                            Expanded(
-                              child: _tabLogic.buildTab(
-                                context: context,
-                                text: 'Event / Tasks',
-                                index: 0,
-                                onTap: () {
-                                  debugPrint("Switching to Event/Tasks tab");
-                                  setState(() {
-                                    _tabLogic.setSelectedTab(0);
-                                  });
-                                },
-                              ),
-                            ),
-                            Expanded(
-                              child: _tabLogic.buildTab(
-                                context: context,
-                                text: 'Bell',
-                                index: 1,
-                                onTap: () {
-                                  debugPrint("Switching to Bell tab");
-                                  setState(() {
-                                    _tabLogic.setSelectedTab(1);
-                                  });
-                                },
-                              ),
-                            ),
-                          ],
-                        ),
+              Container(
+                height: 35,
+                padding: const EdgeInsets.all(2),
+                decoration: BoxDecoration(
+                  color: Colors.grey[400],
+                  borderRadius: BorderRadius.circular(9),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                  children: [
+                    Expanded(
+                      child: _tabLogic.buildTab(
+                        context: context,
+                        text: 'Event / Tasks',
+                        index: 0,
+                        onTap: () {
+                          debugPrint("Switching to Event/Tasks tab");
+                          setState(() {
+                            _tabLogic.setSelectedTab(0);
+                          });
+                        },
                       ),
-                      const SizedBox(height: 16),
-                      Text(
-                        connectionStatus,
-                        style: const TextStyle(fontSize: 16),
-                        textAlign: TextAlign.center,
+                    ),
+                    Expanded(
+                      child: _tabLogic.buildTab(
+                        context: context,
+                        text: 'Bell',
+                        index: 1,
+                        onTap: () {
+                          debugPrint("Switching to Bell tab");
+                          setState(() {
+                            _tabLogic.setSelectedTab(1);
+                          });
+                        },
                       ),
-                      const SizedBox(height: 16),
-                      _tabLogic.selectedTabIndex == 0
-                          ? Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Container(
-                            key: _calendarKey,
-                            padding: const EdgeInsets.all(8.0),
-                            decoration: BoxDecoration(
-                              color: Colors.white,
-                              borderRadius: BorderRadius.circular(12),
-                              boxShadow: [
-                                BoxShadow(
-                                  color: Colors.grey.withOpacity(0.2),
-                                  spreadRadius: 2,
-                                  blurRadius: 5,
-                                ),
-                              ],
-                            ),
-                            child: TableCalendar(
-                              firstDay: _calendarLogic.firstDay,
-                              lastDay: _calendarLogic.lastDay,
-                              focusedDay: _calendarLogic.focusedDay,
-                              selectedDayPredicate: (day) => isSameDay(day, selectedDay),
-                              onDaySelected: _onDaySelected,
-                              calendarFormat: CalendarFormat.month,
-                              headerStyle: const HeaderStyle(
-                                formatButtonVisible: false,
-                                titleTextStyle: TextStyle(
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                                titleCentered: false,
-                                leftChevronVisible: true,
-                                rightChevronVisible: true,
-                              ),
-                              daysOfWeekStyle: DaysOfWeekStyle(
-                                weekdayStyle: const TextStyle(color: Colors.black54),
-                                weekendStyle: const TextStyle(color: Colors.black54),
-                                dowTextFormatter: (date, locale) =>
-                                    DateFormat.E(locale).format(date).toUpperCase(),
-                              ),
-                              calendarStyle: CalendarStyle(
-                                todayDecoration: BoxDecoration(
-                                  color: Colors.grey[300],
-                                  shape: BoxShape.circle,
-                                ),
-                                todayTextStyle: const TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                  color: Colors.black,
-                                  fontSize: 16,
-                                ),
-                                selectedDecoration: BoxDecoration(
-                                  color: themeProvider.selectedColor,
-                                  shape: BoxShape.circle,
-                                ),
-                                selectedTextStyle: const TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                  color: Colors.white,
-                                  fontSize: 16,
-                                ),
-                                defaultTextStyle: const TextStyle(
-                                  color: Colors.black,
-                                  fontSize: 16,
-                                ),
-                                weekendTextStyle: const TextStyle(
-                                  color: Colors.black,
-                                  fontSize: 16,
-                                ),
-                              ),
-                            ),
-                          ),
-                        ],
-                      )
-                          : const BellTab(),
-                      // Placeholder to ensure content is scrollable
-                      SizedBox(height: MediaQuery.of(context).size.height * 0.3),
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
               ),
-              if (_tabLogic.selectedTabIndex == 0)
-                DraggableScrollableSheet(
-                  initialChildSize: _initialChildSize,
-                  minChildSize: _minChildSize,
-                  maxChildSize: 0.8, // Allow overlap when dragged up
-                  builder: (context, scrollController) {
-                    return Container(
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.grey.withOpacity(0.3),
-                            spreadRadius: 2,
-                            blurRadius: 10,
-                            offset: const Offset(0, -2),
-                          ),
-                        ],
+              const SizedBox(height: 16),
+              Text(
+                connectionStatus,
+                style: const TextStyle(fontSize: 16),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 16),
+              _tabLogic.selectedTabIndex == 0
+                  ? Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    key: _calendarKey,
+                    padding: const EdgeInsets.all(8.0),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(12),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.grey.withOpacity(0.2),
+                          spreadRadius: 2,
+                          blurRadius: 5,
+                        ),
+                      ],
+                    ),
+                    child: TableCalendar(
+                      firstDay: _calendarLogic.firstDay,
+                      lastDay: _calendarLogic.lastDay,
+                      focusedDay: _calendarLogic.focusedDay,
+                      selectedDayPredicate: (day) => isSameDay(day, selectedDay),
+                      onDaySelected: _onDaySelected,
+                      onPageChanged: _onPageChanged, // Handle week navigation
+                      calendarFormat: CalendarFormat.week,
+                      headerStyle: const HeaderStyle(
+                        formatButtonVisible: false,
+                        titleTextStyle: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
+                        titleCentered: false,
+                        leftChevronVisible: true,
+                        rightChevronVisible: true,
                       ),
-                      child: SingleChildScrollView(
-                        controller: scrollController,
-                        child: Padding(
-                          padding: const EdgeInsets.all(16.0),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              // Drag handle
-                              Center(
-                                child: Container(
-                                  margin: const EdgeInsets.symmetric(vertical: 8),
-                                  height: 5,
-                                  width: 40,
-                                  decoration: BoxDecoration(
-                                    color: Colors.grey[300],
-                                    borderRadius: BorderRadius.circular(10),
-                                  ),
-                                ),
-                              ),
-                              // Prayer Time Indicators
-                              _buildStatusIndicators(),
-                              // Schedule Header
-                              Text(
-                                isSameDay(selectedDay, today)
-                                    ? "Today's Schedule"
-                                    : DateFormat('MMMM d, y').format(selectedDay),
-                                style: const TextStyle(
-                                  fontSize: 20,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                              const SizedBox(height: 12),
-                              // Schedule Items
-                              Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  if (_todaysAlarms.isNotEmpty) ...[
-                                    const Padding(
-                                      padding: EdgeInsets.only(left: 8, bottom: 8),
-                                      child: Text(
-                                        'Alarms',
-                                        style: TextStyle(
-                                          fontSize: 18,
-                                          fontWeight: FontWeight.w600,
-                                          color: Colors.black87,
-                                        ),
-                                      ),
-                                    ),
-                                    ..._todaysAlarms.asMap().entries.map((entry) {
-                                      final index = entry.key;
-                                      final alarm = entry.value;
-                                      final alarmDateTime = DateTime(
-                                        selectedDay.year,
-                                        selectedDay.month,
-                                        selectedDay.day,
-                                        alarm.time.hour,
-                                        alarm.time.minute,
-                                      );
-                                      final isChecked = alarmDateTime.isBefore(DateTime.now());
-                                      final timeString = alarm.time.format(context);
-                                      return Padding(
-                                        padding: const EdgeInsets.only(bottom: 8),
-                                        child: ScheduleItem(
-                                          time: timeString,
-                                          title: alarm.label,
-                                          isChecked: isChecked,
-                                          isLast: index == _todaysAlarms.length - 1,
-                                          icon: Icons.alarm,
-                                        ),
-                                      );
-                                    }),
-                                  ],
-                                  if (_todaysReminders.isNotEmpty) ...[
-                                    const Padding(
-                                      padding: EdgeInsets.only(left: 8, top: 8, bottom: 8),
-                                      child: Text(
-                                        'Reminders',
-                                        style: TextStyle(
-                                          fontSize: 18,
-                                          fontWeight: FontWeight.w600,
-                                          color: Colors.black87,
-                                        ),
-                                      ),
-                                    ),
-                                    ..._todaysReminders.asMap().entries.map((entry) {
-                                      final index = entry.key;
-                                      final reminder = entry.value;
-                                      final timeString =
-                                          '${DateFormat('HH:mm').format(reminder.startDateTime)} - ${DateFormat('HH:mm').format(reminder.endDateTime)}';
-                                      final isChecked = reminder.endDateTime.isBefore(DateTime.now());
-                                      return Padding(
-                                        padding: const EdgeInsets.only(bottom: 8),
-                                        child: ScheduleItem(
-                                          time: timeString,
-                                          title: reminder.title,
-                                          isChecked: isChecked,
-                                          isLast: index == _todaysReminders.length - 1,
-                                          icon: Icons.event,
-                                        ),
-                                      );
-                                    }),
-                                  ],
-                                  if (_todaysAlarms.isEmpty && _todaysReminders.isEmpty)
-                                    const Padding(
-                                      padding: EdgeInsets.all(8),
-                                      child: Text(
-                                        'No alarms or reminders scheduled for this day',
-                                        style: TextStyle(
-                                          fontSize: 16,
-                                          color: Colors.grey,
-                                        ),
-                                      ),
-                                    ),
-                                ],
-                              ),
-                            ],
-                          ),
+                      daysOfWeekStyle: DaysOfWeekStyle(
+                        weekdayStyle: const TextStyle(color: Colors.black54),
+                        weekendStyle: const TextStyle(color: Colors.black54),
+                        dowTextFormatter: (date, locale) =>
+                            DateFormat.E(locale).format(date).toUpperCase(),
+                      ),
+                      calendarStyle: CalendarStyle(
+                        todayDecoration: BoxDecoration(
+                          color: Colors.grey[300],
+                          shape: BoxShape.circle,
+                        ),
+                        todayTextStyle: const TextStyle(
+                          fontWeight: FontWeight.bold,
+                          color: Colors.black,
+                          fontSize: 16,
+                        ),
+                        selectedDecoration: BoxDecoration(
+                          color: themeProvider.selectedColor,
+                          shape: BoxShape.circle,
+                        ),
+                        selectedTextStyle: const TextStyle(
+                          fontWeight: FontWeight.bold,
+                          color: Colors.white,
+                          fontSize: 16,
+                        ),
+                        defaultTextStyle: const TextStyle(
+                          color: Colors.black,
+                          fontSize: 16,
+                        ),
+                        weekendTextStyle: const TextStyle(
+                          color: Colors.black,
+                          fontSize: 16,
                         ),
                       ),
-                    );
-                  },
-                ),
-              if (_isFabMenuOpen && _selectedIndex == 0)
-                Positioned(
-                  bottom: 80,
-                  right: 16,
-                  child: Container(
-                    width: 180,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  // Static Schedule Section
+                  Container(
                     decoration: BoxDecoration(
                       color: Colors.white,
                       borderRadius: BorderRadius.circular(12),
@@ -923,22 +739,126 @@ class _HomeScreenState extends State<HomeScreen> {
                         BoxShadow(
                           color: Colors.grey.withOpacity(0.3),
                           spreadRadius: 2,
-                          blurRadius: 5,
+                          blurRadius: 10,
+                          offset: const Offset(0, -2),
                         ),
                       ],
                     ),
-                    child: Column(
-                      children: [
-                        _buildFabOption('Reminder', true),
-                        _buildFabOption('Alarm', false),
-                        _buildFabOption('Regional Planner', false),
-                      ],
+                    child: Padding(
+                      padding: const EdgeInsets.all(16.0),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          // Prayer Time Indicators
+                          _buildStatusIndicators(),
+                          // Schedule Header
+                          Text(
+                            isSameDay(selectedDay, today)
+                                ? "Today's Schedule"
+                                : DateFormat('MMMM d, y').format(selectedDay),
+                            style: const TextStyle(
+                              fontSize: 20,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          // Schedule Items
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              if (_todaysAlarms.isNotEmpty) ...[
+                                const Padding(
+                                  padding: EdgeInsets.only(left: 8, bottom: 8),
+                                  child: Text(
+                                    'Alarms',
+                                    style: TextStyle(
+                                      fontSize: 18,
+                                      fontWeight: FontWeight.w600,
+                                      color: Colors.black87,
+                                    ),
+                                  ),
+                                ),
+                                ..._todaysAlarms.asMap().entries.map((entry) {
+                                  final index = entry.key;
+                                  final alarm = entry.value;
+                                  final alarmDateTime = DateTime(
+                                    selectedDay.year,
+                                    selectedDay.month,
+                                    selectedDay.day,
+                                    alarm.time.hour,
+                                    alarm.time.minute,
+                                  );
+                                  final isChecked =
+                                  alarmDateTime.isBefore(DateTime.now());
+                                  final timeString = alarm.time.format(context);
+                                  return Padding(
+                                    padding: const EdgeInsets.only(bottom: 8),
+                                    child: ScheduleItem(
+                                      time: timeString,
+                                      title: alarm.label,
+                                      isChecked: isChecked,
+                                      isLast: index == _todaysAlarms.length - 1,
+                                      icon: Icons.alarm,
+                                    ),
+                                  );
+                                }),
+                              ],
+                              if (_todaysReminders.isNotEmpty) ...[
+                                const Padding(
+                                  padding: EdgeInsets.only(left: 8, top: 8, bottom: 8),
+                                  child: Text(
+                                    'Reminders',
+                                    style: TextStyle(
+                                      fontSize: 18,
+                                      fontWeight: FontWeight.w600,
+                                      color: Colors.black87,
+                                    ),
+                                  ),
+                                ),
+                                ..._todaysReminders.asMap().entries.map((entry) {
+                                  final index = entry.key;
+                                  final reminder = entry.value;
+                                  final timeString =
+                                      '${DateFormat('HH:mm').format(reminder.startDateTime)} - ${DateFormat('HH:mm').format(reminder.endDateTime)}';
+                                  final isChecked =
+                                  reminder.endDateTime.isBefore(DateTime.now());
+                                  return Padding(
+                                    padding: const EdgeInsets.only(bottom: 8),
+                                    child: ScheduleItem(
+                                      time: timeString,
+                                      title: reminder.title,
+                                      isChecked: isChecked,
+                                      isLast: index == _todaysReminders.length - 1,
+                                      icon: Icons.event,
+                                    ),
+                                  );
+                                }),
+                              ],
+                              if (_todaysAlarms.isEmpty && _todaysReminders.isEmpty)
+                                const Padding(
+                                  padding: EdgeInsets.all(8),
+                                  child: Text(
+                                    'No alarms or reminders scheduled for this day',
+                                    style: TextStyle(
+                                      fontSize: 16,
+                                      color: Colors.grey,
+                                    ),
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ],
+                      ),
                     ),
                   ),
-                ),
+                ],
+              )
+                  : const BellTab(),
+              // Ensure content is scrollable
+              SizedBox(height: MediaQuery.of(context).size.height * 0.1),
             ],
-          );
-        },
+          ),
+        ),
       ),
       MusicLibrary(tabLogic: _musicTabLogic),
       ProfileScreen(),
@@ -969,7 +889,37 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ],
       ),
-      body: screens[_selectedIndex],
+      body: Stack(
+        children: [
+          screens[_selectedIndex],
+          if (_isFabMenuOpen && _selectedIndex == 0)
+            Positioned(
+              bottom: 80,
+              right: 16,
+              child: Container(
+                width: 180,
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(12),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.grey.withOpacity(0.3),
+                      spreadRadius: 2,
+                      blurRadius: 5,
+                    ),
+                  ],
+                ),
+                child: Column(
+                  children: [
+                    _buildFabOption('Reminder', true),
+                    _buildFabOption('Alarm', false),
+                    _buildFabOption('Regional Planner', false),
+                  ],
+                ),
+              ),
+            ),
+        ],
+      ),
       floatingActionButton: _selectedIndex == 0
           ? FloatingActionButton(
         onPressed: () {
