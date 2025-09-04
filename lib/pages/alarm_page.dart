@@ -28,6 +28,7 @@ class _AlarmPageState extends State<AlarmPage> {
   late FixedExtentScrollController _minuteController;
   late FixedExtentScrollController _periodController;
   bool isLoading = false;
+  List<bool> _selectedDays = List.filled(7, false); // [Sun, Mon, Tue, Wed, Thu, Fri, Sat]
 
   @override
   void initState() {
@@ -40,11 +41,12 @@ class _AlarmPageState extends State<AlarmPage> {
     _hourController = FixedExtentScrollController(initialItem: hourIndex);
     _minuteController = FixedExtentScrollController(initialItem: _selectedTime.minute);
     _periodController = FixedExtentScrollController(initialItem: _selectedTime.period == DayPeriod.am ? 0 : 1);
+    print('Initial state: _isRepeatEnabled=$_isRepeatEnabled, _selectedDays=$_selectedDays');
   }
 
   Future<void> _loadUploadedFiles() async {
     try {
-      final response = await http.get(Uri.parse('http://192.168.2.1/')).timeout(
+      final response = await http.get(Uri.parse('http://192.168.2.1/alarmsong')).timeout(
         const Duration(seconds: 10),
         onTimeout: () {
           throw Exception('Request to IoT device timed out');
@@ -53,16 +55,14 @@ class _AlarmPageState extends State<AlarmPage> {
 
       if (response.statusCode == 200) {
         final jsonData = jsonDecode(response.body);
-        final alarmData = jsonData['alarmData'] as List<dynamic>?;
-        if (alarmData != null && alarmData.isNotEmpty) {
-          final filenames = (alarmData[0]['Filenames'] as List<dynamic>?)?.map((file) {
+        final filesData = jsonData['Data'] as List<dynamic>?;
+        if (filesData != null && filesData.isNotEmpty) {
+          final files = (filesData[0]['files'] as List<dynamic>?)?.map((file) {
             return (file as List<dynamic>)[0] as String;
           }).toList() ?? [];
-          // Debug print to verify fetched files
-          print('Fetched filenames: $filenames');
+          print('Fetched filenames: $files');
           setState(() {
-            // Filter files: exclude those with '/' and include only .mp3 or .wav
-            _soundOptions = filenames
+            _soundOptions = files
                 .where((file) =>
             !file.contains('/') &&
                 (file.toLowerCase().endsWith('.mp3') ||
@@ -134,6 +134,78 @@ class _AlarmPageState extends State<AlarmPage> {
     return "omomo${hh}ooo$mm";
   }
 
+  Widget _buildDaysSelector() {
+    print('Building days selector, _isRepeatEnabled=$_isRepeatEnabled');
+    final themeProvider = Provider.of<ThemeProvider>(context);
+    final dayAbbreviations = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 16.0),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+        children: List.generate(7, (index) {
+          return GestureDetector(
+            onTap: () {
+              setState(() {
+                _selectedDays[index] = !_selectedDays[index];
+                print('Day ${dayAbbreviations[index]} toggled: ${_selectedDays[index]}');
+                if (_selectedDays.every((day) => day)) {
+                  _isRepeatEnabled = true;
+                }
+              });
+            },
+            child: Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: _selectedDays[index]
+                    ? themeProvider.selectedColor
+                    : Colors.transparent,
+                border: Border.all(
+                  color: _selectedDays[index]
+                      ? themeProvider.selectedColor
+                      : Colors.grey,
+                ),
+              ),
+              child: Center(
+                child: Text(
+                  dayAbbreviations[index],
+                  style: TextStyle(
+                    color: _selectedDays[index] ? Colors.white : Colors.black,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ),
+          );
+        }),
+      ),
+    );
+  }
+
+  String _getSelectedDaysString() {
+    List<String> dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    List<String> selectedDayNames = [];
+    for (int i = 0; i < _selectedDays.length; i++) {
+      if (_selectedDays[i]) {
+        selectedDayNames.add(dayNames[i]);
+      }
+    }
+    return selectedDayNames.isEmpty ? 'Daily' : selectedDayNames.join(', ');
+  }
+
+  int _calculateWeekBitmask() {
+    const List<int> dayBitmasks = [128, 2, 4, 8, 16, 32, 64]; // [Sun, Mon, Tue, Wed, Thu, Fri, Sat]
+    int week = 0;
+    for (int i = 0; i < _selectedDays.length; i++) {
+      if (_selectedDays[i]) {
+        week |= dayBitmasks[i];
+      }
+    }
+    return week == 0 ? 254 : week; // Default to 254 if no days selected (Daily)
+  }
+
   Future<void> _saveAlarm() async {
     bool hasNotificationPermission = await PermissionHandler.requestNotificationPermission();
     if (!hasNotificationPermission) {
@@ -158,30 +230,51 @@ class _AlarmPageState extends State<AlarmPage> {
       id: await AlarmModel.generateUniqueId(),
       time: _selectedTime,
       label: _alarmLabel.isEmpty ? 'Alarm' : _alarmLabel,
-      repeatOption: _isRepeatEnabled ? 'Daily' : 'Never',
+      repeatOption: _isRepeatEnabled ? _getSelectedDaysString() : 'Never',
       sound: _soundOption,
       isSnoozeEnabled: _isSnoozeEnabled,
       isActive: true,
+      selectedDays: _selectedDays,
     );
 
     await SharedPreferencesService.saveAlarm(alarm);
 
     String soundFile = _soundOption;
+    int hr = _selectedTime.hour;
+    int mn = _selectedTime.minute;
+    int week;
+    int sEpoch = 0;
+    int eEpoch = 0;
+    int active = alarm.isActive ? 1 : 0;
+    int alarmType = 1; // 1 for alarm
 
-    final now = DateTime.now();
-    final alarmDateTime = DateTime(
-      now.year,
-      now.month,
-      now.day,
-      _selectedTime.hour,
-      _selectedTime.minute,
-    );
+    if (_isRepeatEnabled) {
+      week = _calculateWeekBitmask();
+    } else {
+      final now = DateTime.now();
+      DateTime alarmDateTime = DateTime(
+        now.year,
+        now.month,
+        now.day,
+        hr,
+        mn,
+      );
 
-// Convert to UTC and get epoch seconds
-    final epochTime = (alarmDateTime.toUtc().millisecondsSinceEpoch / 1000).floor().toString();
+      if (alarmDateTime.isBefore(now)) {
+        alarmDateTime = alarmDateTime.add(const Duration(days: 1));
+      }
 
-    String data = '$epochTime,${alarm.isActive ? 1 : 0},${alarm.isSnoozeEnabled ? 1 : 0}';
+      hr = alarmDateTime.hour;
+      mn = alarmDateTime.minute;
+      const List<int> dayBitmasks = [2, 4, 8, 16, 32, 64, 128]; // [Mon, Tue, Wed, Thu, Fri, Sat, Sun]
+      week = dayBitmasks[alarmDateTime.weekday - 1];
+    }
+
+    String data = '$hr,$mn,$sEpoch,$eEpoch,$active,$week,$alarmType';
     String url = 'http://192.168.2.1/settime/$soundFile';
+
+    // 🔥 Build curl-like command for snackbar
+    String curlCommand = 'curl -X POST $url -d "$data"';
 
     setState(() => isLoading = true);
 
@@ -195,32 +288,33 @@ class _AlarmPageState extends State<AlarmPage> {
       if (response.statusCode == 200) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Alarm set on server for ${alarm.time.format(context)} with $soundFile'),
+            content: Text(
+              '✅ Alarm set!\n$curlCommand',
+              style: const TextStyle(fontSize: 14),
+            ),
+            duration: const Duration(seconds: 5),
           ),
         );
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Failed to set alarm on server: ${response.statusCode} - ${response.reasonPhrase}'),
+            content: Text('❌ Failed to set alarm: ${response.statusCode} - ${response.reasonPhrase}'),
           ),
         );
       }
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Error setting alarm: Ensure you are connected to the speaker\'s Wi-Fi. Error: $e'),
+          content: Text('⚠️ Error setting alarm. Error: $e'),
         ),
       );
     } finally {
       setState(() => isLoading = false);
     }
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Alarm saved successfully!')),
-    );
-
     Navigator.pop(context);
   }
+
 
   @override
   Widget build(BuildContext context) {
@@ -395,12 +489,20 @@ class _AlarmPageState extends State<AlarmPage> {
                 children: [
                   _buildOptionTile(
                     context,
-                    title: 'Repeat Daily',
+                    title: 'Repeat',
                     isSwitch: true,
                     switchValue: _isRepeatEnabled,
-                    onSwitchChanged: (value) =>
-                        setState(() => _isRepeatEnabled = value),
+                    onSwitchChanged: (value) {
+                      setState(() {
+                        _isRepeatEnabled = value;
+                        if (!value) {
+                          _selectedDays = List.filled(7, false);
+                        }
+                        print('Repeat toggled: _isRepeatEnabled=$value');
+                      });
+                    },
                   ),
+                  if (_isRepeatEnabled) _buildDaysSelector(),
                   _buildDivider(),
                   _buildOptionTile(
                     context,

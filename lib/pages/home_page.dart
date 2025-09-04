@@ -201,68 +201,87 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<Map<String, bool>> _checkPrayerTimesStatus() async {
+    http.Client? client; // Declare client outside try block
     try {
-      final client = http.Client();
-      final response = await client.get(
-        Uri.parse('http://192.168.2.1/'),
+      client = http.Client(); // Initialize inside try
+      bool namazEnabled = false;
+      bool sunriseEnabled = false;
+
+      // Fetch Namaz status
+      final namazResponse = await client.get(
+        Uri.parse('http://192.168.2.1/namaz'),
       ).timeout(
         const Duration(seconds: 5),
         onTimeout: () {
-          client.close();
-          throw Exception('Connection timed out');
+          throw Exception('Namaz API timed out');
         },
       );
 
-      try {
-        if (response.statusCode == 200) {
-          final jsonData = jsonDecode(response.body);
-          final alarmData = jsonData['alarmData'] as List<dynamic>?;
+      if (namazResponse.statusCode == 200) {
+        final namazJsonData = jsonDecode(namazResponse.body);
+        final namazData = namazJsonData['Data'] as List<dynamic>?;
 
-          debugPrint('Raw alarmData: $alarmData');
+        debugPrint('Namaz API Response: $namazData');
 
-          bool namazEnabled = false;
-          bool sunriseEnabled = false;
+        if (namazData != null && namazData.isNotEmpty) {
+          final files = (namazData[0]['files'] as List<dynamic>?) ?? [];
 
-          if (alarmData != null && alarmData.isNotEmpty) {
-            final files = (alarmData[0]['Filenames'] as List<dynamic>?) ?? [];
+          debugPrint('Namaz Files: $files');
 
-            debugPrint('Filenames: $files');
-
-            for (var file in files) {
-              if (file is List && file.length >= 4) {
-                final filename = file[0].toString().toLowerCase();
-                final isEnabled = file[3] == 1;
-
-                debugPrint('Processing file: $filename, enabled: $isEnabled');
-
-                if (filename.startsWith('namaz/') &&
-                    !filename.contains('sunrise') &&
-                    !filename.contains('sunset')) {
-                  namazEnabled = namazEnabled || isEnabled;
-                } else if (filename.contains('sunrise') ||
-                    filename.contains('sunset')) {
-                  sunriseEnabled = sunriseEnabled || isEnabled;
-                }
-              }
+          for (var file in files) {
+            if (file is List && file.length >= 2) {
+              final isEnabled = file[1] == 1;
+              namazEnabled = namazEnabled || isEnabled;
             }
           }
-
-          debugPrint(
-              'namazEnabled: $namazEnabled, sunriseEnabled: $sunriseEnabled');
-
-          return {
-            'namazEnabled': namazEnabled,
-            'sunriseEnabled': sunriseEnabled,
-          };
-        } else {
-          throw Exception('HTTP ${response.statusCode} error');
         }
-      } finally {
-        client.close();
+      } else {
+        throw Exception('Namaz API HTTP ${namazResponse.statusCode} error');
       }
+
+      // Fetch Pooja (Sunrise/Sunset) status
+      final poojaResponse = await client.get(
+        Uri.parse('http://192.168.2.1/pooja'),
+      ).timeout(
+        const Duration(seconds: 5),
+        onTimeout: () {
+          throw Exception('Pooja API timed out');
+        },
+      );
+
+      if (poojaResponse.statusCode == 200) {
+        final poojaJsonData = jsonDecode(poojaResponse.body);
+        final poojaData = poojaJsonData['Data'] as List<dynamic>?;
+
+        debugPrint('Pooja API Response: $poojaData');
+
+        if (poojaData != null && poojaData.isNotEmpty) {
+          final files = (poojaData[0]['files'] as List<dynamic>?) ?? [];
+
+          debugPrint('Pooja Files: $files');
+
+          for (var file in files) {
+            if (file is List && file.length >= 2) {
+              final isEnabled = file[1] == 1;
+              sunriseEnabled = sunriseEnabled || isEnabled;
+            }
+          }
+        }
+      } else {
+        throw Exception('Pooja API HTTP ${poojaResponse.statusCode} error');
+      }
+
+      debugPrint('namazEnabled: $namazEnabled, sunriseEnabled: $sunriseEnabled');
+
+      return {
+        'namazEnabled': namazEnabled,
+        'sunriseEnabled': sunriseEnabled,
+      };
     } catch (e) {
-      debugPrint('Error: $e');
+      debugPrint('Error checking prayer times status: $e');
       throw Exception('Failed to check prayer times status: $e');
+    } finally {
+      client?.close(); // Safely close client if initialized
     }
   }
 

@@ -17,7 +17,7 @@ class AlarmModel {
     required this.repeatOption,
     required this.sound,
     required this.isSnoozeEnabled,
-    required this.isActive,
+    required this.isActive, required List<bool> selectedDays,
   });
 
   // Generate a unique 32-bit integer ID
@@ -52,7 +52,7 @@ class AlarmModel {
       repeatOption: json['repeatOption'],
       sound: json['sound'],
       isSnoozeEnabled: json['isSnoozeEnabled'],
-      isActive: json['isActive'],
+      isActive: json['isActive'], selectedDays: [],
     );
   }
 }
