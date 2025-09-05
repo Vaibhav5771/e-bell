@@ -47,7 +47,7 @@ class _ReminderPageState extends State<ReminderPage> {
 
   Future<void> _loadUploadedFiles() async {
     try {
-      final response = await http.get(Uri.parse('http://192.168.2.1/')).timeout(
+      final response = await http.get(Uri.parse('http://192.168.2.1/alarmsong')).timeout(
         const Duration(seconds: 10),
         onTimeout: () {
           throw Exception('Request to IoT device timed out');
@@ -56,27 +56,42 @@ class _ReminderPageState extends State<ReminderPage> {
 
       if (response.statusCode == 200) {
         final jsonData = jsonDecode(response.body);
-        final alarmData = jsonData['alarmData'] as List<dynamic>?;
-        if (alarmData != null && alarmData.isNotEmpty) {
-          final filenames = (alarmData[0]['Filenames'] as List<dynamic>?)?.map((file) {
-            return (file as List<dynamic>)[0] as String;
-          }).toList() ?? [];
-          // Debug print to verify fetched files
-          print('Fetched filenames: $filenames');
-          setState(() {
-            // Filter files: exclude those with '/' and include only .mp3 or .wav
-            _soundOptions = filenames
-                .where((file) =>
-            !file.contains('/') &&
-                (file.toLowerCase().endsWith('.mp3') ||
-                    file.toLowerCase().endsWith('.wav')))
-                .toList();
-            _soundOption = _soundOptions.isNotEmpty ? _soundOptions[0] : '';
-          });
-          if (_soundOptions.isEmpty) {
+        final data = jsonData['Data'] as List<dynamic>?;
+
+        if (data != null && data.isNotEmpty) {
+          final filesData = data[0]['files'] as List<dynamic>?;
+
+          if (filesData != null && filesData.isNotEmpty) {
+            final filenames = filesData.map((file) {
+              return (file as List<dynamic>)[0] as String;
+            }).toList();
+
+            // Debug print to verify fetched files
+            print('Fetched filenames: $filenames');
+            setState(() {
+              // Filter files: exclude those with '/' and include only .mp3 or .wav
+              _soundOptions = filenames
+                  .where((file) =>
+              !file.contains('/') &&
+                  (file.toLowerCase().endsWith('.mp3') ||
+                      file.toLowerCase().endsWith('.wav')))
+                  .toList();
+              _soundOption = _soundOptions.isNotEmpty ? _soundOptions[0] : '';
+            });
+
+            if (_soundOptions.isEmpty) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                    content: Text('No valid audio files (MP3 or WAV) found in root directory.')),
+              );
+            }
+          } else {
+            setState(() {
+              _soundOptions = [];
+              _soundOption = '';
+            });
             ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                  content: Text('No valid audio files (MP3 or WAV) found in root directory.')),
+              const SnackBar(content: Text('No sound files found.')),
             );
           }
         } else {
@@ -85,7 +100,7 @@ class _ReminderPageState extends State<ReminderPage> {
             _soundOption = '';
           });
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('No sound files found in root directory.')),
+            const SnackBar(content: Text('No sound data available.')),
           );
         }
       } else {

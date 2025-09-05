@@ -205,7 +205,7 @@ class BellService {
       }
 
       final encodedFileName = Uri.encodeComponent(fileName);
-      final uri = 'http://192.168.2.1/upload/$encodedFileName';
+      final uri = 'http://192.168.2.1/upload/Alarm/$encodedFileName';
       debugPrint("Sending file: $fileName, size: $fileSize bytes to $uri");
 
       var request = http.MultipartRequest('POST', Uri.parse(uri))

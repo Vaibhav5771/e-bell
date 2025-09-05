@@ -224,9 +224,11 @@ class _BellTabState extends State<BellTab> {
       }
 
       final sanitizedFileName = _sanitizeFileName(file.name);
+
+      // Use the new API format: http://192.168.2.1/upload/{folder_name}/{filename}
       final request = http.MultipartRequest(
         'POST',
-        Uri.parse('http://192.168.2.1/uploadintr/$sanitizedFileName'),
+        Uri.parse('http://192.168.2.1/upload/default/$sanitizedFileName'),
       );
 
       request.files.add(await http.MultipartFile.fromPath('file', file.path!));

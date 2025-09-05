@@ -8,7 +8,6 @@ import 'package:location/location.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:network_info_plus/network_info_plus.dart';
 import 'package:permission_handler/permission_handler.dart';
-import 'package:e_bell/pages/alarm_page.dart';
 import 'package:e_bell/pages/music_library.dart';
 import 'package:e_bell/pages/tablogic1.dart';
 import 'package:e_bell/bell/schedule_bell.dart';
@@ -25,6 +24,7 @@ import 'package:e_bell/tabs_planner/tab_logic1.dart';
 import 'package:e_bell/profile/profile_page.dart';
 import 'package:e_bell/pages/namaz_Sunrise.dart';
 import 'dart:async';
+import '../alarm/alarm_page.dart';
 import '../services/schedule_item.dart';
 
 class HomeScreen extends StatefulWidget {

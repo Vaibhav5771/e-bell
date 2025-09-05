@@ -6,6 +6,8 @@ import 'package:flutter_svg/flutter_svg.dart';
 import 'package:location/location.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:file_picker/file_picker.dart';
+import 'dart:convert';
+import 'dart:io';
 import '../services/theme_state.dart';
 
 class ReligiousAlarms extends StatefulWidget {
@@ -19,41 +21,99 @@ class _ReligiousAlarmsState extends State<ReligiousAlarms> {
   bool _namazEnabled = true;
   bool _sunriseEnabled = true;
 
-  // Default sound files for each alarm type based on log
-  final List<String> _defaultNamazSoundFiles = [
-    'asr.mp3',
-    'dhuhr.mp3',
-    'fajr.mp3',
-    'isha.mp3',
-    'maghrib.mp3',
-    'sunrise.mp3'
-  ];
-  final List<String> _defaultSunriseSoundFiles = [
-    'om_namo_vasudevaya.mp3',
-    'ringtone_2.mp3'
-  ];
+  // Sound files fetched from IoT device
+  List<String> _namazSoundFiles = [];
+  List<String> _sunriseSoundFiles = [];
 
-  // Custom sound files for each alarm type (loaded from storage)
-  List<String> _namazCustomFiles = [];
-  List<String> _sunriseCustomFiles = [];
-
-  String _selectedNamazSound = 'asr.mp3';
-  String _selectedSunriseSound = 'ringtone_2.mp3';
+  String _selectedNamazSound = '';
+  String _selectedSunriseSound = '';
 
   bool _isNamazLoading = false;
   bool _isSunriseLoading = false;
+  bool _isFetchingSounds = false;
+  bool _isUploadingFile = false;
 
   @override
   void initState() {
     super.initState();
     _loadSettings();
+    _fetchSoundFiles();
   }
 
-  // Get all namaz sound files (default + custom)
-  List<String> get _namazSoundFiles => [..._defaultNamazSoundFiles, ..._namazCustomFiles];
+  // Fetch sound files from IoT device
+  Future<void> _fetchSoundFiles() async {
+    setState(() => _isFetchingSounds = true);
 
-  // Get all sunrise sound files (default + custom)
-  List<String> get _sunriseSoundFiles => [..._defaultSunriseSoundFiles, ..._sunriseCustomFiles];
+    try {
+      await _fetchNamazSounds();
+      await _fetchSunriseSounds();
+    } catch (e) {
+      print('Error fetching sound files: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Error fetching sound files from device')),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isFetchingSounds = false);
+      }
+    }
+  }
+
+  // Fetch Namaz sound files from IoT device
+  Future<void> _fetchNamazSounds() async {
+    try {
+      final response = await http.get(Uri.parse('http://192.168.2.1/namaz'));
+
+      if (response.statusCode == 200) {
+        final Map<String, dynamic> data = json.decode(response.body);
+        final List<dynamic> filesData = data['Data'][0]['files'];
+
+        setState(() {
+          _namazSoundFiles = filesData.map<String>((file) => file[0] as String).toList();
+
+          // Set default selection if available
+          if (_namazSoundFiles.isNotEmpty && !_namazSoundFiles.contains(_selectedNamazSound)) {
+            _selectedNamazSound = _namazSoundFiles[0];
+          }
+        });
+
+        await _saveSettings();
+      } else {
+        print('Failed to fetch Namaz sounds: ${response.statusCode}');
+      }
+    } catch (e) {
+      print('Error fetching Namaz sounds: $e');
+    }
+  }
+
+  // Fetch Sunrise/Sunset sound files from IoT device
+  Future<void> _fetchSunriseSounds() async {
+    try {
+      final response = await http.get(Uri.parse('http://192.168.2.1/pooja'));
+
+      if (response.statusCode == 200) {
+        final Map<String, dynamic> data = json.decode(response.body);
+        final List<dynamic> filesData = data['Data'][0]['files'];
+
+        setState(() {
+          _sunriseSoundFiles = filesData.map<String>((file) => file[0] as String).toList();
+
+          // Set default selection if available
+          if (_sunriseSoundFiles.isNotEmpty && !_sunriseSoundFiles.contains(_selectedSunriseSound)) {
+            _selectedSunriseSound = _sunriseSoundFiles[0];
+          }
+        });
+
+        await _saveSettings();
+      } else {
+        print('Failed to fetch Sunrise sounds: ${response.statusCode}');
+      }
+    } catch (e) {
+      print('Error fetching Sunrise sounds: $e');
+    }
+  }
 
   // Load saved settings from SharedPreferences
   Future<void> _loadSettings() async {
@@ -62,16 +122,9 @@ class _ReligiousAlarmsState extends State<ReligiousAlarms> {
       _namazEnabled = prefs.getBool('namazEnabled') ?? true;
       _sunriseEnabled = prefs.getBool('sunriseEnabled') ?? true;
 
-      // Load custom sound files
-      _namazCustomFiles = prefs.getStringList('namazCustomFiles') ?? [];
-      _sunriseCustomFiles = prefs.getStringList('sunriseCustomFiles') ?? [];
-
-      // Load selected sounds, ensuring they exist in the available files
-      final namazSound = prefs.getString('namazSound') ?? 'asr.mp3';
-      final sunriseSound = prefs.getString('sunriseSound') ?? 'ringtone_2.mp3';
-
-      _selectedNamazSound = _namazSoundFiles.contains(namazSound) ? namazSound : 'asr.mp3';
-      _selectedSunriseSound = _sunriseSoundFiles.contains(sunriseSound) ? sunriseSound : 'ringtone_2.mp3';
+      // Load selected sounds
+      _selectedNamazSound = prefs.getString('namazSound') ?? '';
+      _selectedSunriseSound = prefs.getString('sunriseSound') ?? '';
     });
   }
 
@@ -82,10 +135,6 @@ class _ReligiousAlarmsState extends State<ReligiousAlarms> {
     await prefs.setBool('sunriseEnabled', _sunriseEnabled);
     await prefs.setString('namazSound', _selectedNamazSound);
     await prefs.setString('sunriseSound', _selectedSunriseSound);
-
-    // Save custom sound files
-    await prefs.setStringList('namazCustomFiles', _namazCustomFiles);
-    await prefs.setStringList('sunriseCustomFiles', _sunriseCustomFiles);
   }
 
   // Show dialog if location service is disabled
@@ -302,6 +351,8 @@ class _ReligiousAlarmsState extends State<ReligiousAlarms> {
     const String url = 'http://192.168.2.1/regselect/';
     final String fileName = _selectedNamazSound;
 
+    if (fileName.isEmpty) return;
+
     setState(() => _isNamazLoading = true);
 
     try {
@@ -327,6 +378,8 @@ class _ReligiousAlarmsState extends State<ReligiousAlarms> {
     const String url = 'http://192.168.2.1/regselect/';
     final String fileName = _selectedSunriseSound;
 
+    if (fileName.isEmpty) return;
+
     setState(() => _isSunriseLoading = true);
 
     try {
@@ -347,7 +400,51 @@ class _ReligiousAlarmsState extends State<ReligiousAlarms> {
     setState(() => _isSunriseLoading = false);
   }
 
-  // Pick audio file from device storage
+  // Upload audio file to IoT device using the new API endpoints
+  Future<void> _uploadAudioFile(File file, String fileName, bool isNamaz) async {
+    setState(() => _isUploadingFile = true);
+
+    try {
+      // Create multipart request
+      var request = http.MultipartRequest(
+          'POST',
+          Uri.parse('http://192.168.2.1/upload/${isNamaz ? 'namaz' : 'pooja'}/$fileName')
+      );
+
+      // Add file to request
+      request.files.add(await http.MultipartFile.fromPath(
+        'file',
+        file.path,
+        filename: fileName,
+      ));
+
+      // Send request
+      var response = await request.send();
+
+      if (response.statusCode == 200) {
+        _showDialog("Success", "File uploaded successfully: $fileName");
+
+        // Update the selected sound and refresh the sound list
+        if (isNamaz) {
+          setState(() => _selectedNamazSound = fileName);
+          await _fetchNamazSounds();
+          await _sendNamazSoundRequest();
+        } else {
+          setState(() => _selectedSunriseSound = fileName);
+          await _fetchSunriseSounds();
+          await _sendSunriseSoundRequest();
+        }
+      } else {
+        _showDialog("Error", "Failed to upload file: ${response.statusCode}");
+      }
+    } catch (e) {
+      _showDialog("Connection Error", "Make sure you're connected to the speaker's Wi-Fi.\n\nError: $e");
+    }
+
+    setState(() => _isUploadingFile = false);
+  }
+
+  // Pick audio file from device storage and upload to IoT device
   Future<void> _pickAudioFile(bool isNamaz) async {
     FilePickerResult? result = await FilePicker.platform.pickFiles(
       type: FileType.audio,
@@ -355,6 +452,7 @@ class _ReligiousAlarmsState extends State<ReligiousAlarms> {
     );
 
     if (result != null && result.files.single.path != null) {
+      String filePath = result.files.single.path!;
       String fileName = result.files.single.name;
 
       // Check if the file has an audio extension
@@ -362,35 +460,9 @@ class _ReligiousAlarmsState extends State<ReligiousAlarms> {
           fileName.toLowerCase().endsWith('.wav') ||
           fileName.toLowerCase().endsWith('.ogg') ||
           fileName.toLowerCase().endsWith('.m4a')) {
-        // Update state
-        setState(() {
-          if (isNamaz) {
-            // Add to custom files if it's not a default file
-            if (!_defaultNamazSoundFiles.contains(fileName) && !_namazCustomFiles.contains(fileName)) {
-              _namazCustomFiles.add(fileName);
-            }
-            _selectedNamazSound = fileName;
-          } else {
-            // Add to custom files if it's not a default file
-            if (!_defaultSunriseSoundFiles.contains(fileName) && !_sunriseCustomFiles.contains(fileName)) {
-              _sunriseCustomFiles.add(fileName);
-            }
-            _selectedSunriseSound = fileName;
-          }
-        });
 
-        // Show success message
-        _showDialog("File Selected", "Selected file: $fileName");
-
-        // Save settings
-        await _saveSettings();
-
-        // Send the new sound to the device
-        if (isNamaz) {
-          await _sendNamazSoundRequest();
-        } else {
-          await _sendSunriseSoundRequest();
-        }
+        // Upload the file using the new API
+        await _uploadAudioFile(File(filePath), fileName, isNamaz);
       } else {
         _showDialog("Invalid File", "Please select an audio file (MP3, WAV, OGG, M4A)");
       }
@@ -455,7 +527,9 @@ class _ReligiousAlarmsState extends State<ReligiousAlarms> {
         backgroundColor: Colors.white,
         elevation: 0.5,
       ),
-      body: Container(
+      body: _isFetchingSounds || _isUploadingFile
+          ? Center(child: CircularProgressIndicator(color: themeProvider.selectedColor))
+          : Container(
         color: Colors.white,
         child: ListView(
           padding: const EdgeInsets.all(16.0),
@@ -503,8 +577,17 @@ class _ReligiousAlarmsState extends State<ReligiousAlarms> {
                           'Sound',
                           style: TextStyle(fontSize: 16, fontWeight: FontWeight.w400),
                         ),
-                        DropdownButton<String>(
-                          value: _selectedNamazSound,
+                        _namazSoundFiles.isEmpty
+                            ? const Text(
+                          'No sounds available',
+                          style: TextStyle(color: Colors.grey),
+                        )
+                            : DropdownButton<String>(
+                          value: _selectedNamazSound.isNotEmpty && _namazSoundFiles.contains(_selectedNamazSound)
+                              ? _selectedNamazSound
+                              : _namazSoundFiles.isNotEmpty
+                              ? _namazSoundFiles[0]
+                              : '',
                           items: _namazSoundFiles.map((file) {
                             return DropdownMenuItem<String>(
                               value: file,
@@ -515,8 +598,10 @@ class _ReligiousAlarmsState extends State<ReligiousAlarms> {
                             );
                           }).toList(),
                           onChanged: (value) async {
-                            setState(() => _selectedNamazSound = value!);
-                            await _sendNamazSoundRequest();
+                            if (value != null) {
+                              setState(() => _selectedNamazSound = value);
+                              await _sendNamazSoundRequest();
+                            }
                           },
                           underline: const SizedBox(),
                           icon: const Icon(Icons.chevron_right, color: Colors.grey),
@@ -546,7 +631,7 @@ class _ReligiousAlarmsState extends State<ReligiousAlarms> {
                           child: _isNamazLoading
                               ? Center(child: CircularProgressIndicator(color: themeProvider.selectedColor))
                               : ElevatedButton.icon(
-                            onPressed: _sendNamazSoundRequest,
+                            onPressed: _namazSoundFiles.isEmpty ? null : _sendNamazSoundRequest,
                             icon: Icon(Icons.music_note, color: themeProvider.selectedColor),
                             label: Text(
                               'Upload Sound',
@@ -626,8 +711,17 @@ class _ReligiousAlarmsState extends State<ReligiousAlarms> {
                           'Sound',
                           style: TextStyle(fontSize: 16, fontWeight: FontWeight.w400),
                         ),
-                        DropdownButton<String>(
-                          value: _selectedSunriseSound,
+                        _sunriseSoundFiles.isEmpty
+                            ? const Text(
+                          'No sounds available',
+                          style: TextStyle(color: Colors.grey),
+                        )
+                            : DropdownButton<String>(
+                          value: _selectedSunriseSound.isNotEmpty && _sunriseSoundFiles.contains(_selectedSunriseSound)
+                              ? _selectedSunriseSound
+                              : _sunriseSoundFiles.isNotEmpty
+                              ? _sunriseSoundFiles[0]
+                              : '',
                           items: _sunriseSoundFiles.map((file) {
                             return DropdownMenuItem<String>(
                               value: file,
@@ -638,8 +732,10 @@ class _ReligiousAlarmsState extends State<ReligiousAlarms> {
                             );
                           }).toList(),
                           onChanged: (value) async {
-                            setState(() => _selectedSunriseSound = value!);
-                            await _sendSunriseSoundRequest();
+                            if (value != null) {
+                              setState(() => _selectedSunriseSound = value);
+                              await _sendSunriseSoundRequest();
+                            }
                           },
                           underline: const SizedBox(),
                           icon: const Icon(Icons.chevron_right, color: Colors.grey),
@@ -669,7 +765,7 @@ class _ReligiousAlarmsState extends State<ReligiousAlarms> {
                           child: _isSunriseLoading
                               ? Center(child: CircularProgressIndicator(color: themeProvider.selectedColor))
                               : ElevatedButton.icon(
-                            onPressed: _sendSunriseSoundRequest,
+                            onPressed: _sunriseSoundFiles.isEmpty ? null : _sendSunriseSoundRequest,
                             icon: Icon(Icons.music_note, color: themeProvider.selectedColor),
                             label: Text(
                               'Upload Sound',
