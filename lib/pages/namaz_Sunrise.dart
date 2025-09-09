@@ -28,6 +28,10 @@ class _ReligiousAlarmsState extends State<ReligiousAlarms> {
   String _selectedNamazSound = '';
   String _selectedSunriseSound = '';
 
+  // Time adjustment variables for sliders
+  double _namazOffset = 0.0;
+  double _sunriseOffset = 0.0;
+
   bool _isNamazLoading = false;
   bool _isSunriseLoading = false;
   bool _isFetchingSounds = false;
@@ -125,6 +129,10 @@ class _ReligiousAlarmsState extends State<ReligiousAlarms> {
       // Load selected sounds
       _selectedNamazSound = prefs.getString('namazSound') ?? '';
       _selectedSunriseSound = prefs.getString('sunriseSound') ?? '';
+
+      // Load time adjustment values
+      _namazOffset = prefs.getDouble('namazOffset') ?? 0.0;
+      _sunriseOffset = prefs.getDouble('sunriseOffset') ?? 0.0;
     });
   }
 
@@ -135,6 +143,10 @@ class _ReligiousAlarmsState extends State<ReligiousAlarms> {
     await prefs.setBool('sunriseEnabled', _sunriseEnabled);
     await prefs.setString('namazSound', _selectedNamazSound);
     await prefs.setString('sunriseSound', _selectedSunriseSound);
+
+    // Save time adjustment values
+    await prefs.setDouble('namazOffset', _namazOffset);
+    await prefs.setDouble('sunriseOffset', _sunriseOffset);
   }
 
   // Show dialog if location service is disabled
@@ -236,18 +248,20 @@ class _ReligiousAlarmsState extends State<ReligiousAlarms> {
     }
   }
 
-  // Send POST request to the IoT device for Namaz
+// Send POST request to the IoT device for Namaz
   Future<void> _sendNamazRequest(bool enabled) async {
     const String url = 'http://192.168.2.1/regctrl/';
     final now = DateTime.now();
     final int year = now.year;
     final int month = now.month;
     final int date = now.day;
-    const int buffMin = 0; // As per log
+
+    // Convert slider value to minutes for buff_min (direct minute value)
+    final int buffMin = _namazOffset.round();
 
     double lat = 18.476982;
     double lng = 73.808417;
-    const double tz = 5.3; // Updated timezone from log
+    const double tz = 5.5; // Updated timezone from log
 
     if (enabled) {
       final location = await _getDeviceLocation();
@@ -267,6 +281,14 @@ class _ReligiousAlarmsState extends State<ReligiousAlarms> {
 
       if (response.statusCode == 200) {
         print('Namaz request sent successfully: $body');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Namaz ${enabled ? 'enabled' : 'disabled'} | API: $body'),
+              duration: Duration(seconds: 3),
+            ),
+          );
+        }
         // Send sound selection request
         await _sendNamazSoundRequest();
       } else {
@@ -274,7 +296,7 @@ class _ReligiousAlarmsState extends State<ReligiousAlarms> {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('Failed to send Namaz request: ${response.statusCode}'),
+              content: Text('Failed to send Namaz request: ${response.statusCode} | API: $body'),
             ),
           );
         }
@@ -283,14 +305,13 @@ class _ReligiousAlarmsState extends State<ReligiousAlarms> {
       print('Error sending Namaz request: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Error sending Namaz request'),
+          SnackBar(
+            content: Text('Error sending Namaz request | API: $body'),
           ),
         );
       }
     }
   }
-
   // Send POST request to the IoT device for Sunrise & Sunset (Pooja)
   Future<void> _sendSunriseSunsetRequest(bool enabled) async {
     const String url = 'http://192.168.2.1/regctrl/';
@@ -298,7 +319,9 @@ class _ReligiousAlarmsState extends State<ReligiousAlarms> {
     final int year = now.year;
     final int month = now.month;
     final int date = now.day;
-    const int buffMin = 0; // As per log
+
+    // Convert slider value to minutes for buff_min (direct minute value)
+    final int buffMin = _sunriseOffset.round();
 
     double lat = 18.476982;
     double lng = 73.808417;
@@ -322,6 +345,14 @@ class _ReligiousAlarmsState extends State<ReligiousAlarms> {
 
       if (response.statusCode == 200) {
         print('Sunrise & Sunset request sent successfully: $body');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Sunrise/Sunset ${enabled ? 'enabled' : 'disabled'} | API: $body'),
+              duration: Duration(seconds: 3),
+            ),
+          );
+        }
         // Send sound selection request
         await _sendSunriseSoundRequest();
       } else {
@@ -329,7 +360,7 @@ class _ReligiousAlarmsState extends State<ReligiousAlarms> {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('Failed to send Sunrise & Sunset request: ${response.statusCode}'),
+              content: Text('Failed to send Sunrise & Sunset request: ${response.statusCode} | API: $body'),
             ),
           );
         }
@@ -338,8 +369,8 @@ class _ReligiousAlarmsState extends State<ReligiousAlarms> {
       print('Error sending Sunrise & Sunset request: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Error sending Sunrise & Sunset request'),
+          SnackBar(
+            content: Text('Error sending Sunrise & Sunset request | API: $body'),
           ),
         );
       }
@@ -623,48 +654,107 @@ class _ReligiousAlarmsState extends State<ReligiousAlarms> {
                       ],
                     ),
                   ),
+                  // Time Adjustment Slider for Namaz - UPDATED
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
-                    child: Row(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Expanded(
-                          child: _isNamazLoading
-                              ? Center(child: CircularProgressIndicator(color: themeProvider.selectedColor))
-                              : ElevatedButton.icon(
-                            onPressed: _namazSoundFiles.isEmpty ? null : _sendNamazSoundRequest,
-                            icon: Icon(Icons.music_note, color: themeProvider.selectedColor),
-                            label: Text(
-                              'Upload Sound',
-                              style: TextStyle(color: themeProvider.selectedColor, fontSize: 14),
-                            ),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.grey[100],
-                              foregroundColor: Colors.black,
-                              elevation: 0,
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(10),
+                        const Text(
+                          'Time Adjustment',
+                          style: TextStyle(fontSize: 16, fontWeight: FontWeight.w400),
+                        ),
+                        const SizedBox(height: 8),
+                        Row(
+                          children: [
+                            Text(
+                              '0m',
+                              style: TextStyle(
+                                color: _namazOffset == 0
+                                    ? themeProvider.selectedColor
+                                    : Colors.grey,
                               ),
                             ),
-                          ),
+                            Expanded(
+                              child: Slider(
+                                value: _namazOffset,
+                                min: 0,
+                                max: 30,
+                                divisions: 30,
+                                label: '${_namazOffset.round()}m',
+                                onChanged: (value) {
+                                  setState(() {
+                                    _namazOffset = value;
+                                  });
+                                },
+                                activeColor: themeProvider.selectedColor,
+                                inactiveColor: Colors.grey[300],
+                              ),
+                            ),
+                            Text(
+                              '30m',
+                              style: TextStyle(
+                                color: _namazOffset == 30
+                                    ? themeProvider.selectedColor
+                                    : Colors.grey,
+                              ),
+                            ),
+                          ],
                         ),
-                        const SizedBox(width: 10),
-                        ElevatedButton.icon(
-                          onPressed: () => _pickAudioFile(true),
-                          icon: Icon(Icons.upload_file, color: themeProvider.selectedColor),
-                          label: Text(
-                            'New',
-                            style: TextStyle(color: themeProvider.selectedColor, fontSize: 14),
-                          ),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.grey[100],
-                            foregroundColor: Colors.black,
-                            elevation: 0,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(10),
+                        Center(
+                          child: Text(
+                            '${_namazOffset.round()} minutes',
+                            style: TextStyle(
+                              color: themeProvider.selectedColor,
+                              fontWeight: FontWeight.w500,
                             ),
                           ),
                         ),
                       ],
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+                    child: Center(
+
+                      ///Expanded(
+                      //   child: _isNamazLoading
+                      //       ? Center(child: CircularProgressIndicator(color: themeProvider.selectedColor))
+                      //       : ElevatedButton.icon(
+                      //         onPressed: _namazSoundFiles.isEmpty ? null : _sendNamazSoundRequest,
+                      //         icon: Icon(Icons.music_note, color: themeProvider.selectedColor),
+                      //         label: Text(
+                      //           'Upload Sound',
+                      //           style: TextStyle(color: themeProvider.selectedColor, fontSize: 14),
+                      //         ),
+                      //         style: ElevatedButton.styleFrom(
+                      //           backgroundColor: Colors.grey[100],
+                      //           foregroundColor: Colors.black,
+                      //           elevation: 0,
+                      //           shape: RoundedRectangleBorder(
+                      //             borderRadius: BorderRadius.circular(10),
+                      //           ),
+                      //         ),
+                      //       ),
+                      // ),
+                      // const SizedBox(width: 10),
+                      child: ElevatedButton.icon(
+                        onPressed: () => _pickAudioFile(true),
+                        icon: Icon(Icons.upload_file, color: themeProvider.selectedColor),
+                        label: Text(
+                          'New',
+                          style: TextStyle(color: themeProvider.selectedColor, fontSize: 14),
+                        ),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.grey[100],
+                          foregroundColor: Colors.black,
+                          elevation: 0,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                        ),
+                      ),
+
                     ),
                   ),
                   const SizedBox(height: 8),
@@ -757,48 +847,107 @@ class _ReligiousAlarmsState extends State<ReligiousAlarms> {
                       ],
                     ),
                   ),
+                  // Time Adjustment Slider for Sunrise/Sunset - UPDATED
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
-                    child: Row(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Expanded(
-                          child: _isSunriseLoading
-                              ? Center(child: CircularProgressIndicator(color: themeProvider.selectedColor))
-                              : ElevatedButton.icon(
-                            onPressed: _sunriseSoundFiles.isEmpty ? null : _sendSunriseSoundRequest,
-                            icon: Icon(Icons.music_note, color: themeProvider.selectedColor),
-                            label: Text(
-                              'Upload Sound',
-                              style: TextStyle(color: themeProvider.selectedColor, fontSize: 14),
-                            ),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.grey[100],
-                              foregroundColor: Colors.black,
-                              elevation: 0,
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(10),
+                        const Text(
+                          'Time Adjustment',
+                          style: TextStyle(fontSize: 16, fontWeight: FontWeight.w400),
+                        ),
+                        const SizedBox(height: 8),
+                        Row(
+                          children: [
+                            Text(
+                              '0m',
+                              style: TextStyle(
+                                color: _sunriseOffset == 0
+                                    ? themeProvider.selectedColor
+                                    : Colors.grey,
                               ),
                             ),
-                          ),
+                            Expanded(
+                              child: Slider(
+                                value: _sunriseOffset,
+                                min: 0,
+                                max: 30,
+                                divisions: 30,
+                                label: '${_sunriseOffset.round()}m',
+                                onChanged: (value) {
+                                  setState(() {
+                                    _sunriseOffset = value;
+                                  });
+                                },
+                                activeColor: themeProvider.selectedColor,
+                                inactiveColor: Colors.grey[300],
+                              ),
+                            ),
+                            Text(
+                              '30m',
+                              style: TextStyle(
+                                color: _sunriseOffset == 30
+                                    ? themeProvider.selectedColor
+                                    : Colors.grey,
+                              ),
+                            ),
+                          ],
                         ),
-                        const SizedBox(width: 10),
-                        ElevatedButton.icon(
-                          onPressed: () => _pickAudioFile(false),
-                          icon: Icon(Icons.upload_file, color: themeProvider.selectedColor),
-                          label: Text(
-                            'New',
-                            style: TextStyle(color: themeProvider.selectedColor, fontSize: 14),
-                          ),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.grey[100],
-                            foregroundColor: Colors.black,
-                            elevation: 0,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(10),
+                        Center(
+                          child: Text(
+                            '${_sunriseOffset.round()} minutes',
+                            style: TextStyle(
+                              color: themeProvider.selectedColor,
+                              fontWeight: FontWeight.w500,
                             ),
                           ),
                         ),
                       ],
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+                    child: Center(
+
+                      // Expanded(
+                      //   child: _isSunriseLoading
+                      //       ? Center(child: CircularProgressIndicator(color: themeProvider.selectedColor))
+                      //       : ElevatedButton.icon(
+                      //         onPressed: _sunriseSoundFiles.isEmpty ? null : _sendSunriseSoundRequest,
+                      //         icon: Icon(Icons.music_note, color: themeProvider.selectedColor),
+                      //         label: Text(
+                      //           'Upload Sound',
+                      //           style: TextStyle(color: themeProvider.selectedColor, fontSize: 14),
+                      //         ),
+                      //         style: ElevatedButton.styleFrom(
+                      //           backgroundColor: Colors.grey[100],
+                      //           foregroundColor: Colors.black,
+                      //           elevation: 0,
+                      //           shape: RoundedRectangleBorder(
+                      //             borderRadius: BorderRadius.circular(10),
+                      //           ),
+                      //         ),
+                      //       ),
+                      // ),
+                      // const SizedBox(width: 10),
+                      child: ElevatedButton.icon(
+                        onPressed: () => _pickAudioFile(false),
+                        icon: Icon(Icons.upload_file, color: themeProvider.selectedColor),
+                        label: Text(
+                          'New',
+                          style: TextStyle(color: themeProvider.selectedColor, fontSize: 14),
+                        ),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.grey[100],
+                          foregroundColor: Colors.black,
+                          elevation: 0,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                        ),
+                      ),
+
                     ),
                   ),
                   const SizedBox(height: 8),

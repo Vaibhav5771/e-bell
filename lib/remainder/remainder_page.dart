@@ -17,7 +17,8 @@ class ReminderPage extends StatefulWidget {
 
 class _ReminderPageState extends State<ReminderPage> {
   DateTime _focusedDay = DateTime.now();
-  DateTime? _selectedDay;
+  DateTime? _selectedFromDay;
+  DateTime? _selectedToDay;
   TimeOfDay _selectedTime = TimeOfDay.now();
   String _period = TimeOfDay.now().hour < 12 ? 'AM' : 'PM';
   String _title = '';
@@ -26,16 +27,20 @@ class _ReminderPageState extends State<ReminderPage> {
   String _soundOption = '';
   List<String> _soundOptions = [];
   bool isLoading = false;
-  bool _showCalendar = false;
+  bool _showFromCalendar = false;
+  bool _showToCalendar = false;
   bool _showTimePicker = false;
   late FixedExtentScrollController _hourController;
   late FixedExtentScrollController _minuteController;
   late FixedExtentScrollController _periodController;
+  bool _isRepeatEnabled = false;
+  List<bool> _selectedDays = List.filled(7, false);
 
   @override
   void initState() {
     super.initState();
-    _selectedDay = _focusedDay;
+    _selectedFromDay = _focusedDay;
+    _selectedToDay = _focusedDay;
 
     final int hour = _selectedTime.hourOfPeriod == 0 ? 11 : _selectedTime.hourOfPeriod - 1;
     _hourController = FixedExtentScrollController(initialItem: hour);
@@ -66,10 +71,8 @@ class _ReminderPageState extends State<ReminderPage> {
               return (file as List<dynamic>)[0] as String;
             }).toList();
 
-            // Debug print to verify fetched files
             print('Fetched filenames: $filenames');
             setState(() {
-              // Filter files: exclude those with '/' and include only .mp3 or .wav
               _soundOptions = filenames
                   .where((file) =>
               !file.contains('/') &&
@@ -127,11 +130,61 @@ class _ReminderPageState extends State<ReminderPage> {
     }
   }
 
-  void _onDaySelected(DateTime selectedDay, DateTime focusedDay) {
+  void _onFromDaySelected(DateTime selectedDay, DateTime focusedDay) {
     setState(() {
-      _selectedDay = selectedDay;
+      _selectedFromDay = selectedDay;
       _focusedDay = focusedDay;
+      _showFromCalendar = false; // Close calendar after selection
     });
+  }
+
+  void _onToDaySelected(DateTime selectedDay, DateTime focusedDay) {
+    setState(() {
+      _selectedToDay = selectedDay;
+      _focusedDay = focusedDay;
+      _showToCalendar = false; // Close calendar after selection
+    });
+  }
+
+  int _calculateWeekBitmask() {
+    const List<int> dayBitmasks = [128, 2, 4, 8, 16, 32, 64]; // [Sun, Mon, Tue, Wed, Thu, Fri, Sat]
+    int week = 0;
+    for (int i = 0; i < _selectedDays.length; i++) {
+      if (_selectedDays[i]) {
+        week |= dayBitmasks[i];
+      }
+    }
+    return week == 0 ? 254 : week;
+  }
+
+  Future<bool> _verifyReminder(String soundOption, int hr, int mn, int sEpoch, int eEpoch, int week, int alarmType) async {
+    try {
+      final response = await http.get(Uri.parse('http://192.168.2.1/alarmsong')).timeout(
+        const Duration(seconds: 10),
+        onTimeout: () {
+          throw Exception('Verification request timed out');
+        },
+      );
+
+      if (response.statusCode == 200) {
+        final jsonData = jsonDecode(response.body);
+        final data = jsonData['Data'] as List<dynamic>?;
+
+        if (data != null && data.isNotEmpty) {
+          final filesData = data[0]['files'] as List<dynamic>?;
+          if (filesData != null) {
+            final filenames = filesData.map((file) => (file as List<dynamic>)[0] as String).toList();
+            return filenames.contains(soundOption);
+          }
+        }
+        return false;
+      } else {
+        return false;
+      }
+    } catch (e) {
+      print('Verification error: $e');
+      return false;
+    }
   }
 
   Future<void> _saveReminder() async {
@@ -142,9 +195,9 @@ class _ReminderPageState extends State<ReminderPage> {
       return;
     }
 
-    if (_selectedDay == null) {
+    if (_selectedFromDay == null || _selectedToDay == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please select a date')),
+        const SnackBar(content: Text('Please select both From and To dates')),
       );
       return;
     }
@@ -156,10 +209,22 @@ class _ReminderPageState extends State<ReminderPage> {
       return;
     }
 
-    final reminderDateTime = DateTime(
-      _selectedDay!.year,
-      _selectedDay!.month,
-      _selectedDay!.day,
+    // IST offset (5 hours 30 minutes in seconds)
+    const int IST_OFFSET = 5 * 3600 + 30 * 60;
+
+    // Create reminder with proper time
+    final reminderFromDateTime = DateTime(
+      _selectedFromDay!.year,
+      _selectedFromDay!.month,
+      _selectedFromDay!.day,
+      _selectedTime.hour,
+      _selectedTime.minute,
+    );
+
+    final reminderToDateTime = DateTime(
+      _selectedToDay!.year,
+      _selectedToDay!.month,
+      _selectedToDay!.day,
       _selectedTime.hour,
       _selectedTime.minute,
     );
@@ -168,8 +233,8 @@ class _ReminderPageState extends State<ReminderPage> {
       id: await ReminderModel.generateUniqueId(),
       title: _title,
       description: _description,
-      startDateTime: reminderDateTime,
-      endDateTime: reminderDateTime,
+      startDateTime: reminderFromDateTime,
+      endDateTime: reminderToDateTime,
       isImportant: _isImportant,
       sound: _soundOption,
       isActive: true,
@@ -179,13 +244,24 @@ class _ReminderPageState extends State<ReminderPage> {
 
     setState(() => isLoading = true);
 
-    // Convert to UTC epoch seconds
-    final epochTime = (reminderDateTime.toUtc().millisecondsSinceEpoch / 1000).floor();
-    final isActiveFlag = 1;
-    final isRepeatFlag = 1;
+    int hr = _selectedTime.hour;
+    int mn = _selectedTime.minute;
 
-    final data = '$epochTime,$isActiveFlag,$isRepeatFlag';
-    final url = 'http://192.168.2.1/settime/${Uri.encodeComponent(_soundOption)}';
+    // Convert to IST epoch timestamps
+    int sEpoch = (reminderFromDateTime.millisecondsSinceEpoch / 1000).floor() - IST_OFFSET;
+    int eEpoch = (reminderToDateTime.millisecondsSinceEpoch / 1000).floor() - IST_OFFSET + 86399; // Add 23:59:59
+
+    int active = 1;
+    int week = _isRepeatEnabled ? _calculateWeekBitmask() : 254;
+    int alarmType = 2;
+
+    final data = '$hr,$mn,$sEpoch,$eEpoch,$active,$week,$alarmType';
+    final url = 'http://192.168.2.1/settime/$_soundOption';
+    final curlCommand = 'curl -X POST $url -d "$data"';
+
+    print('Sending POST request to: $url');
+    print('Data: $data');
+    print('Sound file: $_soundOption');
 
     bool scheduled = false;
     try {
@@ -194,26 +270,46 @@ class _ReminderPageState extends State<ReminderPage> {
         headers: {'Content-Type': 'text/plain'},
         body: data,
       );
+      print('Response status: ${response.statusCode}');
+      print('Response body: ${response.body}');
       scheduled = response.statusCode == 200;
-    } catch (e) {
-      scheduled = false;
-    }
 
-    if (scheduled) {
+      if (scheduled) {
+        bool verified = await _verifyReminder(_soundOption, hr, mn, sEpoch, eEpoch, week, alarmType);
+        if (verified) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('✅ Reminder set for ${reminder.startDateTime} with $_soundOption (Verified)\n$curlCommand'),
+              duration: const Duration(seconds: 5),
+            ),
+          );
+          Navigator.pop(context);
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('⚠️ Reminder set but verification failed for $_soundOption\n$curlCommand'),
+              duration: const Duration(seconds: 5),
+            ),
+          );
+        }
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('❌ Failed to set reminder: ${response.statusCode} - ${response.body}'),
+          ),
+        );
+      }
+    } catch (e) {
+      print('Error sending request: $e');
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Reminder set for ${reminder.startDateTime} with $_soundOption')),
-      );
-      Navigator.pop(context);
-    } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Failed to set reminder on device')),
+        SnackBar(
+          content: Text('⚠️ Error setting reminder: $e'),
+        ),
       );
     }
 
     setState(() => isLoading = false);
   }
-
-
 
   Widget _buildDivider() {
     return Divider(
@@ -222,6 +318,64 @@ class _ReminderPageState extends State<ReminderPage> {
       indent: 16,
       endIndent: 16,
       color: Colors.grey[200],
+    );
+  }
+
+  String _formatDate(DateTime? date) {
+    if (date == null) return 'Select Date';
+    return '${_getMonthName(date.month)} ${date.day}, ${date.year}';
+  }
+
+  String _getMonthName(int month) {
+    const months = [
+      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
+    ];
+    return months[month - 1];
+  }
+
+  Widget _buildDaysSelector() {
+    final themeProvider = Provider.of<ThemeProvider>(context);
+    final dayAbbreviations = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 16.0),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+        children: List.generate(7, (index) {
+          return GestureDetector(
+            onTap: () {
+              setState(() {
+                _selectedDays[index] = !_selectedDays[index];
+              });
+            },
+            child: Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: _selectedDays[index]
+                    ? themeProvider.selectedColor
+                    : Colors.transparent,
+                border: Border.all(
+                  color: _selectedDays[index]
+                      ? themeProvider.selectedColor
+                      : Colors.grey,
+                ),
+              ),
+              child: Center(
+                child: Text(
+                  dayAbbreviations[index],
+                  style: TextStyle(
+                    color: _selectedDays[index] ? Colors.white : Colors.black,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ),
+          );
+        }),
+      ),
     );
   }
 
@@ -297,34 +451,109 @@ class _ReminderPageState extends State<ReminderPage> {
             ),
             _buildDivider(),
             const SizedBox(height: 16),
-            // Collapsible Date Section
-            GestureDetector(
-              onTap: () {
-                setState(() {
-                  _showCalendar = !_showCalendar;
-                });
-              },
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  const Text(
-                    'Select Date',
-                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            const Text(
+              'Select Date',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 12),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'From',
+                  style: TextStyle(fontSize: 14, color: Colors.grey),
+                ),
+                const SizedBox(height: 4),
+                GestureDetector(
+                  onTap: () {
+                    setState(() {
+                      _showFromCalendar = !_showFromCalendar;
+                      _showToCalendar = false;
+                    });
+                  },
+                  child: SizedBox(
+                    width: 180,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+                      decoration: BoxDecoration(
+                        border: Border.all(color: Colors.grey.shade300),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            _formatDate(_selectedFromDay),
+                            style: const TextStyle(fontSize: 16),
+                          ),
+                          Icon(
+                            _showFromCalendar ? Icons.keyboard_arrow_up : Icons.keyboard_arrow_down,
+                            color: Colors.grey,
+                          ),
+                        ],
+                      ),
+                    ),
                   ),
-                  const SizedBox(width: 8),
-                  Icon(
-                    _showCalendar ? Icons.keyboard_arrow_up : Icons.keyboard_arrow_down,
-                    color: Colors.grey,
+                ),
+                // Calendar appears directly below the From selector
+                if (_showFromCalendar)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 8.0),
+                    child: _buildCalendarPicker(themeProvider, true),
                   ),
-                ],
-              ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'To',
+                  style: TextStyle(fontSize: 14, color: Colors.grey),
+                ),
+                const SizedBox(height: 4),
+                GestureDetector(
+                  onTap: () {
+                    setState(() {
+                      _showToCalendar = !_showToCalendar;
+                      _showFromCalendar = false;
+                    });
+                  },
+                  child: SizedBox(
+                    width: 180,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+                      decoration: BoxDecoration(
+                        border: Border.all(color: Colors.grey.shade300),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            _formatDate(_selectedToDay),
+                            style: const TextStyle(fontSize: 16),
+                          ),
+                          Icon(
+                            _showToCalendar ? Icons.keyboard_arrow_up : Icons.keyboard_arrow_down,
+                            color: Colors.grey,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+                // Calendar appears directly below the To selector
+                if (_showToCalendar)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 8.0),
+                    child: _buildCalendarPicker(themeProvider, false),
+                  ),
+              ],
             ),
             const SizedBox(height: 8),
-            if (_showCalendar) _buildCalendarPicker(themeProvider),
             _buildDivider(),
             const SizedBox(height: 16),
-            // Collapsible Time Section
             GestureDetector(
               onTap: () {
                 setState(() {
@@ -350,6 +579,23 @@ class _ReminderPageState extends State<ReminderPage> {
             const SizedBox(height: 8),
             if (_showTimePicker) _buildTimePicker(isSmallScreen, themeProvider),
             _buildDivider(),
+            const SizedBox(height: 16),
+            _buildOptionTile(
+              context,
+              title: 'Repeat',
+              isSwitch: true,
+              switchValue: _isRepeatEnabled,
+              onSwitchChanged: (value) {
+                setState(() {
+                  _isRepeatEnabled = value;
+                  if (!value) {
+                    _selectedDays = List.filled(7, false);
+                  }
+                });
+              },
+            ),
+            if (_isRepeatEnabled) _buildDaysSelector(),
+            _buildDivider(),
             _buildOptionTile(
               context,
               title: 'Sound',
@@ -372,15 +618,29 @@ class _ReminderPageState extends State<ReminderPage> {
     );
   }
 
-  Widget _buildCalendarPicker(ThemeProvider themeProvider) {
-    return SizedBox(
-      height: 410,
+  Widget _buildCalendarPicker(ThemeProvider themeProvider, bool isFromCalendar) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.grey.withOpacity(0.2),
+            blurRadius: 4,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
       child: TableCalendar(
         firstDay: DateTime.utc(2020, 1, 1),
         lastDay: DateTime.utc(2030, 12, 31),
         focusedDay: _focusedDay,
-        selectedDayPredicate: (day) => isSameDay(_selectedDay, day),
-        onDaySelected: _onDaySelected,
+        selectedDayPredicate: (day) => isSameDay(
+            isFromCalendar ? _selectedFromDay : _selectedToDay,
+            day
+        ),
+        onDaySelected: isFromCalendar ? _onFromDaySelected : _onToDaySelected,
         calendarFormat: CalendarFormat.month,
         availableGestures: AvailableGestures.none,
         headerStyle: const HeaderStyle(
@@ -518,7 +778,13 @@ class _ReminderPageState extends State<ReminderPage> {
   }
 
   void _selectSoundOption() {
-    if (_soundOptions.isEmpty) return;
+    if (_soundOptions.isEmpty) {
+      print('No sound options available');
+      return;
+    }
+    print('Available sound options: $_soundOptions');
+    print('Currently selected: $_soundOption');
+
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -528,6 +794,7 @@ class _ReminderPageState extends State<ReminderPage> {
           options: _soundOptions,
           selectedOption: _soundOption,
           onSelect: (value) {
+            print('Selected sound: $value');
             setState(() => _soundOption = value);
             Navigator.pop(context);
           },

@@ -45,20 +45,17 @@ class _BellTabState extends State<BellTab> {
 
         List<String> files = [];
 
-        // Handle the specific nested structure
-        if (jsonData['intrData'] != null && jsonData['intrData'] is List) {
-          final intrDataList = jsonData['intrData'] as List;
+        // Parse the specific structure from your API response
+        if (jsonData['Data'] != null && jsonData['Data'] is List) {
+          final dataList = jsonData['Data'] as List;
 
-          for (final intrData in intrDataList) {
-            if (intrData['files'] != null && intrData['files'] is List) {
-              final filesList = intrData['files'] as List;
+          for (final dataItem in dataList) {
+            if (dataItem is Map && dataItem['files'] != null && dataItem['files'] is List) {
+              final filesList = dataItem['files'] as List;
 
               for (final fileEntry in filesList) {
-                if (fileEntry is List && fileEntry.isNotEmpty) {
-                  final fileName = fileEntry[0] as String?;
-                  if (fileName != null) {
-                    files.add(fileName);
-                  }
+                if (fileEntry is List && fileEntry.isNotEmpty && fileEntry[0] is String) {
+                  files.add(fileEntry[0] as String);
                 }
               }
             }
@@ -82,6 +79,11 @@ class _BellTabState extends State<BellTab> {
         }
       } else {
         debugPrint('API error: ${response.statusCode}');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Server error: ${response.statusCode}')),
+          );
+        }
       }
     } catch (e) {
       debugPrint('Error loading files: $e');
@@ -251,11 +253,16 @@ class _BellTabState extends State<BellTab> {
           }
           _soundOption = sanitizedFileName;
         });
-        // Refresh the file list after successful upload
-        await _loadUploadedFiles();
+
+        // 🎯 Optional: delay the refresh slightly to give backend time
+        Future.delayed(const Duration(seconds: 2), () {
+          if (mounted) _loadUploadedFiles();
+        });
+
         _showDialog('Success',
             'File uploaded successfully: $sanitizedFileName\n$body', true);
-      } else {
+      }
+      else {
         _showDialog('Upload Failed',
             'Status: ${response.statusCode}\nResponse: $body', false);
       }
@@ -361,7 +368,10 @@ class _BellTabState extends State<BellTab> {
                               items: _soundOptions
                                   .map((sound) => DropdownMenuItem(
                                 value: sound,
-                                child: Text(sound),
+                                child: Text(
+                                  sound,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
                               ))
                                   .toList(),
                               onChanged: (value) {
@@ -375,6 +385,8 @@ class _BellTabState extends State<BellTab> {
                               borderRadius: BorderRadius.circular(8),
                               icon: Icon(Icons.arrow_drop_down,
                                   color: themeProvider.textColor),
+                              iconSize: 24, // Increased icon size
+                              dropdownColor: Colors.white,
                               style: Theme.of(context).textTheme.bodyMedium,
                               hint: const Text('No sounds available'),
                             ),
