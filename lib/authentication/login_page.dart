@@ -130,16 +130,8 @@ class _LoginScreenState extends State<LoginScreen> {
                       child: Column(
                         children: [
                           const Text(
-                            'New to E-Bell?',
+                            'New to E-Bell? SignUp',
                             style: TextStyle(color: Colors.black),
-                          ),
-                          Text(
-                            'Sign Up',
-                            style: TextStyle(
-                              color: Colors.blue,
-                              fontSize: 16,// Make "Sign Up" blue
-                              fontWeight: FontWeight.bold, // Optional: make it bold for emphasis
-                            ),
                           ),
                         ],
                       ),
@@ -155,7 +147,14 @@ class _LoginScreenState extends State<LoginScreen> {
                         ),
                       ],
                     ),
-                    const SizedBox(height: 20),
+                    const SizedBox(height: 10),
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.center,
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text('EBELL_Version_V.2.0',style: TextStyle(fontSize: 10,color: Colors.black54),)
+                      ],
+                    )
                   ],
                 ),
               ),

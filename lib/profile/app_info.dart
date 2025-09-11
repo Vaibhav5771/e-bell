@@ -28,7 +28,7 @@ class AppInfoScreen extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text(
-              'E-Bell v1.0',
+              'E-Bell v2.0',
               style: TextStyle(color: Colors.grey, fontSize: 14),
             ),
             const SizedBox(height: 16),
@@ -58,6 +58,13 @@ class AppInfoScreen extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 16),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text('EBELL_Version_V.2.0',style: TextStyle(fontSize: 10,color: Colors.black54),)
+              ],
+            )
           ],
         ),
       ),

@@ -164,16 +164,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     child: Column(
                       children: [
                         const Text(
-                          'Already have an account?',
+                          'Already have an account? Login',
                           style: TextStyle(color: Colors.black),
-                        ),
-                        Text(
-                          'Login',
-                          style: TextStyle(
-                            color: Colors.blue,
-                            fontSize: 16,// Make "Login" blue
-                            fontWeight: FontWeight.bold, // Optional: make it bold for emphasis
-                          ),
                         ),
                       ],
                     ),
@@ -189,7 +181,14 @@ class _RegisterScreenState extends State<RegisterScreen> {
                         ),
                       ],
                     ),
-                    const SizedBox(height: 20),
+                    const SizedBox(height: 10),
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.center,
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text('EBELL_Version_V.2.0',style: TextStyle(fontSize: 10,color: Colors.black54),)
+                      ],
+                    )
                   ],
                 ),
               ),

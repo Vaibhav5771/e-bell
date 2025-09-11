@@ -35,6 +35,8 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
+  List<String> _namazTimes = [];
+  List<String> _poojaTimes = [];
   late TabLogic _tabLogic;
   late TabLogic1 _musicTabLogic;
   late CalendarLogic _calendarLogic;
@@ -200,129 +202,145 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  Future<Map<String, bool>> _checkPrayerTimesStatus() async {
-    http.Client? client; // Declare client outside try block
+  Future<Map<String, dynamic>> _checkPrayerTimesStatus() async {
+    http.Client? client;
     try {
-      client = http.Client(); // Initialize inside try
-      bool namazEnabled = false;
-      bool sunriseEnabled = false;
+      client = http.Client();
 
-      // Fetch Namaz status
-      final namazResponse = await client.get(
-        Uri.parse('http://192.168.2.1/namaz'),
+      final response = await client.get(
+        Uri.parse('http://192.168.2.1/regtime'),
       ).timeout(
         const Duration(seconds: 5),
         onTimeout: () {
-          throw Exception('Namaz API timed out');
+          throw Exception('regtime API timed out');
         },
       );
 
-      if (namazResponse.statusCode == 200) {
-        final namazJsonData = jsonDecode(namazResponse.body);
-        final namazData = namazJsonData['Data'] as List<dynamic>?;
-
-        debugPrint('Namaz API Response: $namazData');
-
-        if (namazData != null && namazData.isNotEmpty) {
-          final files = (namazData[0]['files'] as List<dynamic>?) ?? [];
-
-          debugPrint('Namaz Files: $files');
-
-          for (var file in files) {
-            if (file is List && file.length >= 2) {
-              final isEnabled = file[1] == 1;
-              namazEnabled = namazEnabled || isEnabled;
-            }
-          }
-        }
-      } else {
-        throw Exception('Namaz API HTTP ${namazResponse.statusCode} error');
+      if (response.statusCode != 200) {
+        throw Exception('regtime API HTTP ${response.statusCode}');
       }
 
-      // Fetch Pooja (Sunrise/Sunset) status
-      final poojaResponse = await client.get(
-        Uri.parse('http://192.168.2.1/pooja'),
-      ).timeout(
-        const Duration(seconds: 5),
-        onTimeout: () {
-          throw Exception('Pooja API timed out');
-        },
-      );
+      final jsonData = jsonDecode(response.body);
 
-      if (poojaResponse.statusCode == 200) {
-        final poojaJsonData = jsonDecode(poojaResponse.body);
-        final poojaData = poojaJsonData['Data'] as List<dynamic>?;
+      // Extract NAMAZ and POOJA times
+      final namazList = (jsonData['NAMAZ'] as List<dynamic>? ?? [])
+          .map((e) => e.toString())
+          .toList();
 
-        debugPrint('Pooja API Response: $poojaData');
+      final poojaList = (jsonData['POOJA'] as List<dynamic>? ?? [])
+          .map((e) => e.toString())
+          .toList();
 
-        if (poojaData != null && poojaData.isNotEmpty) {
-          final files = (poojaData[0]['files'] as List<dynamic>?) ?? [];
-
-          debugPrint('Pooja Files: $files');
-
-          for (var file in files) {
-            if (file is List && file.length >= 2) {
-              final isEnabled = file[1] == 1;
-              sunriseEnabled = sunriseEnabled || isEnabled;
-            }
-          }
-        }
-      } else {
-        throw Exception('Pooja API HTTP ${poojaResponse.statusCode} error');
-      }
-
-      debugPrint('namazEnabled: $namazEnabled, sunriseEnabled: $sunriseEnabled');
+      debugPrint('regtime → NAMAZ: $namazList, POOJA: $poojaList');
 
       return {
-        'namazEnabled': namazEnabled,
-        'sunriseEnabled': sunriseEnabled,
+        'namazTimes': namazList,
+        'poojaTimes': poojaList,
       };
     } catch (e) {
-      debugPrint('Error checking prayer times status: $e');
-      throw Exception('Failed to check prayer times status: $e');
+      debugPrint('Error checking regtime: $e');
+      throw Exception('Failed to check regtime status: $e');
     } finally {
-      client?.close(); // Safely close client if initialized
+      client?.close();
     }
   }
 
+  Future<Map<String, bool>> _fetchRegionStatus() async {
+    http.Client? client;
+    try {
+      client = http.Client();
+      final response = await client.get(
+        Uri.parse('http://192.168.2.1/'),
+      ).timeout(
+        const Duration(seconds: 5),
+        onTimeout: () => throw Exception('Root API timed out'),
+      );
+
+      if (response.statusCode != 200) {
+        throw Exception('Root API HTTP ${response.statusCode}');
+      }
+
+      final jsonData = jsonDecode(response.body);
+
+      // region looks like: [{"POOJA":0},{"NAMAZ":0}]
+      final regionList = (jsonData['region'] as List<dynamic>? ?? []);
+
+      int poojaFlag = 0;
+      int namazFlag = 0;
+
+      for (var item in regionList) {
+        if (item is Map) {
+          if (item.containsKey('POOJA')) poojaFlag = item['POOJA'] ?? 0;
+          if (item.containsKey('NAMAZ')) namazFlag = item['NAMAZ'] ?? 0;
+        }
+      }
+
+      return {
+        'namazEnabled': namazFlag == 1,
+        'sunriseEnabled': poojaFlag == 1,
+      };
+    } catch (e) {
+      debugPrint("Error fetching region status: $e");
+      throw Exception("Failed to fetch region status: $e");
+    } finally {
+      client?.close();
+    }
+  }
+
+
+
   Future<void> _loadPrayerTimesStatus() async {
     if (!mounted) return;
+    setState(() {
+      _loadingPrayerStatus = true;
+      _errorLoadingStatus = false;
+    });
 
     try {
-      final status = await _checkPrayerTimesStatus();
-      if (!mounted) return;
+      // Step 1: Flags
+      final regionStatus = await _fetchRegionStatus();
 
+      // Step 2: Times
+      final regtimeData = await _checkPrayerTimesStatus();
+
+      if (!mounted) return;
       setState(() {
-        _namazEnabled = status['namazEnabled'] ?? false;
-        _sunriseEnabled = status['sunriseEnabled'] ?? false;
+        _namazEnabled = regionStatus['namazEnabled'] ?? false;
+        _sunriseEnabled = regionStatus['sunriseEnabled'] ?? false;
+
+        _namazTimes = regtimeData['namazTimes'] ?? [];
+        _poojaTimes = regtimeData['poojaTimes'] ?? [];
+
         _loadingPrayerStatus = false;
       });
+
     } catch (e) {
       if (!mounted) return;
       setState(() {
         _loadingPrayerStatus = false;
         _errorLoadingStatus = true;
       });
-
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(e.toString()),
-          duration: const Duration(seconds: 3),
-        ),
+        SnackBar(content: Text(e.toString())),
       );
     }
   }
 
-  Widget _buildPrayerTimeIndicator({required String label, required bool enabled}) {
+
+  Widget _buildPrayerTimeIndicator({
+    required String label,
+    required bool enabled,
+    List<String> times = const [], // 👈 list of times
+  }) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       margin: const EdgeInsets.only(right: 8),
       constraints: const BoxConstraints(minWidth: 80),
       decoration: BoxDecoration(
-        color: enabled ? Colors.green.withOpacity(0.1) : Colors.grey.withOpacity(0.1),
+        color: enabled ? Colors.orange.withOpacity(0.1) : Colors.grey.withOpacity(0.1),
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
-          color: enabled ? Colors.green : Colors.grey,
+          color: enabled ? Colors.orange : Colors.grey,
           width: 1,
         ),
       ),
@@ -331,24 +349,40 @@ class _HomeScreenState extends State<HomeScreen> {
         children: [
           Icon(
             enabled ? Icons.check_circle : Icons.circle,
-            color: enabled ? Colors.green : Colors.grey,
+            color: enabled ? Colors.orange : Colors.grey,
             size: 14,
           ),
           const SizedBox(width: 6),
           Flexible(
-            child: Text(
-              label,
-              style: TextStyle(
-                color: enabled ? Colors.green : Colors.grey,
-                fontSize: 12,
-              ),
-              overflow: TextOverflow.ellipsis,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: TextStyle(
+                    color: enabled ? Colors.orange : Colors.grey,
+                    fontSize: 12,
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                ),
+                if (enabled && times.isNotEmpty)
+                  ...times.map((t) => Text(
+                    t,
+                    style: const TextStyle(
+                      color: Colors.black87,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w500,
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                  )),
+              ],
             ),
           ),
         ],
       ),
     );
   }
+
 
   Widget _buildStatusIndicators() {
     if (_loadingPrayerStatus) {
@@ -396,12 +430,14 @@ class _HomeScreenState extends State<HomeScreen> {
         child: Row(
           children: [
             _buildPrayerTimeIndicator(
-              label: 'Namaz Times',
+              label: 'Namaz',
               enabled: _namazEnabled,
+              times: _namazEnabled ? _namazTimes : [],
             ),
             _buildPrayerTimeIndicator(
               label: 'Sunrise/Sunset',
               enabled: _sunriseEnabled,
+              times: _sunriseEnabled ? _poojaTimes : [],
             ),
             IconButton(
               padding: EdgeInsets.zero,
