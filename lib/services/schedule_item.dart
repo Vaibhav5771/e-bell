@@ -1,80 +1,78 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'theme_state.dart';
+import '../utils/theme_state.dart';
+import '../utils/app_text_styles.dart';
 
 class ScheduleItem extends StatelessWidget {
   final String time;
   final String title;
   final bool isChecked;
   final bool isLast;
-  final IconData? icon; // Added to allow custom icons
+  final IconData? icon;
 
   const ScheduleItem({
     super.key,
     required this.time,
     required this.title,
     required this.isChecked,
-    this.isLast = false, // Made optional with default value
-    this.icon = Icons.alarm, // Default to alarm icon
+    this.isLast = false,
+    this.icon = Icons.alarm,
   });
 
   @override
   Widget build(BuildContext context) {
     final themeProvider = Provider.of<ThemeProvider>(context);
     return SizedBox(
-      height: 100,
+      height: 80, // Reduced height for compact layout
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Column(
             children: [
               Container(
-                padding: const EdgeInsets.all(15),
+                padding: const EdgeInsets.all(10),
                 decoration: BoxDecoration(
                   color: themeProvider.selectedColor.withOpacity(0.3),
                   shape: BoxShape.circle,
                 ),
                 child: Icon(
-                  icon, // Use custom icon
+                  icon,
                   color: themeProvider.selectedColor,
-                  size: 30,
+                  size: 24,
                 ),
               ),
               if (!isLast)
-                Expanded(
-                  child: Padding(
-                    padding: const EdgeInsets.only(top: 10.0),
-                    child: CustomPaint(
-                      painter: DottedLinePainter(),
-                    ),
+                SizedBox(
+                  height: 30, // Fixed height for dotted line
+                  child: CustomPaint(
+                    painter: DottedLinePainter(),
+                    size: const Size(2, 30), // Explicit size for CustomPaint
                   ),
                 ),
             ],
           ),
-          const SizedBox(width: 45),
+          const SizedBox(width: 16),
           Expanded(
             child: Padding(
-              padding: const EdgeInsets.only(top: 0),
+              padding: const EdgeInsets.only(top: 8),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
                     time,
-                    style: const TextStyle(
-                      fontSize: 18,
-                      color: Colors.black,
-                    ),
+                    style: AppTextStyles.subheading,
                   ),
                   Text(
                     title,
-                    style: TextStyle(
-                      color: Colors.grey,
-                      fontSize: 15,
+                    style: AppTextStyles.body.copyWith(
+                      fontSize: 14,
                       fontWeight: FontWeight.w400,
+                      color: Colors.grey,
                       decoration: isChecked ? TextDecoration.lineThrough : null,
                       decorationColor: Colors.grey,
                       decorationThickness: 2,
                     ),
+                    overflow: TextOverflow.ellipsis,
                   ),
                 ],
               ),

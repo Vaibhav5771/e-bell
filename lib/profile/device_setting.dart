@@ -2,7 +2,8 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:provider/provider.dart';
-import '../services/theme_state.dart';
+import '../utils/theme_state.dart';
+import '../utils/app_text_styles.dart';
 
 class DeviceSettingScreen extends StatefulWidget {
   const DeviceSettingScreen({super.key});
@@ -47,12 +48,21 @@ class _DeviceSettingScreenState extends State<DeviceSettingScreen> {
     showDialog(
       context: context,
       builder: (_) => AlertDialog(
-        title: Text(title),
-        content: Text(content),
+        title: Text(
+          title,
+          style: AppTextStyles.subheading,
+        ),
+        content: Text(
+          content,
+          style: AppTextStyles.body,
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(),
-            child: Text("OK"),
+            child: Text(
+              "OK",
+              style: AppTextStyles.link,
+            ),
           ),
         ],
       ),
@@ -71,9 +81,13 @@ class _DeviceSettingScreenState extends State<DeviceSettingScreen> {
             Navigator.pop(context);
           },
         ),
-        title: const Text('Device'),
+        title: const Text(
+          'Device',
+          style: AppTextStyles.heading,
+        ),
         backgroundColor: Colors.white,
         elevation: 0,
+        centerTitle: true,
       ),
       body: Container(
         color: Colors.white,
@@ -81,9 +95,9 @@ class _DeviceSettingScreenState extends State<DeviceSettingScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
+            Text(
               'Volume',
-              style: TextStyle(color: Colors.grey, fontSize: 14),
+              style: AppTextStyles.link.copyWith(color: Colors.grey),
             ),
             const SizedBox(height: 8),
             Row(
@@ -116,34 +130,34 @@ class _DeviceSettingScreenState extends State<DeviceSettingScreen> {
               const Center(child: CircularProgressIndicator()),
             ],
             const Divider(height: 32),
-            const Text(
+            Text(
               'Name',
-              style: TextStyle(color: Colors.grey, fontSize: 14),
+              style: AppTextStyles.link.copyWith(color: Colors.grey),
             ),
             const SizedBox(height: 4),
-            const Text(
+            Text(
               'E-Bell',
-              style: TextStyle(fontSize: 16),
+              style: AppTextStyles.body,
             ),
             const Divider(height: 32),
-            const Text(
+            Text(
               'MAC ID',
-              style: TextStyle(color: Colors.grey, fontSize: 14),
+              style: AppTextStyles.link.copyWith(color: Colors.grey),
             ),
             const SizedBox(height: 4),
-            const Text(
+            Text(
               'bdfs79dtfsfsg8q0f',
-              style: TextStyle(fontSize: 16),
+              style: AppTextStyles.body,
             ),
             const Divider(height: 32),
-            const Text(
+            Text(
               'IMEI',
-              style: TextStyle(color: Colors.grey, fontSize: 14),
+              style: AppTextStyles.link.copyWith(color: Colors.grey),
             ),
             const SizedBox(height: 4),
-            const Text(
+            Text(
               'bdfs79dtfsfsg8q0f',
-              style: TextStyle(fontSize: 16),
+              style: AppTextStyles.body,
             ),
           ],
         ),

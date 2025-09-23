@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../utils/app_text_styles.dart';
 
 class TabLogic {
   int _selectedTabIndex = 0;
@@ -28,9 +29,8 @@ class TabLogic {
         child: Center(
           child: Text(
             text,
-            style: TextStyle(
+            style: AppTextStyles.link.copyWith(
               color: _selectedTabIndex == index ? Colors.black : Colors.black54,
-              fontSize: 14,
             ),
           ),
         ),

@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
-
+import '../utils/app_text_styles.dart';
 import 'auth_service.dart';
-
 
 class LoginScreen extends StatefulWidget {
   final VoidCallback onTap;
@@ -36,11 +35,10 @@ class _LoginScreenState extends State<LoginScreen> {
         _emailController.text.trim(),
         _passwordController.text.trim(),
       );
-      // AuthGate will handle navigation via authStateChanges
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Login failed: ${e.toString()}')),
+          SnackBar(content: Text('Login failed: ${e.toString()}', style: AppTextStyles.body)),
         );
       }
     } finally {
@@ -60,6 +58,7 @@ class _LoginScreenState extends State<LoginScreen> {
           child: Column(
             children: [
               const SizedBox(height: 80),
+
               // Illustration image
               SizedBox(
                 height: 250,
@@ -68,27 +67,35 @@ class _LoginScreenState extends State<LoginScreen> {
                   fit: BoxFit.contain,
                 ),
               ),
+
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 20.0),
                 child: Column(
                   children: [
                     const SizedBox(height: 50),
+
+                    // Email field
                     TextField(
                       controller: _emailController,
                       decoration: InputDecoration(
                         labelText: 'Email',
+                        labelStyle: AppTextStyles.small.copyWith(color: Colors.grey[700]!),
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(10),
                         ),
                       ),
                       keyboardType: TextInputType.emailAddress,
                     ),
+
                     const SizedBox(height: 20),
+
+                    // Password field
                     TextField(
                       controller: _passwordController,
                       obscureText: !_isPasswordVisible,
                       decoration: InputDecoration(
                         labelText: 'Password',
+                        labelStyle: AppTextStyles.small.copyWith(color: Colors.grey[700]!),
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(10),
                         ),
@@ -106,7 +113,10 @@ class _LoginScreenState extends State<LoginScreen> {
                         ),
                       ),
                     ),
+
                     const SizedBox(height: 30),
+
+                    // Login button
                     _isLoading
                         ? const CircularProgressIndicator()
                         : ElevatedButton(
@@ -118,25 +128,22 @@ class _LoginScreenState extends State<LoginScreen> {
                           borderRadius: BorderRadius.circular(10),
                         ),
                       ),
-                      child: const Text(
-                        'Login',
-                        style: TextStyle(
-                            fontSize: 18, color: Colors.white),
-                      ),
+                      child: Text('Login', style: AppTextStyles.button),
                     ),
+
                     const SizedBox(height: 16),
+
+                    // Sign Up Link
                     TextButton(
                       onPressed: widget.onTap,
-                      child: Column(
-                        children: [
-                          const Text(
-                            'New to E-Bell? SignUp',
-                            style: TextStyle(color: Colors.black),
-                          ),
-                        ],
+                      child: Text(
+                        'New to E-Bell? SignUp',
+                        style: AppTextStyles.link,
                       ),
                     ),
+
                     const SizedBox(height: 50),
+
                     // IOGenies logo image
                     Row(
                       mainAxisAlignment: MainAxisAlignment.center,
@@ -147,14 +154,11 @@ class _LoginScreenState extends State<LoginScreen> {
                         ),
                       ],
                     ),
+
                     const SizedBox(height: 10),
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.center,
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Text('EBELL_Version_V.2.0',style: TextStyle(fontSize: 10,color: Colors.black54),)
-                      ],
-                    )
+
+                    // Version text
+                    Text('EBELL_Version_V.2.0', style: AppTextStyles.small),
                   ],
                 ),
               ),

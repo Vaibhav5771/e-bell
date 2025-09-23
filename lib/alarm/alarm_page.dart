@@ -2,11 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
-import '../alarm/alarm_model.dart';
-import '../alarm/permission_handler.dart';
-import '../alarm/shared_preferences.dart';
 import 'package:provider/provider.dart';
-import '../services/theme_state.dart';
+import '../utils/theme_state.dart';
+import '../utils/app_text_styles.dart';
 
 class AlarmPage extends StatefulWidget {
   const AlarmPage({super.key});
@@ -72,8 +70,12 @@ class _AlarmPageState extends State<AlarmPage> {
           });
           if (_soundOptions.isEmpty) {
             ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                  content: Text('No valid audio files (MP3 or WAV) found in root directory.')),
+              SnackBar(
+                content: Text(
+                  'No valid audio files (MP3 or WAV) found in root directory.',
+                  style: AppTextStyles.body,
+                ),
+              ),
             );
           }
         } else {
@@ -82,7 +84,12 @@ class _AlarmPageState extends State<AlarmPage> {
             _soundOption = '';
           });
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('No sound files found in root directory.')),
+            SnackBar(
+              content: Text(
+                'No sound files found in root directory.',
+                style: AppTextStyles.body,
+              ),
+            ),
           );
         }
       } else {
@@ -92,7 +99,10 @@ class _AlarmPageState extends State<AlarmPage> {
         });
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Failed to fetch sounds from device: ${response.statusCode}'),
+            content: Text(
+              'Failed to fetch sounds from device: ${response.statusCode}',
+              style: AppTextStyles.body,
+            ),
           ),
         );
       }
@@ -103,7 +113,10 @@ class _AlarmPageState extends State<AlarmPage> {
       });
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Error fetching sounds: Ensure you are connected to the speaker\'s Wi-Fi. Error: $e'),
+          content: Text(
+            'Error fetching sounds: Ensure you are connected to the speaker\'s Wi-Fi. Error: $e',
+            style: AppTextStyles.body,
+          ),
         ),
       );
     }
@@ -171,9 +184,9 @@ class _AlarmPageState extends State<AlarmPage> {
               child: Center(
                 child: Text(
                   dayAbbreviations[index],
-                  style: TextStyle(
-                    color: _selectedDays[index] ? Colors.white : Colors.black,
+                  style: AppTextStyles.body.copyWith(
                     fontWeight: FontWeight.bold,
+                    color: _selectedDays[index] ? Colors.white : Colors.black,
                   ),
                 ),
               ),
@@ -207,45 +220,13 @@ class _AlarmPageState extends State<AlarmPage> {
   }
 
   Future<void> _saveAlarm() async {
-    bool hasNotificationPermission = await PermissionHandler.requestNotificationPermission();
-    if (!hasNotificationPermission) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Notification permission is required to set alarms.')),
-      );
-      return;
-    }
-
-    bool hasExactAlarmPermission = await PermissionHandler.requestExactAlarmPermission();
-    if (!hasExactAlarmPermission) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-              'Exact alarm permission is required to schedule alarms. Please enable it in system settings.'),
-        ),
-      );
-      return;
-    }
-
-    final alarm = AlarmModel(
-      id: await AlarmModel.generateUniqueId(),
-      time: _selectedTime,
-      label: _alarmLabel.isEmpty ? 'Alarm' : _alarmLabel,
-      repeatOption: _isRepeatEnabled ? _getSelectedDaysString() : 'Never',
-      sound: _soundOption,
-      isSnoozeEnabled: _isSnoozeEnabled,
-      isActive: true,
-      selectedDays: _selectedDays,
-    );
-
-    await SharedPreferencesService.saveAlarm(alarm);
-
     String soundFile = _soundOption;
     int hr = _selectedTime.hour;
     int mn = _selectedTime.minute;
     int week;
     int sEpoch = 0;
     int eEpoch = 0;
-    int active = alarm.isActive ? 1 : 0;
+    int active = 1; // Assuming alarm is active
     int alarmType = 1; // 1 for alarm
 
     if (_isRepeatEnabled) {
@@ -272,8 +253,6 @@ class _AlarmPageState extends State<AlarmPage> {
 
     String data = '$hr,$mn,$sEpoch,$eEpoch,$active,$week,$alarmType';
     String url = 'http://192.168.2.1/settime/$soundFile';
-
-    // 🔥 Build curl-like command for snackbar
     String curlCommand = 'curl -X POST $url -d "$data"';
 
     setState(() => isLoading = true);
@@ -290,7 +269,7 @@ class _AlarmPageState extends State<AlarmPage> {
           SnackBar(
             content: Text(
               '✅ Alarm set!\n$curlCommand',
-              style: const TextStyle(fontSize: 14),
+              style: AppTextStyles.body,
             ),
             duration: const Duration(seconds: 5),
           ),
@@ -298,14 +277,20 @@ class _AlarmPageState extends State<AlarmPage> {
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('❌ Failed to set alarm: ${response.statusCode} - ${response.reasonPhrase}'),
+            content: Text(
+              '❌ Failed to set alarm: ${response.statusCode} - ${response.reasonPhrase}',
+              style: AppTextStyles.body,
+            ),
           ),
         );
       }
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('⚠️ Error setting alarm. Error: $e'),
+          content: Text(
+            '⚠️ Error setting alarm. Error: $e',
+            style: AppTextStyles.body,
+          ),
         ),
       );
     } finally {
@@ -315,7 +300,6 @@ class _AlarmPageState extends State<AlarmPage> {
     Navigator.pop(context);
   }
 
-
   @override
   Widget build(BuildContext context) {
     final themeProvider = Provider.of<ThemeProvider>(context);
@@ -323,35 +307,23 @@ class _AlarmPageState extends State<AlarmPage> {
 
     return Scaffold(
       appBar: AppBar(
-        leading: Padding(
-          padding: const EdgeInsets.only(left: 5.0),
-          child: GestureDetector(
-            onTap: () => Navigator.pop(context),
-            child: Center(
-              child: Text(
-                'Cancel',
-                style: TextStyle(color: themeProvider.selectedColor, fontSize: 16),
-              ),
-            ),
-          ),
+        leading: IconButton(
+          icon: Icon(Icons.close, color: Colors.black),
+          onPressed: () => Navigator.pop(context),
         ),
-        title: const Center(
+        title: Center(
           child: Text(
             'Add Alarm',
-            style: TextStyle(fontWeight: FontWeight.bold),
+            style: AppTextStyles.heading,
           ),
         ),
         actions: [
-          TextButton(
-            onPressed: _soundOptions.isEmpty ? null : _saveAlarm,
-            child: Text(
-              'Save',
-              style: TextStyle(
-                color: _soundOptions.isEmpty ? Colors.grey : themeProvider.selectedColor,
-                fontSize: 16,
-                fontWeight: FontWeight.bold,
-              ),
+          IconButton(
+            icon: Icon(
+              Icons.check,
+              color: _soundOptions.isEmpty ? Colors.grey : themeProvider.selectedColor,
             ),
+            onPressed: _soundOptions.isEmpty ? null : _saveAlarm,
           ),
         ],
         backgroundColor: Colors.white,
@@ -394,9 +366,8 @@ class _AlarmPageState extends State<AlarmPage> {
                           return Center(
                             child: Text(
                               displayHour.toString().padLeft(2, '0'),
-                              style: TextStyle(
+                              style: AppTextStyles.heading.copyWith(
                                 fontSize: 32,
-                                fontWeight: FontWeight.bold,
                                 color: displayHour ==
                                     (_selectedTime.hourOfPeriod == 0
                                         ? 12
@@ -429,9 +400,8 @@ class _AlarmPageState extends State<AlarmPage> {
                           return Center(
                             child: Text(
                               minute.toString().padLeft(2, '0'),
-                              style: TextStyle(
+                              style: AppTextStyles.heading.copyWith(
                                 fontSize: 32,
-                                fontWeight: FontWeight.bold,
                                 color: minute == _selectedTime.minute
                                     ? themeProvider.selectedColor
                                     : Colors.black,
@@ -468,9 +438,8 @@ class _AlarmPageState extends State<AlarmPage> {
                         return Center(
                           child: Text(
                             period,
-                            style: TextStyle(
+                            style: AppTextStyles.heading.copyWith(
                               fontSize: 32,
-                              fontWeight: FontWeight.bold,
                               color: period == _period
                                   ? themeProvider.selectedColor
                                   : Colors.black,
@@ -576,7 +545,7 @@ class _AlarmPageState extends State<AlarmPage> {
             padding: const EdgeInsets.all(16),
             child: Text(
               title,
-              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              style: AppTextStyles.subheading.copyWith(fontWeight: FontWeight.bold),
             ),
           ),
           Expanded(
@@ -588,7 +557,7 @@ class _AlarmPageState extends State<AlarmPage> {
                 return ListTile(
                   title: Text(
                     option,
-                    style: const TextStyle(fontSize: 16),
+                    style: AppTextStyles.body,
                   ),
                   trailing: option == selectedOption
                       ? Icon(Icons.check, color: themeProvider.selectedColor)
@@ -619,7 +588,7 @@ class _AlarmPageState extends State<AlarmPage> {
       contentPadding: const EdgeInsets.symmetric(vertical: 8),
       title: Text(
         title,
-        style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+        style: AppTextStyles.subheading.copyWith(fontWeight: FontWeight.bold),
       ),
       trailing: isSwitch
           ? Switch(
@@ -638,7 +607,7 @@ class _AlarmPageState extends State<AlarmPage> {
                 decoration: InputDecoration(
                   border: InputBorder.none,
                   hintText: 'Alarm',
-                  hintStyle: TextStyle(color: Colors.grey[600]),
+                  hintStyle: AppTextStyles.body.copyWith(color: Colors.grey[600]),
                 ),
                 onChanged: onChanged,
               ),
@@ -646,7 +615,7 @@ class _AlarmPageState extends State<AlarmPage> {
           else
             Text(
               value!,
-              style: TextStyle(color: Colors.grey[600], fontSize: 16),
+              style: AppTextStyles.body.copyWith(color: Colors.grey[600]),
             ),
           const SizedBox(width: 4),
           if (!isSwitch && !isTextField)

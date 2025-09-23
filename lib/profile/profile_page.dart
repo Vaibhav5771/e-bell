@@ -1,13 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../authentication/auth_service.dart';
-import '../services/theme_state.dart';
+import '../utils/theme_state.dart';
+import '../utils/app_text_styles.dart';
 import 'account_screen.dart';
 import 'app_setting.dart';
 import 'device_setting.dart';
 import 'app_info.dart';
 import 'help_privacy_screen.dart';
-
 
 class ProfileScreen extends StatefulWidget {
   @override
@@ -40,13 +40,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
           mainAxisSize: MainAxisSize.min,
           children: [
             const SizedBox(height: 20),
-            const Text(
+            Text(
               "Do you really want to logout?",
-              style: TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.w500,
-                color: Colors.black,
-              ),
+              style: AppTextStyles.subheading.copyWith(fontSize: 20),
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 20),
@@ -60,22 +56,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
               children: [
                 TextButton(
                   onPressed: () => Navigator.pop(context, false),
-                  child: const Text(
+                  child: Text(
                     "Cancel",
-                    style: TextStyle(
-                      fontSize: 18,
-                      color: Colors.grey,
-                    ),
+                    style: AppTextStyles.link.copyWith(color: Colors.grey),
                   ),
                 ),
                 TextButton(
                   onPressed: () => Navigator.pop(context, true),
                   child: Text(
                     "Confirm",
-                    style: TextStyle(
-                      fontSize: 18,
-                      color: themeProvider.selectedColor,
-                    ),
+                    style: AppTextStyles.link.copyWith(color: themeProvider.selectedColor),
                   ),
                 ),
               ],
@@ -91,7 +81,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
       } catch (e) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Logout failed: $e')),
+            SnackBar(
+              content: Text(
+                'Logout failed: $e',
+                style: AppTextStyles.body,
+              ),
+            ),
           );
         }
       }
@@ -117,11 +112,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 children: [
                   Text(
                     'Switch Profile',
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.black87,
-                    ),
+                    style: AppTextStyles.subheading.copyWith(fontWeight: FontWeight.bold, color: Colors.black87),
                   ),
                   IconButton(
                     icon: Icon(Icons.close, size: 24, color: themeProvider.textColor),
@@ -170,7 +161,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           SizedBox(height: 8),
           Text(
             label,
-            style: TextStyle(fontSize: 14, color: Colors.black87),
+            style: AppTextStyles.link.copyWith(color: Colors.black87),
           ),
         ],
       ),
@@ -182,7 +173,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
       onTap: () {
         Navigator.pop(context);
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Add new device functionality not implemented yet')),
+          SnackBar(
+            content: Text(
+              'Add new device functionality not implemented yet',
+              style: AppTextStyles.body,
+            ),
+          ),
         );
       },
       child: Column(
@@ -199,7 +195,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           SizedBox(height: 8),
           Text(
             'Add new device',
-            style: TextStyle(fontSize: 14, color: Colors.black87),
+            style: AppTextStyles.link.copyWith(color: Colors.black87),
             textAlign: TextAlign.center,
           ),
         ],
@@ -227,7 +223,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         ),
         title: Text(
           title,
-          style: TextStyle(fontSize: 16, color: Colors.black87),
+          style: AppTextStyles.body.copyWith(color: Colors.black87),
         ),
         trailing: Icon(Icons.arrow_forward_ios, color: Colors.grey[600], size: 16),
         onTap: onTap,
@@ -268,11 +264,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         children: [
                           Text(
                             _selectedDevice,
-                            style: TextStyle(
-                              fontSize: 20,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.black87,
-                            ),
+                            style: AppTextStyles.heading.copyWith(fontSize: 20, color: Colors.black87),
                           ),
                           SizedBox(height: 4),
                           GestureDetector(
@@ -281,10 +273,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                             },
                             child: Text(
                               'Switch Account',
-                              style: TextStyle(
-                                color: Colors.grey[600],
-                                fontSize: 14,
-                              ),
+                              style: AppTextStyles.link.copyWith(color: Colors.grey[600]),
                             ),
                           ),
                         ],
@@ -361,11 +350,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     ),
                     child: Text(
                       'Logout',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w600,
-                        color: Colors.redAccent,
-                      ),
+                      style: AppTextStyles.body.copyWith(fontWeight: FontWeight.w600, color: Colors.redAccent),
                     ),
                   ),
                 ),

@@ -1,8 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-
-import '../services/theme_state.dart';
-
+import '../utils/theme_state.dart';
+import '../utils/app_text_styles.dart';
 
 class AppSettingScreen extends StatelessWidget {
   const AppSettingScreen({super.key});
@@ -30,9 +29,13 @@ class AppSettingScreen extends StatelessWidget {
             Navigator.pop(context);
           },
         ),
-        title: const Text('App Setting'),
+        title: const Text(
+          'App Setting',
+          style: AppTextStyles.heading,
+        ),
         backgroundColor: Colors.white,
         elevation: 0,
+        centerTitle: true,
       ),
       body: Container(
         color: Colors.white,
@@ -40,9 +43,9 @@ class AppSettingScreen extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
+            Text(
               'Theme',
-              style: TextStyle(color: Colors.grey, fontSize: 14),
+              style: AppTextStyles.link.copyWith(color: Colors.grey),
             ),
             const SizedBox(height: 8),
             Row(
@@ -68,24 +71,24 @@ class AppSettingScreen extends StatelessWidget {
               }).toList(),
             ),
             const Divider(height: 32),
-            const Text(
+            Text(
               'Appearance',
-              style: TextStyle(color: Colors.grey, fontSize: 14),
+              style: AppTextStyles.link.copyWith(color: Colors.grey),
             ),
             const SizedBox(height: 4),
-            const Text(
+            Text(
               'Light Mode',
-              style: TextStyle(fontSize: 16),
+              style: AppTextStyles.body,
             ),
             const Divider(height: 32),
-            const Text(
+            Text(
               'Language',
-              style: TextStyle(color: Colors.grey, fontSize: 14),
+              style: AppTextStyles.link.copyWith(color: Colors.grey),
             ),
             const SizedBox(height: 4),
-            const Text(
+            Text(
               'English (IN)',
-              style: TextStyle(fontSize: 16),
+              style: AppTextStyles.body,
             ),
           ],
         ),

@@ -12,7 +12,8 @@ import 'package:path_provider/path_provider.dart';
 import 'package:e_bell/pages/tablogic1.dart';
 import 'package:e_bell/services/bell_service.dart';
 import '../music_tabs/recordingpage.dart';
-import '../services/theme_state.dart';
+import '../utils/theme_state.dart';
+import '../utils/app_text_styles.dart';
 import 'comingsoon.dart';
 
 class MusicLibrary extends StatefulWidget {
@@ -68,7 +69,7 @@ class _MusicLibraryState extends State<MusicLibrary> {
         debugPrint("Player state stream error: $e");
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Playback error: $e')),
+            SnackBar(content: Text('Playback error: $e', style: AppTextStyles.body)),
           );
         }
         setState(() {
@@ -79,7 +80,7 @@ class _MusicLibraryState extends State<MusicLibrary> {
       debugPrint('Failed to initialize player: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to initialize player: $e')),
+          SnackBar(content: Text('Failed to initialize player: $e', style: AppTextStyles.body)),
         );
       }
     }
@@ -113,7 +114,7 @@ class _MusicLibraryState extends State<MusicLibrary> {
       setState(() => _isLoading = false);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error loading recordings: $e')),
+          SnackBar(content: Text('Error loading recordings: $e', style: AppTextStyles.body)),
         );
       }
     }
@@ -127,7 +128,7 @@ class _MusicLibraryState extends State<MusicLibrary> {
       if (!await file.exists()) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('File not found: ${file.path}')),
+            SnackBar(content: Text('File not found: ${file.path}', style: AppTextStyles.body)),
           );
         }
         return;
@@ -152,7 +153,7 @@ class _MusicLibraryState extends State<MusicLibrary> {
       debugPrint('Error playing audio: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error playing audio: $e')),
+          SnackBar(content: Text('Error playing audio: $e', style: AppTextStyles.body)),
         );
       }
       setState(() => _currentlyPlayingIndex = null);
@@ -178,14 +179,14 @@ class _MusicLibraryState extends State<MusicLibrary> {
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Recording deleted')),
+          SnackBar(content: Text('Recording deleted', style: AppTextStyles.body)),
         );
       }
     } catch (e) {
       debugPrint("Error deleting file: $e");
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error deleting file: $e')),
+          SnackBar(content: Text('Error deleting file: $e', style: AppTextStyles.body)),
         );
       }
     }
@@ -315,7 +316,7 @@ class _MusicLibraryState extends State<MusicLibrary> {
                     const SizedBox(height: 10),
                     Text(
                       connectionStatus,
-                      style: const TextStyle(fontSize: 16),
+                      style: AppTextStyles.body,
                       textAlign: TextAlign.center,
                     ),
                   ],
@@ -380,7 +381,7 @@ class _MusicLibraryState extends State<MusicLibrary> {
         title == 'Add Music' ? Icons.add : Icons.mic,
         color: themeProvider.selectedColor,
       ),
-      title: Text(title),
+      title: Text(title, style: AppTextStyles.body),
       onTap: () async {
         setState(() => _isFabMenuOpen = false);
         if (title == 'Add Music') {
@@ -398,7 +399,7 @@ class _MusicLibraryState extends State<MusicLibrary> {
             if (!result.isGranted) {
               if (mounted) {
                 ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Microphone permission required')),
+                  SnackBar(content: Text('Microphone permission required', style: AppTextStyles.body)),
                 );
               }
               return;
@@ -437,11 +438,12 @@ class _MusicLibraryState extends State<MusicLibrary> {
     }
 
     if (recordings.isEmpty) {
-      return const Center(
+      return Center(
         child: Text(
-            'No recordings yet.\nTap the + button to record something!',
-            textAlign: TextAlign.center,
-            style: TextStyle(fontSize: 16)),
+          'No recordings yet.\nTap the + button to record something!',
+          textAlign: TextAlign.center,
+          style: AppTextStyles.body,
+        ),
       );
     }
 
@@ -505,8 +507,8 @@ class _MusicLibraryState extends State<MusicLibrary> {
                     fit: BoxFit.cover,
                   ),
                 ),
-                title: Text(fileName),
-                subtitle: const Text('00:00'),
+                title: Text(fileName, style: AppTextStyles.body),
+                subtitle: Text('00:00', style: AppTextStyles.small),
                 trailing: Icon(
                   _currentlyPlayingIndex == index && _player?.playing == true
                       ? Icons.pause_circle_filled
@@ -528,7 +530,7 @@ class _MusicLibraryState extends State<MusicLibrary> {
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       child: Text(
         title,
-        style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+        style: AppTextStyles.subheading.copyWith(fontWeight: FontWeight.bold),
       ),
     );
   }
@@ -560,16 +562,15 @@ class _MusicLibraryState extends State<MusicLibrary> {
                   fit: BoxFit.cover,
                 ),
               ),
-              child: const Align(
+              child: Align(
                 alignment: Alignment.bottomLeft,
                 child: Padding(
-                  padding: EdgeInsets.all(8.0),
+                  padding: const EdgeInsets.all(8.0),
                   child: Text(
                     'Category',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 14,
+                    style: AppTextStyles.link.copyWith(
                       fontWeight: FontWeight.bold,
+                      color: Colors.white,
                     ),
                   ),
                 ),
@@ -613,8 +614,8 @@ class _MusicLibraryState extends State<MusicLibrary> {
                   fit: BoxFit.cover,
                 ),
               ),
-              title: Text('Song ${index + 1}'),
-              subtitle: const Text('00:00'),
+              title: Text('Song ${index + 1}', style: AppTextStyles.body),
+              subtitle: Text('00:00', style: AppTextStyles.small),
               trailing: Icon(
                 Icons.play_circle_fill,
                 color: themeProvider.selectedColor,

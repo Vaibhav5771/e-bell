@@ -3,10 +3,8 @@ import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'package:provider/provider.dart';
 import 'package:table_calendar/table_calendar.dart';
-import 'package:e_bell/remainder/remainder_model.dart';
-import 'package:e_bell/remainder/remainder_service.dart';
-import 'package:e_bell/remainder/shared_preferences_remainder.dart';
-import '../services/theme_state.dart';
+import '../utils/theme_state.dart';
+import '../utils/app_text_styles.dart';
 
 class ReminderPage extends StatefulWidget {
   const ReminderPage({super.key});
@@ -84,8 +82,12 @@ class _ReminderPageState extends State<ReminderPage> {
 
             if (_soundOptions.isEmpty) {
               ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                    content: Text('No valid audio files (MP3 or WAV) found in root directory.')),
+                SnackBar(
+                  content: Text(
+                    'No valid audio files (MP3 or WAV) found in root directory.',
+                    style: AppTextStyles.body,
+                  ),
+                ),
               );
             }
           } else {
@@ -94,7 +96,12 @@ class _ReminderPageState extends State<ReminderPage> {
               _soundOption = '';
             });
             ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('No sound files found.')),
+              SnackBar(
+                content: Text(
+                  'No sound files found.',
+                  style: AppTextStyles.body,
+                ),
+              ),
             );
           }
         } else {
@@ -103,7 +110,12 @@ class _ReminderPageState extends State<ReminderPage> {
             _soundOption = '';
           });
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('No sound data available.')),
+            SnackBar(
+              content: Text(
+                'No sound data available.',
+                style: AppTextStyles.body,
+              ),
+            ),
           );
         }
       } else {
@@ -113,7 +125,10 @@ class _ReminderPageState extends State<ReminderPage> {
         });
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Failed to fetch sounds from device: ${response.statusCode}'),
+            content: Text(
+              'Failed to fetch sounds from device: ${response.statusCode}',
+              style: AppTextStyles.body,
+            ),
           ),
         );
       }
@@ -124,7 +139,10 @@ class _ReminderPageState extends State<ReminderPage> {
       });
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Error fetching sounds: Ensure you are connected to the speaker\'s Wi-Fi. Error: $e'),
+          content: Text(
+            'Error fetching sounds: Ensure you are connected to the speaker\'s Wi-Fi. Error: $e',
+            style: AppTextStyles.body,
+          ),
         ),
       );
     }
@@ -190,21 +208,36 @@ class _ReminderPageState extends State<ReminderPage> {
   Future<void> _saveReminder() async {
     if (_title.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Title is required')),
+        SnackBar(
+          content: Text(
+            'Title is required',
+            style: AppTextStyles.body,
+          ),
+        ),
       );
       return;
     }
 
     if (_selectedFromDay == null || _selectedToDay == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please select both From and To dates')),
+        SnackBar(
+          content: Text(
+            'Please select both From and To dates',
+            style: AppTextStyles.body,
+          ),
+        ),
       );
       return;
     }
 
     if (_soundOptions.isEmpty || _soundOption.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('No sound files available. Please check the device connection.')),
+        SnackBar(
+          content: Text(
+            'No sound files available. Please check the device connection.',
+            style: AppTextStyles.body,
+          ),
+        ),
       );
       return;
     }
@@ -212,7 +245,7 @@ class _ReminderPageState extends State<ReminderPage> {
     // IST offset (5 hours 30 minutes in seconds)
     const int IST_OFFSET = 5 * 3600 + 30 * 60;
 
-    // Create reminder with proper time
+    // Create reminder time for POST request
     final reminderFromDateTime = DateTime(
       _selectedFromDay!.year,
       _selectedFromDay!.month,
@@ -228,19 +261,6 @@ class _ReminderPageState extends State<ReminderPage> {
       _selectedTime.hour,
       _selectedTime.minute,
     );
-
-    final reminder = ReminderModel(
-      id: await ReminderModel.generateUniqueId(),
-      title: _title,
-      description: _description,
-      startDateTime: reminderFromDateTime,
-      endDateTime: reminderToDateTime,
-      isImportant: _isImportant,
-      sound: _soundOption,
-      isActive: true,
-    );
-
-    await ReminderSharedPreferencesService.saveReminder(reminder);
 
     setState(() => isLoading = true);
 
@@ -279,7 +299,10 @@ class _ReminderPageState extends State<ReminderPage> {
         if (verified) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('✅ Reminder set for ${reminder.startDateTime} with $_soundOption (Verified)\n$curlCommand'),
+              content: Text(
+                '✅ Reminder set for ${reminderFromDateTime} with $_soundOption (Verified)\n$curlCommand',
+                style: AppTextStyles.body,
+              ),
               duration: const Duration(seconds: 5),
             ),
           );
@@ -287,7 +310,10 @@ class _ReminderPageState extends State<ReminderPage> {
         } else {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('⚠️ Reminder set but verification failed for $_soundOption\n$curlCommand'),
+              content: Text(
+                '⚠️ Reminder set but verification failed for $_soundOption\n$curlCommand',
+                style: AppTextStyles.body,
+              ),
               duration: const Duration(seconds: 5),
             ),
           );
@@ -295,7 +321,10 @@ class _ReminderPageState extends State<ReminderPage> {
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('❌ Failed to set reminder: ${response.statusCode} - ${response.body}'),
+            content: Text(
+              '❌ Failed to set reminder: ${response.statusCode} - ${response.body}',
+              style: AppTextStyles.body,
+            ),
           ),
         );
       }
@@ -303,7 +332,10 @@ class _ReminderPageState extends State<ReminderPage> {
       print('Error sending request: $e');
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('⚠️ Error setting reminder: $e'),
+          content: Text(
+            '⚠️ Error setting reminder: $e',
+            style: AppTextStyles.body,
+          ),
         ),
       );
     }
@@ -366,9 +398,9 @@ class _ReminderPageState extends State<ReminderPage> {
               child: Center(
                 child: Text(
                   dayAbbreviations[index],
-                  style: TextStyle(
-                    color: _selectedDays[index] ? Colors.white : Colors.black,
+                  style: AppTextStyles.body.copyWith(
                     fontWeight: FontWeight.bold,
+                    color: _selectedDays[index] ? Colors.white : Colors.black,
                   ),
                 ),
               ),
@@ -387,35 +419,25 @@ class _ReminderPageState extends State<ReminderPage> {
     return Scaffold(
       backgroundColor: Colors.grey[50],
       appBar: AppBar(
-        leading: Padding(
-          padding: const EdgeInsets.only(left: 5.0),
-          child: GestureDetector(
-            onTap: () => Navigator.pop(context),
-            child: Center(
-              child: Text(
-                'Cancel',
-                style: TextStyle(color: themeProvider.selectedColor, fontSize: 16),
-              ),
-            ),
-          ),
+        leading: IconButton(
+          icon: Icon(Icons.close, color: Colors.black),
+          onPressed: () => Navigator.pop(context),
         ),
-        title: const Text(
-          'Add Reminder',
-          style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+        title: Center(
+          child: Text(
+            'Add Reminder',
+            style: AppTextStyles.heading,
+          ),
         ),
         actions: [
-          TextButton(
-            onPressed: _soundOptions.isEmpty ? null : _saveReminder,
-            child: Text(
-              'Save',
-              style: TextStyle(
-                color: _soundOptions.isEmpty ? Colors.grey : themeProvider.selectedColor,
-                fontSize: 16,
-              ),
+          IconButton(
+            icon: Icon(
+              Icons.check,
+              color: _soundOptions.isEmpty ? Colors.grey : themeProvider.selectedColor,
             ),
+            onPressed: _soundOptions.isEmpty ? null : _saveReminder,
           ),
         ],
-        centerTitle: true,
         backgroundColor: Colors.white,
         elevation: 0.5,
       ),
@@ -429,9 +451,9 @@ class _ReminderPageState extends State<ReminderPage> {
           children: [
             TextField(
               onChanged: (value) => setState(() => _title = value),
-              decoration: const InputDecoration(
+              decoration: InputDecoration(
                 labelText: 'Title',
-                labelStyle: TextStyle(fontSize: 20),
+                labelStyle: AppTextStyles.heading,
                 border: InputBorder.none,
                 enabledBorder: InputBorder.none,
                 focusedBorder: InputBorder.none,
@@ -440,9 +462,9 @@ class _ReminderPageState extends State<ReminderPage> {
             _buildDivider(),
             TextField(
               onChanged: (value) => setState(() => _description = value),
-              decoration: const InputDecoration(
+              decoration: InputDecoration(
                 labelText: 'Description',
-                labelStyle: TextStyle(fontSize: 16),
+                labelStyle: AppTextStyles.body,
                 border: InputBorder.none,
                 enabledBorder: InputBorder.none,
                 focusedBorder: InputBorder.none,
@@ -451,17 +473,17 @@ class _ReminderPageState extends State<ReminderPage> {
             ),
             _buildDivider(),
             const SizedBox(height: 16),
-            const Text(
+            Text(
               'Select Date',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+              style: AppTextStyles.subheading.copyWith(fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 12),
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text(
+                Text(
                   'From',
-                  style: TextStyle(fontSize: 14, color: Colors.grey),
+                  style: AppTextStyles.link.copyWith(color: Colors.grey),
                 ),
                 const SizedBox(height: 4),
                 GestureDetector(
@@ -484,7 +506,7 @@ class _ReminderPageState extends State<ReminderPage> {
                         children: [
                           Text(
                             _formatDate(_selectedFromDay),
-                            style: const TextStyle(fontSize: 16),
+                            style: AppTextStyles.body,
                           ),
                           Icon(
                             _showFromCalendar ? Icons.keyboard_arrow_up : Icons.keyboard_arrow_down,
@@ -507,9 +529,9 @@ class _ReminderPageState extends State<ReminderPage> {
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text(
+                Text(
                   'To',
-                  style: TextStyle(fontSize: 14, color: Colors.grey),
+                  style: AppTextStyles.link.copyWith(color: Colors.grey),
                 ),
                 const SizedBox(height: 4),
                 GestureDetector(
@@ -532,7 +554,7 @@ class _ReminderPageState extends State<ReminderPage> {
                         children: [
                           Text(
                             _formatDate(_selectedToDay),
-                            style: const TextStyle(fontSize: 16),
+                            style: AppTextStyles.body,
                           ),
                           Icon(
                             _showToCalendar ? Icons.keyboard_arrow_up : Icons.keyboard_arrow_down,
@@ -564,9 +586,9 @@ class _ReminderPageState extends State<ReminderPage> {
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text(
+                  Text(
                     'Select Time',
-                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                    style: AppTextStyles.subheading.copyWith(fontWeight: FontWeight.bold),
                   ),
                   const SizedBox(width: 8),
                   Icon(
@@ -643,10 +665,10 @@ class _ReminderPageState extends State<ReminderPage> {
         onDaySelected: isFromCalendar ? _onFromDaySelected : _onToDaySelected,
         calendarFormat: CalendarFormat.month,
         availableGestures: AvailableGestures.none,
-        headerStyle: const HeaderStyle(
+        headerStyle: HeaderStyle(
           formatButtonVisible: false,
           titleCentered: true,
-          titleTextStyle: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+          titleTextStyle: AppTextStyles.subheading.copyWith(fontWeight: FontWeight.bold),
         ),
         calendarStyle: CalendarStyle(
           selectedDecoration: BoxDecoration(
@@ -694,9 +716,8 @@ class _ReminderPageState extends State<ReminderPage> {
                   return Center(
                     child: Text(
                       displayHour.toString().padLeft(2, '0'),
-                      style: TextStyle(
+                      style: AppTextStyles.heading.copyWith(
                         fontSize: 32,
-                        fontWeight: FontWeight.bold,
                         color: displayHour ==
                             (_selectedTime.hourOfPeriod == 0 ? 12 : _selectedTime.hourOfPeriod)
                             ? themeProvider.selectedColor
@@ -726,9 +747,8 @@ class _ReminderPageState extends State<ReminderPage> {
                   return Center(
                     child: Text(
                       minute.toString().padLeft(2, '0'),
-                      style: TextStyle(
+                      style: AppTextStyles.heading.copyWith(
                         fontSize: 32,
-                        fontWeight: FontWeight.bold,
                         color: minute == _selectedTime.minute
                             ? themeProvider.selectedColor
                             : Colors.black,
@@ -762,9 +782,8 @@ class _ReminderPageState extends State<ReminderPage> {
                 return Center(
                   child: Text(
                     period,
-                    style: TextStyle(
+                    style: AppTextStyles.heading.copyWith(
                       fontSize: 32,
-                      fontWeight: FontWeight.bold,
                       color: period == _period ? themeProvider.selectedColor : Colors.black,
                     ),
                   ),
@@ -823,7 +842,7 @@ class _ReminderPageState extends State<ReminderPage> {
             padding: const EdgeInsets.all(16),
             child: Text(
               title,
-              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              style: AppTextStyles.subheading.copyWith(fontWeight: FontWeight.bold),
             ),
           ),
           Expanded(
@@ -835,7 +854,7 @@ class _ReminderPageState extends State<ReminderPage> {
                 return ListTile(
                   title: Text(
                     option,
-                    style: const TextStyle(fontSize: 16),
+                    style: AppTextStyles.body,
                   ),
                   trailing: option == selectedOption
                       ? Icon(Icons.check, color: themeProvider.selectedColor)
@@ -864,7 +883,7 @@ class _ReminderPageState extends State<ReminderPage> {
       contentPadding: const EdgeInsets.symmetric(vertical: 8),
       title: Text(
         title,
-        style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+        style: AppTextStyles.subheading.copyWith(fontWeight: FontWeight.bold),
       ),
       trailing: isSwitch
           ? Switch(
@@ -877,7 +896,7 @@ class _ReminderPageState extends State<ReminderPage> {
         children: [
           Text(
             value!,
-            style: TextStyle(color: Colors.grey[600], fontSize: 16),
+            style: AppTextStyles.body.copyWith(color: Colors.grey[600]),
           ),
           const SizedBox(width: 4),
           const Icon(Icons.chevron_right, color: Colors.grey, size: 20),

@@ -8,7 +8,8 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:file_picker/file_picker.dart';
 import 'dart:convert';
 import 'dart:io';
-import '../services/theme_state.dart';
+import '../utils/theme_state.dart';
+import '../utils/app_text_styles.dart';
 
 class ReligiousAlarms extends StatefulWidget {
   const ReligiousAlarms({super.key});
@@ -18,8 +19,8 @@ class ReligiousAlarms extends StatefulWidget {
 }
 
 class _ReligiousAlarmsState extends State<ReligiousAlarms> {
-  bool _namazEnabled = true;
-  bool _sunriseEnabled = true;
+  bool _namazEnabled = false;
+  bool _sunriseEnabled = false;
 
   // Sound files fetched from IoT device
   List<String> _namazSoundFiles = [];
@@ -55,7 +56,12 @@ class _ReligiousAlarmsState extends State<ReligiousAlarms> {
       print('Error fetching sound files: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Error fetching sound files from device')),
+          SnackBar(
+            content: Text(
+              'Error fetching sound files from device',
+              style: AppTextStyles.body,
+            ),
+          ),
         );
       }
     } finally {
@@ -154,22 +160,32 @@ class _ReligiousAlarmsState extends State<ReligiousAlarms> {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text("Location Service Required"),
-        content: const Text(
+        title: Text(
+          "Location Service Required",
+          style: AppTextStyles.subheading,
+        ),
+        content: Text(
           "This feature requires location services to determine times. "
               "Please enable location services in your device settings.",
+          style: AppTextStyles.body,
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text("Cancel"),
+            child: Text(
+              "Cancel",
+              style: AppTextStyles.link,
+            ),
           ),
           TextButton(
             onPressed: () async {
               Navigator.pop(context);
               await openAppSettings();
             },
-            child: const Text("Open Settings"),
+            child: Text(
+              "Open Settings",
+              style: AppTextStyles.link,
+            ),
           ),
         ],
       ),
@@ -181,22 +197,32 @@ class _ReligiousAlarmsState extends State<ReligiousAlarms> {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text("Location Permission Required"),
-        content: const Text(
+        title: Text(
+          "Location Permission Required",
+          style: AppTextStyles.subheading,
+        ),
+        content: Text(
           "This feature needs location permission to determine times. "
               "Please grant this permission in app settings.",
+          style: AppTextStyles.body,
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text("Cancel"),
+            child: Text(
+              "Cancel",
+              style: AppTextStyles.link,
+            ),
           ),
           TextButton(
             onPressed: () async {
               Navigator.pop(context);
               await openAppSettings();
             },
-            child: const Text("Open Settings"),
+            child: Text(
+              "Open Settings",
+              style: AppTextStyles.link,
+            ),
           ),
         ],
       ),
@@ -241,14 +267,19 @@ class _ReligiousAlarmsState extends State<ReligiousAlarms> {
       print('Error getting location: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Error retrieving location')),
+          SnackBar(
+            content: Text(
+              'Error retrieving location',
+              style: AppTextStyles.body,
+            ),
+          ),
         );
       }
       return null;
     }
   }
 
-// Send POST request to the IoT device for Namaz
+  // Send POST request to the IoT device for Namaz
   Future<void> _sendNamazRequest(bool enabled) async {
     const String url = 'http://192.168.2.1/regctrl/';
     final now = DateTime.now();
@@ -284,7 +315,10 @@ class _ReligiousAlarmsState extends State<ReligiousAlarms> {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('Namaz ${enabled ? 'enabled' : 'disabled'} | API: $body'),
+              content: Text(
+                'Namaz ${enabled ? 'enabled' : 'disabled'} | API: $body',
+                style: AppTextStyles.body,
+              ),
               duration: Duration(seconds: 3),
             ),
           );
@@ -296,7 +330,10 @@ class _ReligiousAlarmsState extends State<ReligiousAlarms> {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('Failed to send Namaz request: ${response.statusCode} | API: $body'),
+              content: Text(
+                'Failed to send Namaz request: ${response.statusCode} | API: $body',
+                style: AppTextStyles.body,
+              ),
             ),
           );
         }
@@ -306,12 +343,16 @@ class _ReligiousAlarmsState extends State<ReligiousAlarms> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Error sending Namaz request | API: $body'),
+            content: Text(
+              'Error sending Namaz request | API: $body',
+              style: AppTextStyles.body,
+            ),
           ),
         );
       }
     }
   }
+
   // Send POST request to the IoT device for Sunrise & Sunset (Pooja)
   Future<void> _sendSunriseSunsetRequest(bool enabled) async {
     const String url = 'http://192.168.2.1/regctrl/';
@@ -348,7 +389,10 @@ class _ReligiousAlarmsState extends State<ReligiousAlarms> {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('Sunrise/Sunset ${enabled ? 'enabled' : 'disabled'} | API: $body'),
+              content: Text(
+                'Sunrise/Sunset ${enabled ? 'enabled' : 'disabled'} | API: $body',
+                style: AppTextStyles.body,
+              ),
               duration: Duration(seconds: 3),
             ),
           );
@@ -360,7 +404,10 @@ class _ReligiousAlarmsState extends State<ReligiousAlarms> {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('Failed to send Sunrise & Sunset request: ${response.statusCode} | API: $body'),
+              content: Text(
+                'Failed to send Sunrise & Sunset request: ${response.statusCode} | API: $body',
+                style: AppTextStyles.body,
+              ),
             ),
           );
         }
@@ -370,7 +417,10 @@ class _ReligiousAlarmsState extends State<ReligiousAlarms> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Error sending Sunrise & Sunset request | API: $body'),
+            content: Text(
+              'Error sending Sunrise & Sunset request | API: $body',
+              style: AppTextStyles.body,
+            ),
           ),
         );
       }
@@ -504,12 +554,21 @@ class _ReligiousAlarmsState extends State<ReligiousAlarms> {
     showDialog(
       context: context,
       builder: (_) => AlertDialog(
-        title: Text(title),
-        content: Text(content),
+        title: Text(
+          title,
+          style: AppTextStyles.subheading,
+        ),
+        content: Text(
+          content,
+          style: AppTextStyles.body,
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(),
-            child: const Text("OK"),
+            child: Text(
+              "OK",
+              style: AppTextStyles.link,
+            ),
           ),
         ],
       ),
@@ -521,38 +580,23 @@ class _ReligiousAlarmsState extends State<ReligiousAlarms> {
     final themeProvider = Provider.of<ThemeProvider>(context);
     return Scaffold(
       appBar: AppBar(
-        leading: Padding(
-          padding: const EdgeInsets.only(left: 5.0),
-          child: GestureDetector(
-            onTap: () => Navigator.pop(context),
-            child: Center(
-              child: Text(
-                'Cancel',
-                style: TextStyle(color: themeProvider.selectedColor, fontSize: 16),
-              ),
-            ),
-          ),
+        leading: IconButton(
+          icon: Icon(Icons.close, color: Colors.black),
+          onPressed: () => Navigator.pop(context),
         ),
-        title: const Center(
+        title: Center(
           child: Text(
             'Regional Calendar',
-            style: TextStyle(fontWeight: FontWeight.w500),
+            style: AppTextStyles.heading,
           ),
         ),
         actions: [
-          TextButton(
+          IconButton(
+            icon: Icon(Icons.check, color: themeProvider.selectedColor),
             onPressed: () async {
               await _saveSettings();
               Navigator.pop(context);
             },
-            child: Text(
-              'Save',
-              style: TextStyle(
-                color: themeProvider.selectedColor,
-                fontSize: 16,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
           ),
         ],
         backgroundColor: Colors.white,
@@ -586,7 +630,10 @@ class _ReligiousAlarmsState extends State<ReligiousAlarms> {
                         width: 30,
                       ),
                     ),
-                    title: const Text('Namaz'),
+                    title: Text(
+                      'Namaz',
+                      style: AppTextStyles.subheading,
+                    ),
                     trailing: Switch(
                       value: _namazEnabled,
                       onChanged: (value) async {
@@ -604,14 +651,14 @@ class _ReligiousAlarmsState extends State<ReligiousAlarms> {
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        const Text(
+                        Text(
                           'Sound',
-                          style: TextStyle(fontSize: 16, fontWeight: FontWeight.w400),
+                          style: AppTextStyles.body,
                         ),
                         _namazSoundFiles.isEmpty
-                            ? const Text(
+                            ? Text(
                           'No sounds available',
-                          style: TextStyle(color: Colors.grey),
+                          style: AppTextStyles.body.copyWith(color: Colors.grey),
                         )
                             : DropdownButton<String>(
                           value: _selectedNamazSound.isNotEmpty && _namazSoundFiles.contains(_selectedNamazSound)
@@ -624,7 +671,7 @@ class _ReligiousAlarmsState extends State<ReligiousAlarms> {
                               value: file,
                               child: Text(
                                 file,
-                                style: const TextStyle(fontWeight: FontWeight.w400),
+                                style: AppTextStyles.body,
                               ),
                             );
                           }).toList(),
@@ -638,14 +685,14 @@ class _ReligiousAlarmsState extends State<ReligiousAlarms> {
                           icon: const Icon(Icons.chevron_right, color: Colors.grey),
                           isDense: true,
                           alignment: Alignment.centerRight,
-                          style: const TextStyle(fontWeight: FontWeight.w400, color: Colors.black),
+                          style: AppTextStyles.body.copyWith(color: Colors.black),
                           selectedItemBuilder: (BuildContext context) {
                             return _namazSoundFiles.map((file) {
                               return Align(
                                 alignment: Alignment.centerLeft,
                                 child: Text(
                                   file,
-                                  style: const TextStyle(fontWeight: FontWeight.w400),
+                                  style: AppTextStyles.body,
                                 ),
                               );
                             }).toList();
@@ -660,16 +707,16 @@ class _ReligiousAlarmsState extends State<ReligiousAlarms> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Text(
+                        Text(
                           'Time Adjustment',
-                          style: TextStyle(fontSize: 16, fontWeight: FontWeight.w400),
+                          style: AppTextStyles.body,
                         ),
                         const SizedBox(height: 8),
                         Row(
                           children: [
                             Text(
                               '0m',
-                              style: TextStyle(
+                              style: AppTextStyles.body.copyWith(
                                 color: _namazOffset == 0
                                     ? themeProvider.selectedColor
                                     : Colors.grey,
@@ -693,7 +740,7 @@ class _ReligiousAlarmsState extends State<ReligiousAlarms> {
                             ),
                             Text(
                               '30m',
-                              style: TextStyle(
+                              style: AppTextStyles.body.copyWith(
                                 color: _namazOffset == 30
                                     ? themeProvider.selectedColor
                                     : Colors.grey,
@@ -704,7 +751,7 @@ class _ReligiousAlarmsState extends State<ReligiousAlarms> {
                         Center(
                           child: Text(
                             '${_namazOffset.round()} minutes',
-                            style: TextStyle(
+                            style: AppTextStyles.body.copyWith(
                               color: themeProvider.selectedColor,
                               fontWeight: FontWeight.w500,
                             ),
@@ -716,34 +763,12 @@ class _ReligiousAlarmsState extends State<ReligiousAlarms> {
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
                     child: Center(
-
-                      ///Expanded(
-                      //   child: _isNamazLoading
-                      //       ? Center(child: CircularProgressIndicator(color: themeProvider.selectedColor))
-                      //       : ElevatedButton.icon(
-                      //         onPressed: _namazSoundFiles.isEmpty ? null : _sendNamazSoundRequest,
-                      //         icon: Icon(Icons.music_note, color: themeProvider.selectedColor),
-                      //         label: Text(
-                      //           'Upload Sound',
-                      //           style: TextStyle(color: themeProvider.selectedColor, fontSize: 14),
-                      //         ),
-                      //         style: ElevatedButton.styleFrom(
-                      //           backgroundColor: Colors.grey[100],
-                      //           foregroundColor: Colors.black,
-                      //           elevation: 0,
-                      //           shape: RoundedRectangleBorder(
-                      //             borderRadius: BorderRadius.circular(10),
-                      //           ),
-                      //         ),
-                      //       ),
-                      // ),
-                      // const SizedBox(width: 10),
                       child: ElevatedButton.icon(
                         onPressed: () => _pickAudioFile(true),
                         icon: Icon(Icons.upload_file, color: themeProvider.selectedColor),
                         label: Text(
                           'New',
-                          style: TextStyle(color: themeProvider.selectedColor, fontSize: 14),
+                          style: AppTextStyles.link.copyWith(color: themeProvider.selectedColor),
                         ),
                         style: ElevatedButton.styleFrom(
                           backgroundColor: Colors.grey[100],
@@ -754,7 +779,6 @@ class _ReligiousAlarmsState extends State<ReligiousAlarms> {
                           ),
                         ),
                       ),
-
                     ),
                   ),
                   const SizedBox(height: 8),
@@ -779,7 +803,10 @@ class _ReligiousAlarmsState extends State<ReligiousAlarms> {
                         size: 30,
                       ),
                     ),
-                    title: const Text('Sunrise & Sunset'),
+                    title: Text(
+                      'Sunrise & Sunset',
+                      style: AppTextStyles.subheading,
+                    ),
                     trailing: Switch(
                       value: _sunriseEnabled,
                       onChanged: (value) async {
@@ -797,14 +824,14 @@ class _ReligiousAlarmsState extends State<ReligiousAlarms> {
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        const Text(
+                        Text(
                           'Sound',
-                          style: TextStyle(fontSize: 16, fontWeight: FontWeight.w400),
+                          style: AppTextStyles.body,
                         ),
                         _sunriseSoundFiles.isEmpty
-                            ? const Text(
+                            ? Text(
                           'No sounds available',
-                          style: TextStyle(color: Colors.grey),
+                          style: AppTextStyles.body.copyWith(color: Colors.grey),
                         )
                             : DropdownButton<String>(
                           value: _selectedSunriseSound.isNotEmpty && _sunriseSoundFiles.contains(_selectedSunriseSound)
@@ -817,7 +844,7 @@ class _ReligiousAlarmsState extends State<ReligiousAlarms> {
                               value: file,
                               child: Text(
                                 file,
-                                style: const TextStyle(fontWeight: FontWeight.w400),
+                                style: AppTextStyles.body,
                               ),
                             );
                           }).toList(),
@@ -831,14 +858,14 @@ class _ReligiousAlarmsState extends State<ReligiousAlarms> {
                           icon: const Icon(Icons.chevron_right, color: Colors.grey),
                           isDense: true,
                           alignment: Alignment.centerRight,
-                          style: const TextStyle(fontWeight: FontWeight.w400, color: Colors.black),
+                          style: AppTextStyles.body.copyWith(color: Colors.black),
                           selectedItemBuilder: (BuildContext context) {
                             return _sunriseSoundFiles.map((file) {
                               return Align(
                                 alignment: Alignment.centerLeft,
                                 child: Text(
                                   file,
-                                  style: const TextStyle(fontWeight: FontWeight.w400),
+                                  style: AppTextStyles.body,
                                 ),
                               );
                             }).toList();
@@ -853,16 +880,16 @@ class _ReligiousAlarmsState extends State<ReligiousAlarms> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Text(
+                        Text(
                           'Time Adjustment',
-                          style: TextStyle(fontSize: 16, fontWeight: FontWeight.w400),
+                          style: AppTextStyles.body,
                         ),
                         const SizedBox(height: 8),
                         Row(
                           children: [
                             Text(
                               '0m',
-                              style: TextStyle(
+                              style: AppTextStyles.body.copyWith(
                                 color: _sunriseOffset == 0
                                     ? themeProvider.selectedColor
                                     : Colors.grey,
@@ -886,7 +913,7 @@ class _ReligiousAlarmsState extends State<ReligiousAlarms> {
                             ),
                             Text(
                               '30m',
-                              style: TextStyle(
+                              style: AppTextStyles.body.copyWith(
                                 color: _sunriseOffset == 30
                                     ? themeProvider.selectedColor
                                     : Colors.grey,
@@ -897,7 +924,7 @@ class _ReligiousAlarmsState extends State<ReligiousAlarms> {
                         Center(
                           child: Text(
                             '${_sunriseOffset.round()} minutes',
-                            style: TextStyle(
+                            style: AppTextStyles.body.copyWith(
                               color: themeProvider.selectedColor,
                               fontWeight: FontWeight.w500,
                             ),
@@ -909,34 +936,12 @@ class _ReligiousAlarmsState extends State<ReligiousAlarms> {
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
                     child: Center(
-
-                      // Expanded(
-                      //   child: _isSunriseLoading
-                      //       ? Center(child: CircularProgressIndicator(color: themeProvider.selectedColor))
-                      //       : ElevatedButton.icon(
-                      //         onPressed: _sunriseSoundFiles.isEmpty ? null : _sendSunriseSoundRequest,
-                      //         icon: Icon(Icons.music_note, color: themeProvider.selectedColor),
-                      //         label: Text(
-                      //           'Upload Sound',
-                      //           style: TextStyle(color: themeProvider.selectedColor, fontSize: 14),
-                      //         ),
-                      //         style: ElevatedButton.styleFrom(
-                      //           backgroundColor: Colors.grey[100],
-                      //           foregroundColor: Colors.black,
-                      //           elevation: 0,
-                      //           shape: RoundedRectangleBorder(
-                      //             borderRadius: BorderRadius.circular(10),
-                      //           ),
-                      //         ),
-                      //       ),
-                      // ),
-                      // const SizedBox(width: 10),
                       child: ElevatedButton.icon(
                         onPressed: () => _pickAudioFile(false),
                         icon: Icon(Icons.upload_file, color: themeProvider.selectedColor),
                         label: Text(
                           'New',
-                          style: TextStyle(color: themeProvider.selectedColor, fontSize: 14),
+                          style: AppTextStyles.link.copyWith(color: themeProvider.selectedColor),
                         ),
                         style: ElevatedButton.styleFrom(
                           backgroundColor: Colors.grey[100],
@@ -947,7 +952,6 @@ class _ReligiousAlarmsState extends State<ReligiousAlarms> {
                           ),
                         ),
                       ),
-
                     ),
                   ),
                   const SizedBox(height: 8),

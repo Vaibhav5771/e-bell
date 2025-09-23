@@ -12,13 +12,9 @@ import 'package:e_bell/pages/music_library.dart';
 import 'package:e_bell/pages/tablogic1.dart';
 import 'package:e_bell/bell/schedule_bell.dart';
 import 'package:e_bell/services/calender.dart';
-import 'package:e_bell/alarm/shared_preferences.dart';
-import 'package:e_bell/alarm/alarm_model.dart';
 import 'package:e_bell/remainder/remainder_page.dart';
-import 'package:e_bell/remainder/remainder_model.dart';
-import 'package:e_bell/remainder/shared_preferences_remainder.dart';
 import 'package:e_bell/services/bell_service.dart';
-import 'package:e_bell/services/theme_state.dart';
+import 'package:e_bell/utils/theme_state.dart';
 import 'package:e_bell/tabs_planner/bell_tab.dart';
 import 'package:e_bell/tabs_planner/tab_logic1.dart';
 import 'package:e_bell/profile/profile_page.dart';
@@ -26,6 +22,83 @@ import 'package:e_bell/pages/namaz_Sunrise.dart';
 import 'dart:async';
 import '../alarm/alarm_page.dart';
 import '../services/schedule_item.dart';
+import '../utils/app_text_styles.dart';
+
+class AlarmSong {
+  final String fileName;
+  final int hour;
+  final int minute;
+  final int startTimestamp; // Unix timestamp
+  final int endTimestamp; // Unix timestamp (0 if not applicable)
+  final int status; // Assuming 1 means active/played
+  final int days; // Bitmask for days of the week
+
+  AlarmSong({
+    required this.fileName,
+    required this.hour,
+    required this.minute,
+    required this.startTimestamp,
+    required this.endTimestamp,
+    required this.status,
+    required this.days,
+  });
+
+  factory AlarmSong.fromJson(List<dynamic> json) {
+    return AlarmSong(
+      fileName: json[0] as String,
+      hour: json[1] as int,
+      minute: json[2] as int,
+      startTimestamp: json[3] as int,
+      endTimestamp: json[4] as int,
+      status: json[5] as int,
+      days: json[6] as int,
+    );
+  }
+
+  // Check if the song is scheduled for a specific day
+  bool isScheduledForDay(DateTime day) {
+    if (startTimestamp != 0) {
+      final songDate = DateTime.fromMillisecondsSinceEpoch(startTimestamp * 1000);
+      return isSameDay(songDate, day);
+    }
+    // If startTimestamp is 0, check the days bitmask using device-specific mapping
+    final weekday = day.weekday; // 1 = Monday, 7 = Sunday
+    int bitPosition;
+    if (weekday == 7) {
+      bitPosition = 7; // Sunday = bit 7
+    } else {
+      bitPosition = weekday; // Monday (1) = bit 1, Tuesday (2) = bit 2, etc.
+    }
+    final dayBit = 1 << bitPosition;
+    final isScheduled = (days & dayBit) != 0;
+    debugPrint(
+        'Song: $fileName, Time: $hour:$minute, Days: $days (binary: ${days.toRadixString(2)}), '
+            'Weekday: $weekday, BitPosition: $bitPosition, DayBit: $dayBit, '
+            'Scheduled: $isScheduled');
+    return isScheduled;
+  }
+
+  // Get the time string for display
+  String getTimeString(BuildContext context) {
+    if (startTimestamp != 0) {
+      final songDateTime = DateTime.fromMillisecondsSinceEpoch(startTimestamp * 1000);
+      return DateFormat('HH:mm').format(songDateTime);
+    }
+    // Ensure hour and minute are formatted correctly (e.g., 0:59 → 00:59)
+    return TimeOfDay(hour: hour, minute: minute).format(context);
+  }
+
+  // Check if the song is in the past
+  bool isPast(DateTime now) {
+    if (startTimestamp != 0) {
+      final songDateTime = DateTime.fromMillisecondsSinceEpoch(startTimestamp * 1000);
+      return songDateTime.isBefore(now);
+    }
+    final today = DateTime.now();
+    final songDateTime = DateTime(today.year, today.month, today.day, hour, minute);
+    return songDateTime.isBefore(now);
+  }
+}
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -41,8 +114,9 @@ class _HomeScreenState extends State<HomeScreen> {
   late TabLogic1 _musicTabLogic;
   late CalendarLogic _calendarLogic;
   bool _isFabMenuOpen = false;
-  List<AlarmModel> _todaysAlarms = [];
-  List<ReminderModel> _todaysReminders = [];
+  List<AlarmSong> _alarmSongs = [];
+  bool _loadingAlarmSongs = false;
+  bool _errorLoadingAlarmSongs = false;
   Timer? _timer;
   int _selectedIndex = 0;
   String connectionStatus = "Checking Wi-Fi...";
@@ -61,15 +135,10 @@ class _HomeScreenState extends State<HomeScreen> {
     _tabLogic = TabLogic();
     _musicTabLogic = TabLogic1();
     _calendarLogic = CalendarLogic();
-    _loadTodaysAlarms();
-    _loadRemindersForSelectedDay();
     _requestPermissions();
     _startWifiMonitoring();
     _loadPrayerTimesStatus();
     _timer = Timer.periodic(const Duration(minutes: 1), (timer) {
-      // Only update data without rebuilding the entire UI unnecessarily
-      _loadTodaysAlarms();
-      _loadRemindersForSelectedDay();
       _loadPrayerTimesStatus();
     });
   }
@@ -115,22 +184,23 @@ class _HomeScreenState extends State<HomeScreen> {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text("Location Service Required"),
-        content: const Text(
+        title: Text("Location Service Required", style: AppTextStyles.heading),
+        content: Text(
           "E-Bell needs location services to detect Wi-Fi networks. "
               "Please enable location services in your device settings.",
+          style: AppTextStyles.body,
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text("Cancel"),
+            child: Text("Cancel", style: AppTextStyles.button.copyWith(color: Colors.black)),
           ),
           TextButton(
             onPressed: () async {
               Navigator.pop(context);
               await openAppSettings();
             },
-            child: const Text("Open Settings"),
+            child: Text("Open Settings", style: AppTextStyles.button.copyWith(color: Colors.black)),
           ),
         ],
       ),
@@ -141,22 +211,23 @@ class _HomeScreenState extends State<HomeScreen> {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text("Location Permission Required"),
-        content: const Text(
+        title: Text("Location Permission Required", style: AppTextStyles.heading),
+        content: Text(
           "E-Bell needs location permission to sync with the bell. "
               "Please grant this permission in app settings.",
+          style: AppTextStyles.body,
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text("Cancel"),
+            child: Text("Cancel", style: AppTextStyles.button.copyWith(color: Colors.black)),
           ),
           TextButton(
             onPressed: () async {
               Navigator.pop(context);
               await openAppSettings();
             },
-            child: const Text("Open Settings"),
+            child: Text("Open Settings", style: AppTextStyles.button.copyWith(color: Colors.black)),
           ),
         ],
       ),
@@ -206,7 +277,6 @@ class _HomeScreenState extends State<HomeScreen> {
     http.Client? client;
     try {
       client = http.Client();
-
       final response = await client.get(
         Uri.parse('http://192.168.2.1/regtime'),
       ).timeout(
@@ -222,7 +292,6 @@ class _HomeScreenState extends State<HomeScreen> {
 
       final jsonData = jsonDecode(response.body);
 
-      // Extract NAMAZ and POOJA times
       final namazList = (jsonData['NAMAZ'] as List<dynamic>? ?? [])
           .map((e) => e.toString())
           .toList();
@@ -245,7 +314,7 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  Future<Map<String, bool>> _fetchRegionStatus() async {
+  Future<Map<String, dynamic>> _fetchRegionStatus() async {
     http.Client? client;
     try {
       client = http.Client();
@@ -262,12 +331,9 @@ class _HomeScreenState extends State<HomeScreen> {
 
       final jsonData = jsonDecode(response.body);
 
-      // region looks like: [{"POOJA":0},{"NAMAZ":0}]
       final regionList = (jsonData['region'] as List<dynamic>? ?? []);
-
       int poojaFlag = 0;
       int namazFlag = 0;
-
       for (var item in regionList) {
         if (item is Map) {
           if (item.containsKey('POOJA')) poojaFlag = item['POOJA'] ?? 0;
@@ -275,62 +341,88 @@ class _HomeScreenState extends State<HomeScreen> {
         }
       }
 
+      final alarmDataList = jsonData['alarmData'] as List<dynamic>? ?? [];
+      List<AlarmSong> alarmSongs = [];
+      if (alarmDataList.isNotEmpty) {
+        final files = alarmDataList[0]['Filenames'] as List<dynamic>? ?? [];
+        alarmSongs = files.map((file) => AlarmSong.fromJson(file)).toList();
+      }
+
+      debugPrint('Fetched alarm songs: ${alarmSongs.map((s) => "${s.fileName} @ ${s.hour}:${s.minute}, days: ${s.days}, start: ${s.startTimestamp}").toList()}');
+
       return {
         'namazEnabled': namazFlag == 1,
         'sunriseEnabled': poojaFlag == 1,
+        'alarmSongs': alarmSongs,
       };
     } catch (e) {
-      debugPrint("Error fetching region status: $e");
-      throw Exception("Failed to fetch region status: $e");
+      debugPrint("Error fetching region status and alarm songs: $e");
+      throw Exception("Failed to fetch region status and alarm songs: $e");
     } finally {
       client?.close();
     }
   }
 
-
-
   Future<void> _loadPrayerTimesStatus() async {
     if (!mounted) return;
+    if (!isWifiConnected || !connectionStatus.contains(targetSsid)) {
+      setState(() {
+        _loadingPrayerStatus = false;
+        _errorLoadingStatus = true;
+        _loadingAlarmSongs = false;
+        _errorLoadingAlarmSongs = true;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Please connect to IoGen_Speaker Wi-Fi to fetch data',
+            style: AppTextStyles.body,
+          ),
+        ),
+      );
+      return;
+    }
+
     setState(() {
       _loadingPrayerStatus = true;
       _errorLoadingStatus = false;
+      _loadingAlarmSongs = true;
+      _errorLoadingAlarmSongs = false;
     });
 
     try {
-      // Step 1: Flags
       final regionStatus = await _fetchRegionStatus();
-
-      // Step 2: Times
       final regtimeData = await _checkPrayerTimesStatus();
 
       if (!mounted) return;
       setState(() {
         _namazEnabled = regionStatus['namazEnabled'] ?? false;
         _sunriseEnabled = regionStatus['sunriseEnabled'] ?? false;
-
+        _alarmSongs = (regionStatus['alarmSongs'] as List<AlarmSong>)..sort((a, b) => a.getTimeString(context).compareTo(b.getTimeString(context)));
         _namazTimes = regtimeData['namazTimes'] ?? [];
         _poojaTimes = regtimeData['poojaTimes'] ?? [];
-
         _loadingPrayerStatus = false;
+        _loadingAlarmSongs = false;
       });
-
+      debugPrint('Loaded ${_alarmSongs.length} alarm songs for display');
     } catch (e) {
       if (!mounted) return;
       setState(() {
         _loadingPrayerStatus = false;
         _errorLoadingStatus = true;
+        _loadingAlarmSongs = false;
+        _errorLoadingAlarmSongs = true;
       });
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(e.toString())),
+        SnackBar(content: Text(e.toString(), style: AppTextStyles.body)),
       );
     }
   }
 
-
   Widget _buildPrayerTimeIndicator({
     required String label,
     required bool enabled,
-    List<String> times = const [], // 👈 list of times
+    List<String> times = const [],
   }) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
@@ -359,7 +451,7 @@ class _HomeScreenState extends State<HomeScreen> {
               children: [
                 Text(
                   label,
-                  style: TextStyle(
+                  style: AppTextStyles.small.copyWith(
                     color: enabled ? Colors.orange : Colors.grey,
                     fontSize: 12,
                   ),
@@ -368,7 +460,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 if (enabled && times.isNotEmpty)
                   ...times.map((t) => Text(
                     t,
-                    style: const TextStyle(
+                    style: AppTextStyles.small.copyWith(
                       color: Colors.black87,
                       fontSize: 11,
                       fontWeight: FontWeight.w500,
@@ -382,7 +474,6 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
     );
   }
-
 
   Widget _buildStatusIndicators() {
     if (_loadingPrayerStatus) {
@@ -407,7 +498,7 @@ class _HomeScreenState extends State<HomeScreen> {
             Flexible(
               child: Text(
                 'Failed to load status',
-                style: const TextStyle(color: Colors.red, fontSize: 14),
+                style: AppTextStyles.body.copyWith(fontSize: 14, color: Colors.red),
                 overflow: TextOverflow.ellipsis,
               ),
             ),
@@ -467,8 +558,12 @@ class _HomeScreenState extends State<HomeScreen> {
     if (selectedTime != null) {
       if (!isWifiConnected || !connectionStatus.contains(targetSsid)) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-              content: Text("Please connect to IoGen_Speaker Wi-Fi to sync time")),
+          SnackBar(
+            content: Text(
+              "Please connect to IoGen_Speaker Wi-Fi to sync time",
+              style: AppTextStyles.body,
+            ),
+          ),
         );
         return;
       }
@@ -486,6 +581,7 @@ class _HomeScreenState extends State<HomeScreen> {
           SnackBar(
             content: Text(
               "Selected time is in the past. Setting for tomorrow: ${selectedTime.format(context)}",
+              style: AppTextStyles.body,
             ),
           ),
         );
@@ -494,69 +590,41 @@ class _HomeScreenState extends State<HomeScreen> {
         await BellService().syncTime(context, selectedTime: selectedDateTime);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-              content:
-              Text("Time synced successfully: ${selectedTime.format(context)}")),
+            content: Text(
+              "Time synced successfully: ${selectedTime.format(context)}",
+              style: AppTextStyles.body,
+            ),
+          ),
         );
       } catch (e) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("Failed to sync time: $e")),
+          SnackBar(
+            content: Text(
+              "Failed to sync time: $e",
+              style: AppTextStyles.body,
+            ),
+          ),
         );
       }
     }
   }
 
-  Future<void> _loadTodaysAlarms() async {
-    final alarms = await SharedPreferencesService.getAlarms();
-    final selectedDay = _calendarLogic.selectedDay;
-    setState(() {
-      _todaysAlarms = alarms.where((alarm) {
-        final alarmDateTime = DateTime(
-          selectedDay.year,
-          selectedDay.month,
-          selectedDay.day,
-          alarm.time.hour,
-          alarm.time.minute,
-        );
-        return isSameDay(alarmDateTime, selectedDay);
-      }).toList()
-        ..sort((a, b) => b.id.compareTo(a.id));
-    });
-  }
 
-  Future<void> _loadRemindersForSelectedDay() async {
-    final reminders = await ReminderSharedPreferencesService.getReminders();
-    final selectedDay = _calendarLogic.selectedDay;
-    setState(() {
-      _todaysReminders = reminders.where((reminder) {
-        final reminderDate = DateTime(
-          reminder.startDateTime.year,
-          reminder.startDateTime.month,
-          reminder.startDateTime.day,
-        );
-        return isSameDay(reminderDate, selectedDay);
-      }).toList()
-        ..sort((a, b) => b.id.compareTo(a.id));
-    });
-  }
 
   void _onDaySelected(DateTime selectedDay, DateTime focusedDay) {
     setState(() {
       _calendarLogic.setSelectedDay(selectedDay);
       _calendarLogic.setFocusedDay(focusedDay);
-      _loadTodaysAlarms();
-      _loadRemindersForSelectedDay();
+
     });
   }
 
   void _onPageChanged(DateTime focusedDay) {
-    // Update focusedDay when the user navigates to a new week
     if (!mounted) return;
     setState(() {
       _calendarLogic.setFocusedDay(focusedDay);
-      // Optionally update selectedDay to the first day of the new week
       _calendarLogic.setSelectedDay(focusedDay);
-      _loadTodaysAlarms();
-      _loadRemindersForSelectedDay();
+
     });
   }
 
@@ -583,14 +651,12 @@ class _HomeScreenState extends State<HomeScreen> {
                 context,
                 MaterialPageRoute(builder: (context) => const AlarmPage()),
               );
-              await _loadTodaysAlarms();
               break;
             case 'Reminder':
               await Navigator.push(
                 context,
                 MaterialPageRoute(builder: (context) => const ReminderPage()),
               );
-              await _loadRemindersForSelectedDay();
               break;
             case 'Regional Planner':
               await Navigator.push(
@@ -622,29 +688,20 @@ class _HomeScreenState extends State<HomeScreen> {
                   ? Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
-                children: const [
+                children: [
                   Text(
                     'Regional',
-                    style: TextStyle(
-                      fontSize: 16,
-                      color: Colors.black87,
-                    ),
+                    style: AppTextStyles.body.copyWith(color: Colors.black87),
                   ),
                   Text(
                     'Planner',
-                    style: TextStyle(
-                      fontSize: 16,
-                      color: Colors.black87,
-                    ),
+                    style: AppTextStyles.body.copyWith(color: Colors.black87),
                   ),
                 ],
               )
                   : Text(
                 title,
-                style: const TextStyle(
-                  fontSize: 16,
-                  color: Colors.black,
-                ),
+                style: AppTextStyles.body,
               ),
             ],
           ),
@@ -708,7 +765,7 @@ class _HomeScreenState extends State<HomeScreen> {
               const SizedBox(height: 16),
               Text(
                 connectionStatus,
-                style: const TextStyle(fontSize: 16),
+                style: AppTextStyles.body,
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: 16),
@@ -736,12 +793,11 @@ class _HomeScreenState extends State<HomeScreen> {
                       focusedDay: _calendarLogic.focusedDay,
                       selectedDayPredicate: (day) => isSameDay(day, selectedDay),
                       onDaySelected: _onDaySelected,
-                      onPageChanged: _onPageChanged, // Handle week navigation
+                      onPageChanged: _onPageChanged,
                       calendarFormat: CalendarFormat.week,
-                      headerStyle: const HeaderStyle(
+                      headerStyle: HeaderStyle(
                         formatButtonVisible: false,
-                        titleTextStyle: TextStyle(
-                          fontSize: 18,
+                        titleTextStyle: AppTextStyles.subheading.copyWith(
                           fontWeight: FontWeight.bold,
                         ),
                         titleCentered: false,
@@ -749,8 +805,8 @@ class _HomeScreenState extends State<HomeScreen> {
                         rightChevronVisible: true,
                       ),
                       daysOfWeekStyle: DaysOfWeekStyle(
-                        weekdayStyle: const TextStyle(color: Colors.black54),
-                        weekendStyle: const TextStyle(color: Colors.black54),
+                        weekdayStyle: AppTextStyles.small,
+                        weekendStyle: AppTextStyles.small,
                         dowTextFormatter: (date, locale) =>
                             DateFormat.E(locale).format(date).toUpperCase(),
                       ),
@@ -759,33 +815,23 @@ class _HomeScreenState extends State<HomeScreen> {
                           color: Colors.grey[300],
                           shape: BoxShape.circle,
                         ),
-                        todayTextStyle: const TextStyle(
+                        todayTextStyle: AppTextStyles.body.copyWith(
                           fontWeight: FontWeight.bold,
-                          color: Colors.black,
-                          fontSize: 16,
                         ),
                         selectedDecoration: BoxDecoration(
                           color: themeProvider.selectedColor,
                           shape: BoxShape.circle,
                         ),
-                        selectedTextStyle: const TextStyle(
+                        selectedTextStyle: AppTextStyles.body.copyWith(
                           fontWeight: FontWeight.bold,
                           color: Colors.white,
-                          fontSize: 16,
                         ),
-                        defaultTextStyle: const TextStyle(
-                          color: Colors.black,
-                          fontSize: 16,
-                        ),
-                        weekendTextStyle: const TextStyle(
-                          color: Colors.black,
-                          fontSize: 16,
-                        ),
+                        defaultTextStyle: AppTextStyles.body,
+                        weekendTextStyle: AppTextStyles.body,
                       ),
                     ),
                   ),
                   const SizedBox(height: 16),
-                  // Static Schedule Section
                   Container(
                     decoration: BoxDecoration(
                       color: Colors.white,
@@ -804,100 +850,91 @@ class _HomeScreenState extends State<HomeScreen> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          // Prayer Time Indicators
                           _buildStatusIndicators(),
-                          // Schedule Header
                           Text(
                             isSameDay(selectedDay, today)
                                 ? "Today's Schedule"
                                 : DateFormat('MMMM d, y').format(selectedDay),
-                            style: const TextStyle(
-                              fontSize: 20,
-                              fontWeight: FontWeight.bold,
-                            ),
+                            style: AppTextStyles.subheading,
                           ),
                           const SizedBox(height: 12),
-                          // Schedule Items
                           Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              if (_todaysAlarms.isNotEmpty) ...[
+                              if (_loadingAlarmSongs) ...[
                                 const Padding(
-                                  padding: EdgeInsets.only(left: 8, bottom: 8),
+                                  padding: EdgeInsets.symmetric(vertical: 8),
+                                  child: Center(
+                                    child: SizedBox(
+                                      height: 20,
+                                      width: 20,
+                                      child: CircularProgressIndicator(strokeWidth: 2),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                              if (_errorLoadingAlarmSongs) ...[
+                                Padding(
+                                  padding: const EdgeInsets.symmetric(vertical: 8),
+                                  child: Row(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      Flexible(
+                                        child: Text(
+                                          'Failed to load alarm songs',
+                                          style: AppTextStyles.body.copyWith(fontSize: 14, color: Colors.red),
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                      ),
+                                      IconButton(
+                                        padding: EdgeInsets.zero,
+                                        constraints: const BoxConstraints(),
+                                        icon: const Icon(Icons.refresh, size: 20),
+                                        onPressed: _loadPrayerTimesStatus,
+                                        tooltip: 'Retry',
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                              if (_alarmSongs.isNotEmpty && !_loadingAlarmSongs && !_errorLoadingAlarmSongs) ...[
+                                Padding(
+                                  padding: const EdgeInsets.only(left: 8, top: 8, bottom: 8),
                                   child: Text(
-                                    'Alarms',
-                                    style: TextStyle(
-                                      fontSize: 18,
+                                    'Alarm Songs',
+                                    style: AppTextStyles.subheading.copyWith(
                                       fontWeight: FontWeight.w600,
                                       color: Colors.black87,
                                     ),
                                   ),
                                 ),
-                                ..._todaysAlarms.asMap().entries.map((entry) {
+                                ..._alarmSongs.asMap().entries.where((entry) {
+                                  final song = entry.value;
+                                  final isScheduled = song.isScheduledForDay(selectedDay);
+                                  return isScheduled;
+                                }).map((entry) {
                                   final index = entry.key;
-                                  final alarm = entry.value;
-                                  final alarmDateTime = DateTime(
-                                    selectedDay.year,
-                                    selectedDay.month,
-                                    selectedDay.day,
-                                    alarm.time.hour,
-                                    alarm.time.minute,
-                                  );
-                                  final isChecked =
-                                  alarmDateTime.isBefore(DateTime.now());
-                                  final timeString = alarm.time.format(context);
+                                  final song = entry.value;
+                                  final timeString = song.getTimeString(context);
+                                  final isChecked = song.status == 1 && song.isPast(DateTime.now());
                                   return Padding(
                                     padding: const EdgeInsets.only(bottom: 8),
                                     child: ScheduleItem(
                                       time: timeString,
-                                      title: alarm.label,
+                                      title: song.fileName,
                                       isChecked: isChecked,
-                                      isLast: index == _todaysAlarms.length - 1,
-                                      icon: Icons.alarm,
+                                      isLast: index == _alarmSongs.where((s) => s.isScheduledForDay(selectedDay)).length - 1,
+                                      icon: Icons.music_note,
                                     ),
                                   );
                                 }),
                               ],
-                              if (_todaysReminders.isNotEmpty) ...[
-                                const Padding(
-                                  padding: EdgeInsets.only(left: 8, top: 8, bottom: 8),
+                              if ( _alarmSongs.where((s) => s.isScheduledForDay(selectedDay)).isEmpty && !_loadingAlarmSongs && !_errorLoadingAlarmSongs)
+                                Padding(
+                                  padding: const EdgeInsets.all(8),
                                   child: Text(
-                                    'Reminders',
-                                    style: TextStyle(
-                                      fontSize: 18,
-                                      fontWeight: FontWeight.w600,
-                                      color: Colors.black87,
-                                    ),
-                                  ),
-                                ),
-                                ..._todaysReminders.asMap().entries.map((entry) {
-                                  final index = entry.key;
-                                  final reminder = entry.value;
-                                  final timeString =
-                                      '${DateFormat('HH:mm').format(reminder.startDateTime)} - ${DateFormat('HH:mm').format(reminder.endDateTime)}';
-                                  final isChecked =
-                                  reminder.endDateTime.isBefore(DateTime.now());
-                                  return Padding(
-                                    padding: const EdgeInsets.only(bottom: 8),
-                                    child: ScheduleItem(
-                                      time: timeString,
-                                      title: reminder.title,
-                                      isChecked: isChecked,
-                                      isLast: index == _todaysReminders.length - 1,
-                                      icon: Icons.event,
-                                    ),
-                                  );
-                                }),
-                              ],
-                              if (_todaysAlarms.isEmpty && _todaysReminders.isEmpty)
-                                const Padding(
-                                  padding: EdgeInsets.all(8),
-                                  child: Text(
-                                    'No alarms or reminders scheduled for this day',
-                                    style: TextStyle(
-                                      fontSize: 16,
-                                      color: Colors.grey,
-                                    ),
+                                    'No reminders or songs scheduled for this day',
+                                    style: AppTextStyles.body.copyWith(color: Colors.grey),
                                   ),
                                 ),
                             ],
@@ -909,7 +946,6 @@ class _HomeScreenState extends State<HomeScreen> {
                 ],
               )
                   : const BellTab(),
-              // Ensure content is scrollable
               SizedBox(height: MediaQuery.of(context).size.height * 0.1),
             ],
           ),
@@ -992,32 +1028,91 @@ class _HomeScreenState extends State<HomeScreen> {
           : null,
       floatingActionButtonLocation: FloatingActionButtonLocation.miniEndFloat,
       bottomNavigationBar: SizedBox(
-        height: 66,
+        height: 75,
         child: BottomNavigationBar(
           currentIndex: _selectedIndex,
           onTap: _onNavBarTapped,
           backgroundColor: Colors.white,
           elevation: 0,
-          selectedItemColor: themeProvider.selectedColor,
-          unselectedItemColor: Colors.grey,
-          selectedFontSize: 12,
-          unselectedFontSize: 11,
-          items: const [
+          type: BottomNavigationBarType.fixed,
+          selectedFontSize: 0,
+          unselectedFontSize: 0,
+          items: [
             BottomNavigationBarItem(
-              icon: Icon(Icons.calendar_month_outlined),
-              label: 'Planner',
+              icon: _buildNavItem(
+                isSelected: _selectedIndex == 0,
+                selectedIcon: Icons.calendar_month,
+                unselectedIcon: Icons.calendar_month_outlined,
+                label: "Planner",
+                color: themeProvider.selectedColor,
+              ),
+              label: "",
             ),
             BottomNavigationBarItem(
-              icon: Icon(Icons.music_note),
-              label: 'Library',
+              icon: _buildNavItem(
+                isSelected: _selectedIndex == 1,
+                selectedIcon: Icons.music_note,
+                unselectedIcon: Icons.music_note_outlined,
+                label: "Library",
+                color: themeProvider.selectedColor,
+              ),
+              label: "",
             ),
             BottomNavigationBarItem(
-              icon: Icon(Icons.person_outline_rounded),
-              label: 'Profile',
+              icon: _buildNavItem(
+                isSelected: _selectedIndex == 2,
+                selectedIcon: Icons.person,
+                unselectedIcon: Icons.person_outline,
+                label: "Profile",
+                color: themeProvider.selectedColor,
+              ),
+              label: "",
             ),
           ],
         ),
       ),
     );
   }
+}
+
+Widget _buildNavItem({
+  required bool isSelected,
+  required IconData selectedIcon,
+  required IconData unselectedIcon,
+  required String label,
+  required Color color,
+}) {
+  return SizedBox(
+    height: 60,
+    child: Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Icon(
+          isSelected ? selectedIcon : unselectedIcon,
+          color: isSelected ? color : Colors.grey,
+        ),
+        const SizedBox(height: 4),
+        Text(
+          label,
+          style: AppTextStyles.small.copyWith(
+            fontSize: 12,
+            fontWeight: isSelected ? FontWeight.w600 : FontWeight.w400,
+            color: isSelected ? color : Colors.grey,
+          ),
+        ),
+        const Spacer(),
+        Align(
+          alignment: Alignment.bottomCenter,
+          child: Container(
+            height: 4,
+            width: double.infinity,
+            decoration: BoxDecoration(
+              color: isSelected ? color : Colors.transparent,
+              borderRadius: BorderRadius.circular(50),
+            ),
+          ),
+        ),
+      ],
+    ),
+  );
 }

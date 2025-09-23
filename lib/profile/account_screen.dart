@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import '../authentication/auth_service.dart'; // Adjust import path if needed
-import '../services/theme_state.dart';
+import '../authentication/auth_service.dart';
+import '../utils/theme_state.dart';
+import '../utils/app_text_styles.dart';
 
 class AccountScreen extends StatefulWidget {
   const AccountScreen({super.key});
@@ -24,7 +25,7 @@ class _AccountScreenState extends State<AccountScreen> {
 
   Future<void> _fetchUserData() async {
     try {
-      final user = _authService.currentUser; // Use the public getter
+      final user = _authService.currentUser;
       if (user != null) {
         final userData = await _authService.getUserData(user.uid);
         if (mounted) {
@@ -64,9 +65,13 @@ class _AccountScreenState extends State<AccountScreen> {
             Navigator.pop(context);
           },
         ),
-        title: const Text('Account'),
+        title: const Text(
+          'Account',
+          style: AppTextStyles.heading,
+        ),
         backgroundColor: Colors.white,
         elevation: 0,
+        centerTitle: true,
       ),
       body: Container(
         color: Colors.white,
@@ -74,58 +79,63 @@ class _AccountScreenState extends State<AccountScreen> {
         child: _isLoading
             ? const Center(child: CircularProgressIndicator())
             : _error != null
-            ? Center(child: Text(_error!))
+            ? Center(
+          child: Text(
+            _error!,
+            style: AppTextStyles.body,
+          ),
+        )
             : Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
+            Text(
               'Name',
-              style: TextStyle(color: Colors.grey, fontSize: 14),
+              style: AppTextStyles.link.copyWith(color: Colors.grey),
             ),
             const SizedBox(height: 4),
             Text(
               _userData?['username'] ?? 'N/A',
-              style: const TextStyle(fontSize: 16),
+              style: AppTextStyles.body,
             ),
             const Divider(height: 32),
-            const Text(
+            Text(
               'Contact',
-              style: TextStyle(color: Colors.grey, fontSize: 14),
+              style: AppTextStyles.link.copyWith(color: Colors.grey),
             ),
             const SizedBox(height: 4),
             Text(
-              _userData?['contact'] ?? '1234567890', // Fetch from Firestore if available
-              style: const TextStyle(fontSize: 16),
+              _userData?['contact'] ?? '1234567890',
+              style: AppTextStyles.body,
             ),
             const Divider(height: 32),
-            const Text(
+            Text(
               'Email',
-              style: TextStyle(color: Colors.grey, fontSize: 14),
+              style: AppTextStyles.link.copyWith(color: Colors.grey),
             ),
             const SizedBox(height: 4),
             Text(
               _userData?['email'] ?? 'N/A',
-              style: const TextStyle(fontSize: 16),
+              style: AppTextStyles.body,
             ),
             const Divider(height: 32),
-            const Text(
+            Text(
               'DOB',
-              style: TextStyle(color: Colors.grey, fontSize: 14),
+              style: AppTextStyles.link.copyWith(color: Colors.grey),
             ),
             const SizedBox(height: 4),
             Text(
-              _userData?['dob'] ?? '13-05-25', // Fetch from Firestore if available
-              style: const TextStyle(fontSize: 16),
+              _userData?['dob'] ?? '13-05-25',
+              style: AppTextStyles.body,
             ),
             const Divider(height: 32),
-            const Text(
+            Text(
               'Address',
-              style: TextStyle(color: Colors.grey, fontSize: 14),
+              style: AppTextStyles.link.copyWith(color: Colors.grey),
             ),
             const SizedBox(height: 4),
             Text(
               _userData?['address'] ?? 'Lorem Ipsum Lorem Ipsum Lorem Ipsum',
-              style: const TextStyle(fontSize: 16),
+              style: AppTextStyles.body,
             ),
           ],
         ),

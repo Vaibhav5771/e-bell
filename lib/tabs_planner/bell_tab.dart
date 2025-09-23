@@ -7,7 +7,8 @@ import 'package:provider/provider.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'dart:convert';
 import 'dart:async';
-import '../services/theme_state.dart';
+import '../utils/theme_state.dart';
+import '../utils/app_text_styles.dart';
 
 class BellTab extends StatefulWidget {
   const BellTab({super.key});
@@ -45,7 +46,6 @@ class _BellTabState extends State<BellTab> {
 
         List<String> files = [];
 
-        // Parse the specific structure from your API response
         if (jsonData['Data'] != null && jsonData['Data'] is List) {
           final dataList = jsonData['Data'] as List;
 
@@ -73,7 +73,7 @@ class _BellTabState extends State<BellTab> {
           debugPrint('No valid files found in response');
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('No audio files found on device')),
+              SnackBar(content: Text('No audio files found on device', style: AppTextStyles.body)),
             );
           }
         }
@@ -81,7 +81,7 @@ class _BellTabState extends State<BellTab> {
         debugPrint('API error: ${response.statusCode}');
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Server error: ${response.statusCode}')),
+            SnackBar(content: Text('Server error: ${response.statusCode}', style: AppTextStyles.body)),
           );
         }
       }
@@ -89,7 +89,7 @@ class _BellTabState extends State<BellTab> {
       debugPrint('Error loading files: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: ${e.toString()}')),
+          SnackBar(content: Text('Error: ${e.toString()}', style: AppTextStyles.body)),
         );
       }
     } finally {
@@ -109,7 +109,6 @@ class _BellTabState extends State<BellTab> {
   List<String> _extractStringsFromJsonObject(Map<dynamic, dynamic> json) {
     final List<String> result = [];
 
-    // Check common keys that might contain files
     const possibleKeys = ['files', 'allSongs', 'Filenames', 'songs'];
 
     for (final key in possibleKeys) {
@@ -118,12 +117,11 @@ class _BellTabState extends State<BellTab> {
       }
     }
 
-    // Also check all list values in the JSON
     json.values.whereType<List>().forEach((list) {
       result.addAll(_extractStringsFromList(list));
     });
 
-    return result.toSet().toList(); // Remove duplicates
+    return result.toSet().toList();
   }
 
   Future<void> _setBellSound() async {
@@ -137,13 +135,12 @@ class _BellTabState extends State<BellTab> {
     try {
       final response = await http.post(
         Uri.parse('http://192.168.2.1/intrsong/$_soundOption'),
-        // Optionally include headers or body if required
       ).timeout(const Duration(seconds: 10));
 
       if (response.statusCode == 200) {
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Bell sound updated successfully')),
+          SnackBar(content: Text('Bell sound updated successfully', style: AppTextStyles.body)),
         );
       } else {
         throw Exception('Failed to set bell sound: ${response.statusCode}');
@@ -151,7 +148,7 @@ class _BellTabState extends State<BellTab> {
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error setting bell sound: $e')),
+        SnackBar(content: Text('Error setting bell sound: $e', style: AppTextStyles.body)),
       );
     } finally {
       if (mounted) setState(() => _isSending = false);
@@ -203,7 +200,7 @@ class _BellTabState extends State<BellTab> {
       }
     }
 
-    return true; // Assume granted on non-Android
+    return true;
   }
 
   Future<void> _uploadSoundFile() async {
@@ -227,7 +224,6 @@ class _BellTabState extends State<BellTab> {
 
       final sanitizedFileName = _sanitizeFileName(file.name);
 
-      // Use the new API format: http://192.168.2.1/upload/{folder_name}/{filename}
       final request = http.MultipartRequest(
         'POST',
         Uri.parse('http://192.168.2.1/upload/default/$sanitizedFileName'),
@@ -254,15 +250,13 @@ class _BellTabState extends State<BellTab> {
           _soundOption = sanitizedFileName;
         });
 
-        // 🎯 Optional: delay the refresh slightly to give backend time
         Future.delayed(const Duration(seconds: 2), () {
           if (mounted) _loadUploadedFiles();
         });
 
         _showDialog('Success',
             'File uploaded successfully: $sanitizedFileName\n$body', true);
-      }
-      else {
+      } else {
         _showDialog('Upload Failed',
             'Status: ${response.statusCode}\nResponse: $body', false);
       }
@@ -279,22 +273,23 @@ class _BellTabState extends State<BellTab> {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Permission Permanently Denied'),
-        content: const Text(
+        title: Text('Permission Permanently Denied', style: AppTextStyles.heading),
+        content: Text(
           'Please open app settings and grant permission to access audio files.',
+          style: AppTextStyles.body,
           textAlign: TextAlign.center,
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
+            child: Text('Cancel', style: AppTextStyles.button.copyWith(color: Colors.black)),
           ),
           ElevatedButton(
             onPressed: () async {
               Navigator.pop(context);
               await openAppSettings();
             },
-            child: const Text('Open Settings'),
+            child: Text('Open Settings', style: AppTextStyles.button.copyWith(color: Colors.black)),
           ),
         ],
       ),
@@ -310,13 +305,13 @@ class _BellTabState extends State<BellTab> {
           color: isSuccess ? Colors.green : Colors.red,
           size: 40,
         ),
-        title: Text(title, textAlign: TextAlign.center),
-        content: Text(message, textAlign: TextAlign.center),
+        title: Text(title, style: AppTextStyles.heading, textAlign: TextAlign.center),
+        content: Text(message, style: AppTextStyles.body, textAlign: TextAlign.center),
         actionsAlignment: MainAxisAlignment.center,
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('OK'),
+            child: Text('OK', style: AppTextStyles.button.copyWith(color: Colors.black)),
           ),
         ],
       ),
@@ -346,9 +341,7 @@ class _BellTabState extends State<BellTab> {
                 children: [
                   Text(
                     'CURRENT BELL SOUND',
-                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                      color: Colors.grey.shade600,
-                    ),
+                    style: AppTextStyles.small.copyWith(color: Colors.grey.shade600),
                   ),
                   const SizedBox(height: 12),
                   Row(
@@ -370,6 +363,7 @@ class _BellTabState extends State<BellTab> {
                                 value: sound,
                                 child: Text(
                                   sound,
+                                  style: AppTextStyles.body,
                                   overflow: TextOverflow.ellipsis,
                                 ),
                               ))
@@ -385,10 +379,10 @@ class _BellTabState extends State<BellTab> {
                               borderRadius: BorderRadius.circular(8),
                               icon: Icon(Icons.arrow_drop_down,
                                   color: themeProvider.textColor),
-                              iconSize: 24, // Increased icon size
+                              iconSize: 24,
                               dropdownColor: Colors.white,
-                              style: Theme.of(context).textTheme.bodyMedium,
-                              hint: const Text('No sounds available'),
+                              style: AppTextStyles.body,
+                              hint: Text('No sounds available', style: AppTextStyles.body),
                             ),
                           ),
                         ),
@@ -415,7 +409,7 @@ class _BellTabState extends State<BellTab> {
                             color: themeProvider.selectedColor,
                           ),
                         )
-                            : const Text('New'),
+                            : Text('New', style: AppTextStyles.button.copyWith(color: themeProvider.selectedColor)),
                       ),
                     ],
                   ),

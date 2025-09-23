@@ -11,6 +11,9 @@ import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:network_info_plus/network_info_plus.dart';
 import 'package:e_bell/services/bell_service.dart';
 import 'dart:async';
+import 'package:provider/provider.dart';
+import '../utils/theme_state.dart';
+import '../utils/app_text_styles.dart';
 
 class AudioRecorderPage extends StatefulWidget {
   const AudioRecorderPage({super.key});
@@ -70,6 +73,82 @@ class _AudioRecorderPageState extends State<AudioRecorderPage> {
     }
   }
 
+  Future<String?> _askForFileName(BuildContext context) async {
+    final controller = TextEditingController();
+    final themeProvider = Provider.of<ThemeProvider>(context, listen: false);
+
+    return showDialog<String>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+          title: Text(
+            'Name this file',
+            style: AppTextStyles.heading.copyWith(fontSize: 20),
+          ),
+          content: TextField(
+            controller: controller,
+            autofocus: true,
+            textInputAction: TextInputAction.done,
+            decoration: InputDecoration(
+              hintText: "Enter file name",
+              hintStyle: AppTextStyles.body,
+              prefixIcon: Icon(Icons.edit, color: themeProvider.selectedColor),
+              filled: true,
+              fillColor: Colors.grey[100],
+              contentPadding:
+              const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide:
+                BorderSide(color: themeProvider.selectedColor, width: 1.5),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide:
+                BorderSide(color: themeProvider.selectedColor, width: 2),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide(color: Colors.grey[400]!),
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, null),
+              child: Text(
+                'Cancel',
+                style: AppTextStyles.button.copyWith(color: Colors.grey),
+              ),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: themeProvider.selectedColor,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+              ),
+              onPressed: () {
+                final name = controller.text.trim();
+                if (name.isNotEmpty) {
+                  Navigator.pop(ctx, name);
+                }
+              },
+              child: Text(
+                'Save',
+                style: AppTextStyles.button,
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   Future<void> _initPlayer() async {
     try {
       _player?.playerStateStream.listen((state) {
@@ -89,7 +168,12 @@ class _AudioRecorderPageState extends State<AudioRecorderPage> {
           _isPlaying = false;
         });
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Playback error: $e')),
+          SnackBar(
+            content: Text(
+              'Playback error: $e',
+              style: AppTextStyles.body,
+            ),
+          ),
         );
       });
     } catch (e) {
@@ -115,7 +199,6 @@ class _AudioRecorderPageState extends State<AudioRecorderPage> {
 
     try {
       if (!wifiOnly) {
-        // Request microphone and storage/audio permissions
         final isAndroid13Plus = await _isAndroid13OrHigher();
         final micPermissions = isAndroid13Plus
             ? [Permission.microphone, Permission.audio]
@@ -123,7 +206,8 @@ class _AudioRecorderPageState extends State<AudioRecorderPage> {
 
         final micStatuses = await micPermissions.request();
         final micAllGranted = micStatuses.values.every((s) => s.isGranted);
-        final micPermanentlyDenied = micStatuses.values.any((s) => s.isPermanentlyDenied);
+        final micPermanentlyDenied =
+        micStatuses.values.any((s) => s.isPermanentlyDenied);
 
         setState(() {
           _micPermissionsGranted = micAllGranted;
@@ -143,12 +227,10 @@ class _AudioRecorderPageState extends State<AudioRecorderPage> {
         if (!micAllGranted) return;
       }
 
-      // Request location permission for Wi-Fi
       final locationStatus = await Permission.location.request();
       final locationGranted = locationStatus.isGranted;
       final locationPermanentlyDenied = locationStatus.isPermanentlyDenied;
 
-      // Request nearbyWifiDevices only for Android 13+
       bool wifiDevicesGranted = true;
       if (await _isAndroid13OrHigher()) {
         final wifiDevicesStatus = await Permission.nearbyWifiDevices.request();
@@ -171,7 +253,8 @@ class _AudioRecorderPageState extends State<AudioRecorderPage> {
         }
       });
 
-      if (locationPermanentlyDenied || (!wifiDevicesGranted && await _isAndroid13OrHigher())) {
+      if (locationPermanentlyDenied ||
+          (!wifiDevicesGranted && await _isAndroid13OrHigher())) {
         return;
       }
     } catch (e) {
@@ -191,21 +274,31 @@ class _AudioRecorderPageState extends State<AudioRecorderPage> {
       barrierDismissible: false,
       builder: (BuildContext context) {
         return AlertDialog(
-          title: Text('$permissionType Permission Required'),
+          title: Text(
+            '$permissionType Permission Required',
+            style: AppTextStyles.heading,
+          ),
           content: Text(
             'This app needs $permissionType permission to function properly. Please grant it in app settings.',
+            style: AppTextStyles.body,
           ),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context),
-              child: const Text('Cancel'),
+              child: Text(
+                'Cancel',
+                style: AppTextStyles.button.copyWith(color: Colors.black),
+              ),
             ),
             TextButton(
               onPressed: () async {
                 Navigator.pop(context);
                 await openAppSettings();
               },
-              child: const Text('Open Settings'),
+              child: Text(
+                'Open Settings',
+                style: AppTextStyles.button.copyWith(color: Colors.black),
+              ),
             ),
           ],
         );
@@ -230,10 +323,12 @@ class _AudioRecorderPageState extends State<AudioRecorderPage> {
         debugPrint('Cleaned Wi-Fi SSID: $cleanedSSID');
         setState(() {
           _isWifiConnected = true;
-          if (cleanedSSID != null && cleanedSSID.toLowerCase() == _targetSsid.toLowerCase()) {
+          if (cleanedSSID != null &&
+              cleanedSSID.toLowerCase() == _targetSsid.toLowerCase()) {
             _connectionStatus = 'Connected to $_targetSsid';
           } else {
-            _connectionStatus = 'Connected to Wi-Fi: ${cleanedSSID ?? 'Unknown'}';
+            _connectionStatus =
+            'Connected to Wi-Fi: ${cleanedSSID ?? 'Unknown'}';
           }
         });
       } else {
@@ -260,7 +355,8 @@ class _AudioRecorderPageState extends State<AudioRecorderPage> {
       await recordingsDir.create(recursive: true);
     }
 
-    _filePath = '${recordingsDir.path}/recording_${DateTime.now().millisecondsSinceEpoch}.aac';
+    _filePath =
+    '${recordingsDir.path}/recording_${DateTime.now().millisecondsSinceEpoch}.aac';
 
     try {
       await _recorder?.startRecorder(
@@ -333,18 +429,40 @@ class _AudioRecorderPageState extends State<AudioRecorderPage> {
       if (_filePath != null) {
         final mp3FilePath = await _convertAACtoMP3(_filePath!);
         if (mp3FilePath != null && mounted) {
-          setState(() {
-            _mp3FilePath = mp3FilePath;
-          });
-          await _player?.setFilePath(mp3FilePath);
+          final customName = await _askForFileName(context);
+          if (customName != null && customName.isNotEmpty) {
+            final file = File(mp3FilePath);
+            final newPath = file.parent.path + '/$customName.mp3';
+            await file.rename(newPath);
+
+            setState(() {
+              _mp3FilePath = newPath;
+            });
+            await _player?.setFilePath(newPath);
+          } else {
+            setState(() {
+              _mp3FilePath = mp3FilePath;
+            });
+            await _player?.setFilePath(mp3FilePath);
+          }
         } else if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Failed to convert recording')),
+            SnackBar(
+              content: Text(
+                'Failed to convert recording',
+                style: AppTextStyles.body,
+              ),
+            ),
           );
         }
       } else if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('No recording found')),
+          SnackBar(
+            content: Text(
+              'No recording found',
+              style: AppTextStyles.body,
+            ),
+          ),
         );
       }
     } catch (e) {
@@ -358,7 +476,12 @@ class _AudioRecorderPageState extends State<AudioRecorderPage> {
     try {
       if (_mp3FilePath == null) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('No recording available to play')),
+          SnackBar(
+            content: Text(
+              'No recording available to play',
+              style: AppTextStyles.body,
+            ),
+          ),
         );
         return;
       }
@@ -375,7 +498,12 @@ class _AudioRecorderPageState extends State<AudioRecorderPage> {
         _isPlaying = false;
       });
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Playback error: $e')),
+        SnackBar(
+          content: Text(
+            'Playback error: $e',
+            style: AppTextStyles.body,
+          ),
+        ),
       );
     }
   }
@@ -390,7 +518,12 @@ class _AudioRecorderPageState extends State<AudioRecorderPage> {
   Future<void> _saveAndUpload() async {
     if (_mp3FilePath == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('No recording to save or upload')),
+        SnackBar(
+          content: Text(
+            'No recording to save or upload',
+            style: AppTextStyles.body,
+          ),
+        ),
       );
       return;
     }
@@ -399,44 +532,68 @@ class _AudioRecorderPageState extends State<AudioRecorderPage> {
       final file = File(_mp3FilePath!);
       if (!await file.exists()) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Recording file not found')),
+          SnackBar(
+            content: Text(
+              'Recording file not found',
+              style: AppTextStyles.body,
+            ),
+          ),
         );
         return;
       }
 
       debugPrint('Starting upload for file: $_mp3FilePath');
 
-      // Check Wi-Fi permissions
       if (!_wifiPermissionsGranted) {
         await _requestPermissions(wifiOnly: true);
         if (!_wifiPermissionsGranted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Wi-Fi permissions required for upload.')),
+            SnackBar(
+              content: Text(
+                'Wi-Fi permissions required for upload.',
+                style: AppTextStyles.body,
+              ),
+            ),
           );
           return;
         }
       }
 
-      // Check Wi-Fi SSID
       if (!_isWifiConnected || !_connectionStatus.contains(_targetSsid)) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Please connect to IoGen_Speaker Wi-Fi for upload.')),
+          SnackBar(
+            content: Text(
+              'Please connect to IoGen_Speaker Wi-Fi for upload.',
+              style: AppTextStyles.body,
+            ),
+          ),
         );
         return;
       }
 
       final bellService = BellService();
-      final uploadedPath = await bellService.uploadMp3(context, _mp3FilePath, _isWifiConnected);
+      final uploadedPath =
+      await bellService.uploadMp3(context, _mp3FilePath, _isWifiConnected);
       debugPrint('Upload result: $uploadedPath');
 
       if (uploadedPath != null && mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Recording saved and uploaded successfully')),
+          SnackBar(
+            content: Text(
+              'Recording saved and uploaded successfully',
+              style: AppTextStyles.body,
+            ),
+          ),
         );
         Navigator.pop(context, uploadedPath);
       } else if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Failed to upload recording')),
+          SnackBar(
+            content: Text(
+              'Failed to upload recording',
+              style: AppTextStyles.body,
+            ),
+          ),
         );
       }
     } catch (e) {
@@ -445,40 +602,57 @@ class _AudioRecorderPageState extends State<AudioRecorderPage> {
         _errorMessage = 'Save/Upload error: $e';
       });
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Save/Upload error: $e')),
+        SnackBar(
+          content: Text(
+            'Save/Upload error: $e',
+            style: AppTextStyles.body,
+          ),
+        ),
       );
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    final themeProvider = Provider.of<ThemeProvider>(context);
+
     return Scaffold(
       backgroundColor: Colors.white,
       appBar: AppBar(
-        backgroundColor: Colors.orange,
-        title: const Text(
-          'Record Audio',
-          style: TextStyle(color: Colors.white),
+        leading: IconButton(
+          icon: Icon(Icons.close, color: Colors.black),
+          onPressed: () => Navigator.pop(context),
         ),
-        iconTheme: const IconThemeData(color: Colors.white),
+        title: Text(
+          'Recording',
+          style: AppTextStyles.heading,
+        ),
+        centerTitle: true,
+        backgroundColor: Colors.white,
+        elevation: 0.5,
       ),
       body: Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             if (_isConverting)
-              const Column(
+              Column(
                 children: [
-                  CircularProgressIndicator(),
-                  SizedBox(height: 20),
-                  Text('Converting to MP3...'),
+                  const CircularProgressIndicator(),
+                  const SizedBox(height: 20),
+                  Text(
+                    'Converting to MP3...',
+                    style: AppTextStyles.body,
+                  ),
                 ],
               )
             else
               Icon(
                 _isRecording ? Icons.mic : Icons.mic_none,
                 size: 80,
-                color: _isRecording ? Colors.orange : Colors.grey[400],
+                color: _isRecording
+                    ? themeProvider.selectedColor
+                    : Colors.grey[400],
               ),
             const SizedBox(height: 20),
             Text(
@@ -487,17 +661,16 @@ class _AudioRecorderPageState extends State<AudioRecorderPage> {
                   : _mp3FilePath != null
                   ? 'Recording Ready: ${_mp3FilePath!.split('/').last}'
                   : 'Ready to record',
-              style: TextStyle(
+              style: AppTextStyles.heading.copyWith(
                 fontSize: 20,
-                fontWeight: FontWeight.bold,
-                color: _isRecording ? Colors.orange : Colors.black,
+                color: _isRecording ? themeProvider.selectedColor : Colors.black,
               ),
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 20),
             Text(
               _connectionStatus,
-              style: const TextStyle(fontSize: 16),
+              style: AppTextStyles.body,
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 30),
@@ -506,7 +679,7 @@ class _AudioRecorderPageState extends State<AudioRecorderPage> {
                 padding: const EdgeInsets.symmetric(horizontal: 20),
                 child: Text(
                   _errorMessage!,
-                  style: const TextStyle(color: Colors.red),
+                  style: AppTextStyles.body.copyWith(color: Colors.red),
                   textAlign: TextAlign.center,
                 ),
               ),
@@ -518,8 +691,10 @@ class _AudioRecorderPageState extends State<AudioRecorderPage> {
               children: [
                 ElevatedButton(
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: _isRecording ? Colors.red : Colors.orange,
-                    padding: const EdgeInsets.symmetric(horizontal: 30, vertical: 15),
+                    backgroundColor:
+                    _isRecording ? Colors.red : themeProvider.selectedColor,
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 30, vertical: 15),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(12),
                     ),
@@ -532,14 +707,17 @@ class _AudioRecorderPageState extends State<AudioRecorderPage> {
                       : _startRecording,
                   child: Text(
                     _isRecording ? 'Stop Recording' : 'Start Recording',
-                    style: const TextStyle(fontSize: 18, color: Colors.white),
+                    style: AppTextStyles.button,
                   ),
                 ),
-                if (_mp3FilePath != null && !_isRecording && !_isConverting) ...[
+                if (_mp3FilePath != null &&
+                    !_isRecording &&
+                    !_isConverting) ...[
                   ElevatedButton(
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.blue,
-                      padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 15),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 15, vertical: 15),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(12),
                       ),
@@ -555,7 +733,8 @@ class _AudioRecorderPageState extends State<AudioRecorderPage> {
                   ElevatedButton(
                     style: ElevatedButton.styleFrom(
                       backgroundColor: _isLooping ? Colors.purple : Colors.grey,
-                      padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 15),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 15, vertical: 15),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(12),
                       ),
@@ -571,16 +750,17 @@ class _AudioRecorderPageState extends State<AudioRecorderPage> {
                   ElevatedButton(
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.green,
-                      padding: const EdgeInsets.symmetric(horizontal: 30, vertical: 15),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 30, vertical: 15),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(12),
                       ),
                       elevation: 4,
                     ),
                     onPressed: _saveAndUpload,
-                    child: const Text(
+                    child: Text(
                       'Save & Upload',
-                      style: TextStyle(fontSize: 18, color: Colors.white),
+                      style: AppTextStyles.button,
                     ),
                   ),
                 ],

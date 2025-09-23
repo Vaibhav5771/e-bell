@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../utils/app_text_styles.dart';
 import 'auth_service.dart';
 import '../pages/device_page.dart';
 import 'auth_state.dart';
-
 
 class RegisterScreen extends StatefulWidget {
   final VoidCallback onTap;
@@ -64,7 +64,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
       debugPrint('RegisterScreen: Registration error: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Registration failed: ${e.toString()}')),
+          SnackBar(content: Text('Registration failed: ${e.toString()}', style: AppTextStyles.body)),
         );
       }
     } finally {
@@ -84,6 +84,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
           child: Column(
             children: [
               const SizedBox(height: 80),
+
               // Illustration image
               SizedBox(
                 height: 250,
@@ -92,25 +93,32 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   fit: BoxFit.contain,
                 ),
               ),
+
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 20.0),
                 child: Column(
                   children: [
                     const SizedBox(height: 50),
+
+                    // Username
                     TextField(
                       controller: _usernameController,
                       decoration: InputDecoration(
                         labelText: 'Username',
+                        labelStyle: AppTextStyles.small.copyWith(color: Colors.grey[700]!),
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(10),
                         ),
                       ),
                     ),
                     const SizedBox(height: 20),
+
+                    // Email
                     TextField(
                       controller: _emailController,
                       decoration: InputDecoration(
                         labelText: 'Email',
+                        labelStyle: AppTextStyles.small.copyWith(color: Colors.grey[700]!),
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(10),
                         ),
@@ -118,11 +126,14 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       keyboardType: TextInputType.emailAddress,
                     ),
                     const SizedBox(height: 20),
+
+                    // Password
                     TextField(
                       controller: _passwordController,
                       obscureText: !_isPasswordVisible,
                       decoration: InputDecoration(
                         labelText: 'Password',
+                        labelStyle: AppTextStyles.small.copyWith(color: Colors.grey[700]!),
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(10),
                         ),
@@ -140,7 +151,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
                         ),
                       ),
                     ),
+
                     const SizedBox(height: 30),
+
+                    // Register button
                     _isLoading
                         ? const CircularProgressIndicator()
                         : ElevatedButton(
@@ -152,26 +166,26 @@ class _RegisterScreenState extends State<RegisterScreen> {
                           borderRadius: BorderRadius.circular(10),
                         ),
                       ),
-                      child: const Text(
+                      child: Text(
                         'Register',
-                        style: TextStyle(
-                            fontSize: 18, color: Colors.white),
+                        style: AppTextStyles.button,
                       ),
                     ),
+
                     const SizedBox(height: 16),
-                  TextButton(
-                    onPressed: widget.onTap,
-                    child: Column(
-                      children: [
-                        const Text(
-                          'Already have an account? Login',
-                          style: TextStyle(color: Colors.black),
-                        ),
-                      ],
+
+                    // Login link
+                    TextButton(
+                      onPressed: widget.onTap,
+                      child: Text(
+                        'Already have an account? Login',
+                        style: AppTextStyles.link, // Using link style for clickable text
+                      ),
                     ),
-                  ),
+
                     const SizedBox(height: 50),
-                    // IOGenies logo image
+
+                    // Logo
                     Row(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
@@ -182,13 +196,17 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       ],
                     ),
                     const SizedBox(height: 10),
+
+                    // Version text
                     Row(
-                      crossAxisAlignment: CrossAxisAlignment.center,
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        Text('EBELL_Version_V.2.0',style: TextStyle(fontSize: 10,color: Colors.black54),)
+                        Text(
+                          'EBELL_Version_V.2.0',
+                          style: AppTextStyles.small.copyWith(color: Colors.black54),
+                        ),
                       ],
-                    )
+                    ),
                   ],
                 ),
               ),
