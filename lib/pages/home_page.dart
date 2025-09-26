@@ -57,11 +57,6 @@ class AlarmSong {
 
   // Check if the song is scheduled for a specific day
   bool isScheduledForDay(DateTime day) {
-    if (startTimestamp != 0) {
-      final songDate = DateTime.fromMillisecondsSinceEpoch(startTimestamp * 1000);
-      return isSameDay(songDate, day);
-    }
-    // If startTimestamp is 0, check the days bitmask using device-specific mapping
     final weekday = day.weekday; // 1 = Monday, 7 = Sunday
     int bitPosition;
     if (weekday == 7) {
@@ -70,7 +65,30 @@ class AlarmSong {
       bitPosition = weekday; // Monday (1) = bit 1, Tuesday (2) = bit 2, etc.
     }
     final dayBit = 1 << bitPosition;
-    final isScheduled = (days & dayBit) != 0;
+    final dayMatches = (days & dayBit) != 0;
+
+    bool inRange = true;
+    if (startTimestamp != 0 || endTimestamp != 0) {
+      DateTime? startDT;
+      if (startTimestamp != 0) {
+        startDT = DateTime.fromMillisecondsSinceEpoch(startTimestamp * 1000);
+      }
+      DateTime? endDT;
+      if (endTimestamp != 0) {
+        endDT = DateTime.fromMillisecondsSinceEpoch(endTimestamp * 1000);
+      } else if (startDT != null) {
+        endDT = startDT;
+      } else {
+        inRange = false;
+      }
+      if (inRange) {
+        final dayDate = DateTime(day.year, day.month, day.day);
+        final startDate = DateTime(startDT!.year, startDT.month, startDT.day);
+        final endDate = DateTime(endDT!.year, endDT.month, endDT.day);
+        inRange = !dayDate.isBefore(startDate) && !dayDate.isAfter(endDate);
+      }
+    }
+    final isScheduled = inRange && dayMatches;
     debugPrint(
         'Song: $fileName, Time: $hour:$minute, Days: $days (binary: ${days.toRadixString(2)}), '
             'Weekday: $weekday, BitPosition: $bitPosition, DayBit: $dayBit, '
@@ -80,22 +98,13 @@ class AlarmSong {
 
   // Get the time string for display
   String getTimeString(BuildContext context) {
-    if (startTimestamp != 0) {
-      final songDateTime = DateTime.fromMillisecondsSinceEpoch(startTimestamp * 1000);
-      return DateFormat('HH:mm').format(songDateTime);
-    }
-    // Ensure hour and minute are formatted correctly (e.g., 0:59 → 00:59)
+    // Always use hour and minute for consistency
     return TimeOfDay(hour: hour, minute: minute).format(context);
   }
 
-  // Check if the song is in the past
-  bool isPast(DateTime now) {
-    if (startTimestamp != 0) {
-      final songDateTime = DateTime.fromMillisecondsSinceEpoch(startTimestamp * 1000);
-      return songDateTime.isBefore(now);
-    }
-    final today = DateTime.now();
-    final songDateTime = DateTime(today.year, today.month, today.day, hour, minute);
+  // Check if the song is in the past for a specific day
+  bool isPast(DateTime day, DateTime now) {
+    final songDateTime = DateTime(day.year, day.month, day.day, hour, minute);
     return songDateTime.isBefore(now);
   }
 }
@@ -345,7 +354,15 @@ class _HomeScreenState extends State<HomeScreen> {
       List<AlarmSong> alarmSongs = [];
       if (alarmDataList.isNotEmpty) {
         final files = alarmDataList[0]['Filenames'] as List<dynamic>? ?? [];
-        alarmSongs = files.map((file) => AlarmSong.fromJson(file)).toList();
+        alarmSongs = files
+            .where((file) {
+          if (file.length < 7) return false;
+          final h = file[1];
+          final m = file[2];
+          return h is int && m is int && h >= 0 && h <= 23 && m >= 0 && m <= 59;
+        })
+            .map((file) => AlarmSong.fromJson(file))
+            .toList();
       }
 
       debugPrint('Fetched alarm songs: ${alarmSongs.map((s) => "${s.fileName} @ ${s.hour}:${s.minute}, days: ${s.days}, start: ${s.startTimestamp}").toList()}');
@@ -398,7 +415,8 @@ class _HomeScreenState extends State<HomeScreen> {
       setState(() {
         _namazEnabled = regionStatus['namazEnabled'] ?? false;
         _sunriseEnabled = regionStatus['sunriseEnabled'] ?? false;
-        _alarmSongs = (regionStatus['alarmSongs'] as List<AlarmSong>)..sort((a, b) => a.getTimeString(context).compareTo(b.getTimeString(context)));
+        _alarmSongs = (regionStatus['alarmSongs'] as List<AlarmSong>)
+          ..sort((a, b) => (a.hour * 60 + a.minute).compareTo(b.hour * 60 + b.minute));
         _namazTimes = regtimeData['namazTimes'] ?? [];
         _poojaTimes = regtimeData['poojaTimes'] ?? [];
         _loadingPrayerStatus = false;
@@ -419,20 +437,21 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  Widget _buildPrayerTimeIndicator({
+  Widget _buildPrayerTimeIndicator(BuildContext context, {
     required String label,
     required bool enabled,
     List<String> times = const [],
   }) {
+    final themeProvider = Provider.of<ThemeProvider>(context, listen: false);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       margin: const EdgeInsets.only(right: 8),
       constraints: const BoxConstraints(minWidth: 80),
       decoration: BoxDecoration(
-        color: enabled ? Colors.orange.withOpacity(0.1) : Colors.grey.withOpacity(0.1),
+        color: enabled ? themeProvider.selectedColor.withOpacity(0.1) : Colors.grey.withOpacity(0.1),
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
-          color: enabled ? Colors.orange : Colors.grey,
+          color: enabled ? themeProvider.selectedColor : Colors.grey,
           width: 1,
         ),
       ),
@@ -441,7 +460,7 @@ class _HomeScreenState extends State<HomeScreen> {
         children: [
           Icon(
             enabled ? Icons.check_circle : Icons.circle,
-            color: enabled ? Colors.orange : Colors.grey,
+            color: enabled ? themeProvider.selectedColor : Colors.grey,
             size: 14,
           ),
           const SizedBox(width: 6),
@@ -452,7 +471,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 Text(
                   label,
                   style: AppTextStyles.small.copyWith(
-                    color: enabled ? Colors.orange : Colors.grey,
+                    color: enabled ? themeProvider.selectedColor : Colors.grey,
                     fontSize: 12,
                   ),
                   overflow: TextOverflow.ellipsis,
@@ -520,15 +539,21 @@ class _HomeScreenState extends State<HomeScreen> {
         scrollDirection: Axis.horizontal,
         child: Row(
           children: [
-            _buildPrayerTimeIndicator(
+            _buildPrayerTimeIndicator(context,
+              label: 'Alarms',
+              enabled: true,
+            ),
+            _buildPrayerTimeIndicator(context,
+              label: 'Reminders',
+              enabled: true,
+            ),
+            _buildPrayerTimeIndicator(context,
               label: 'Namaz',
               enabled: _namazEnabled,
-              times: _namazEnabled ? _namazTimes : [],
             ),
-            _buildPrayerTimeIndicator(
+            _buildPrayerTimeIndicator(context,
               label: 'Sunrise/Sunset',
               enabled: _sunriseEnabled,
-              times: _sunriseEnabled ? _poojaTimes : [],
             ),
             IconButton(
               padding: EdgeInsets.zero,
@@ -710,6 +735,31 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  String _formatTime(int hour, int minute) {
+    return DateFormat.jm().format(DateTime(2000, 1, 1, hour, minute));
+  }
+
+  Widget _buildDaysRow(int days, Color selectedColor) {
+    final List<String> abbr = ['M', 'T', 'W', 'T', 'F', 'S', 'S']; // Mon Tue Wed Thu Fri Sat Sun
+    final List<int> bits = [1, 2, 3, 4, 5, 6, 7]; // bit1=Mon, ..., bit7=Sun
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.start,
+      children: List.generate(7, (i) {
+        final bool active = (days & (1 << bits[i])) != 0;
+        return Padding(
+          padding: const EdgeInsets.only(right: 4.0),
+          child: Text(
+            abbr[i],
+            style: AppTextStyles.subheading.copyWith(
+              color: active ? selectedColor : Colors.grey,
+              fontWeight: active ? FontWeight.bold : FontWeight.normal,
+            ),
+          ),
+        );
+      }),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final themeProvider = Provider.of<ThemeProvider>(context);
@@ -858,87 +908,229 @@ class _HomeScreenState extends State<HomeScreen> {
                             style: AppTextStyles.subheading,
                           ),
                           const SizedBox(height: 12),
-                          Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              if (_loadingAlarmSongs) ...[
-                                const Padding(
-                                  padding: EdgeInsets.symmetric(vertical: 8),
-                                  child: Center(
-                                    child: SizedBox(
-                                      height: 20,
-                                      width: 20,
-                                      child: CircularProgressIndicator(strokeWidth: 2),
+                          if (_loadingAlarmSongs) ...[
+                            const Padding(
+                              padding: EdgeInsets.symmetric(vertical: 8),
+                              child: Center(
+                                child: SizedBox(
+                                  height: 20,
+                                  width: 20,
+                                  child: CircularProgressIndicator(strokeWidth: 2),
+                                ),
+                              ),
+                            ),
+                          ],
+                          if (_errorLoadingAlarmSongs) ...[
+                            Padding(
+                              padding: const EdgeInsets.symmetric(vertical: 8),
+                              child: Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Flexible(
+                                    child: Text(
+                                      'Failed to load alarm songs',
+                                      style: AppTextStyles.body.copyWith(fontSize: 14, color: Colors.red),
+                                      overflow: TextOverflow.ellipsis,
                                     ),
                                   ),
-                                ),
-                              ],
-                              if (_errorLoadingAlarmSongs) ...[
-                                Padding(
-                                  padding: const EdgeInsets.symmetric(vertical: 8),
-                                  child: Row(
-                                    mainAxisAlignment: MainAxisAlignment.center,
-                                    children: [
-                                      Flexible(
-                                        child: Text(
-                                          'Failed to load alarm songs',
-                                          style: AppTextStyles.body.copyWith(fontSize: 14, color: Colors.red),
-                                          overflow: TextOverflow.ellipsis,
+                                  IconButton(
+                                    padding: EdgeInsets.zero,
+                                    constraints: const BoxConstraints(),
+                                    icon: const Icon(Icons.refresh, size: 20),
+                                    onPressed: _loadPrayerTimesStatus,
+                                    tooltip: 'Retry',
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                          if (!_loadingAlarmSongs && !_errorLoadingAlarmSongs) ...[
+                            Builder(builder: (context) {
+                              final alarmList = _alarmSongs
+                                  .where((s) => s.isScheduledForDay(selectedDay) && s.startTimestamp == 0)
+                                  .toList();
+                              final reminderList = _alarmSongs
+                                  .where((s) => s.isScheduledForDay(selectedDay) && s.startTimestamp != 0)
+                                  .toList();
+
+                              debugPrint(
+                                  'Reminders for ${DateFormat('yyyy-MM-dd').format(selectedDay)}: ${reminderList.map((s) => "${s.fileName} @ ${s.hour}:${s.minute}, start: ${s.startTimestamp}, end: ${s.endTimestamp}").join(', ')}');
+
+                              return Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  if (alarmList.isNotEmpty) ...[
+                                    Padding(
+                                      padding: const EdgeInsets.only(left: 8, top: 8, bottom: 8),
+                                      child: Text(
+                                        'Alarms',
+                                        style: AppTextStyles.subheading.copyWith(
+                                          fontWeight: FontWeight.w600,
+                                          color: Colors.black87,
                                         ),
                                       ),
-                                      IconButton(
-                                        padding: EdgeInsets.zero,
-                                        constraints: const BoxConstraints(),
-                                        icon: const Icon(Icons.refresh, size: 20),
-                                        onPressed: _loadPrayerTimesStatus,
-                                        tooltip: 'Retry',
+                                    ),
+                                    ...alarmList.asMap().entries.map((entry) {
+                                      final index = entry.key;
+                                      final song = entry.value;
+                                      final timeString = _formatTime(song.hour, song.minute);
+                                      final isChecked = song.status == 1 && song.isPast(selectedDay, DateTime.now());
+                                      final isLast = index == alarmList.length - 1;
+
+                                      return ScheduleItem(
+                                        time: timeString,
+                                        title: '', // Empty title
+                                        isChecked: isChecked,
+                                        isLast: isLast,
+                                        icon: Icons.music_note,
+                                        days: song.days,
+                                        selectedColor: themeProvider.selectedColor,
+                                      );
+                                    }),
+                                  ],
+                                  if (reminderList.isNotEmpty) ...[
+                                    Padding(
+                                      padding: const EdgeInsets.only(left: 8, top: 8, bottom: 8),
+                                      child: Text(
+                                        'Reminders',
+                                        style: AppTextStyles.subheading.copyWith(
+                                          fontWeight: FontWeight.w600,
+                                          color: Colors.black87,
+                                        ),
                                       ),
-                                    ],
-                                  ),
-                                ),
-                              ],
-                              if (_alarmSongs.isNotEmpty && !_loadingAlarmSongs && !_errorLoadingAlarmSongs) ...[
-                                Padding(
-                                  padding: const EdgeInsets.only(left: 8, top: 8, bottom: 8),
-                                  child: Text(
-                                    'Alarm Songs',
-                                    style: AppTextStyles.subheading.copyWith(
-                                      fontWeight: FontWeight.w600,
-                                      color: Colors.black87,
                                     ),
-                                  ),
-                                ),
-                                ..._alarmSongs.asMap().entries.where((entry) {
-                                  final song = entry.value;
-                                  final isScheduled = song.isScheduledForDay(selectedDay);
-                                  return isScheduled;
-                                }).map((entry) {
-                                  final index = entry.key;
-                                  final song = entry.value;
-                                  final timeString = song.getTimeString(context);
-                                  final isChecked = song.status == 1 && song.isPast(DateTime.now());
-                                  return Padding(
-                                    padding: const EdgeInsets.only(bottom: 8),
-                                    child: ScheduleItem(
-                                      time: timeString,
-                                      title: song.fileName,
-                                      isChecked: isChecked,
-                                      isLast: index == _alarmSongs.where((s) => s.isScheduledForDay(selectedDay)).length - 1,
-                                      icon: Icons.music_note,
+                                    ...reminderList.asMap().entries.map((entry) {
+                                      final index = entry.key;
+                                      final song = entry.value;
+                                      final timeString = _formatTime(song.hour, song.minute);
+                                      final isChecked = song.status == 1 && song.isPast(selectedDay, DateTime.now());
+                                      final isLast = index == reminderList.length - 1;
+
+                                      return ScheduleItem(
+                                        time: timeString,
+                                        title: '', // Empty title
+                                        isChecked: isChecked,
+                                        isLast: isLast,
+                                        icon: Icons.music_note,
+                                        days: song.days,
+                                        selectedColor: themeProvider.selectedColor,
+                                      );
+                                    }),
+                                  ],
+                                  if (_namazEnabled && _namazTimes.isNotEmpty) ...[
+                                    Padding(
+                                      padding: const EdgeInsets.only(left: 8, top: 8, bottom: 8),
+                                      child: Text(
+                                        'Namaz',
+                                        style: AppTextStyles.subheading.copyWith(
+                                          fontWeight: FontWeight.w600,
+                                          color: Colors.black87,
+                                        ),
+                                      ),
                                     ),
-                                  );
-                                }),
-                              ],
-                              if ( _alarmSongs.where((s) => s.isScheduledForDay(selectedDay)).isEmpty && !_loadingAlarmSongs && !_errorLoadingAlarmSongs)
-                                Padding(
-                                  padding: const EdgeInsets.all(8),
-                                  child: Text(
-                                    'No reminders or songs scheduled for this day',
-                                    style: AppTextStyles.body.copyWith(color: Colors.grey),
-                                  ),
-                                ),
-                            ],
-                          ),
+                                    ..._namazTimes.asMap().entries.map((entry) {
+                                      final index = entry.key;
+                                      final t = entry.value;
+                                      String fileName = 'Namaz'; // Default name
+                                      String timeStr = t;
+
+                                      // Extract file name from the time string
+                                      if (t.contains(': ')) {
+                                        final parts = t.split(': ');
+                                        if (parts.length >= 2) {
+                                          fileName = parts[0]; // This will be the actual file name from device
+                                          timeStr = parts[1];
+                                        }
+                                      }
+
+                                      int hour = 0;
+                                      int minute = 0;
+                                      try {
+                                        final timeParts = timeStr.split(':');
+                                        hour = int.parse(timeParts[0]);
+                                        minute = int.parse(timeParts[1]);
+                                      } catch (e) {
+                                        // Invalid time, skip or handle
+                                        return const SizedBox.shrink();
+                                      }
+                                      final timeString = _formatTime(hour, minute);
+                                      final songDateTime = DateTime(selectedDay.year, selectedDay.month, selectedDay.day, hour, minute);
+                                      final isChecked = songDateTime.isBefore(DateTime.now());
+                                      return Padding(
+                                        padding: const EdgeInsets.only(bottom: 8),
+                                        child: ScheduleItem(
+                                          time: timeString,
+                                          title: fileName, // Use the actual file name from device
+                                          isChecked: isChecked,
+                                          isLast: index == _namazTimes.length - 1,
+                                          icon: Icons.music_note,
+                                        ),
+                                      );
+                                    }),
+                                  ],
+                                  if (_sunriseEnabled && _poojaTimes.isNotEmpty) ...[
+                                    Padding(
+                                      padding: const EdgeInsets.only(left: 8, top: 8, bottom: 8),
+                                      child: Text(
+                                        'Sunrise/Sunset',
+                                        style: AppTextStyles.subheading.copyWith(
+                                          fontWeight: FontWeight.w600,
+                                          color: Colors.black87,
+                                        ),
+                                      ),
+                                    ),
+                                    ..._poojaTimes.asMap().entries.map((entry) {
+                                      final index = entry.key;
+                                      final t = entry.value;
+                                      String fileName = 'Pooja'; // Default name
+                                      String timeStr = t;
+
+                                      // Extract file name from the time string
+                                      if (t.contains(': ')) {
+                                        final parts = t.split(': ');
+                                        if (parts.length >= 2) {
+                                          fileName = parts[0]; // This will be the actual file name from device
+                                          timeStr = parts[1];
+                                        }
+                                      }
+
+                                      int hour = 0;
+                                      int minute = 0;
+                                      try {
+                                        final timeParts = timeStr.split(':');
+                                        hour = int.parse(timeParts[0]);
+                                        minute = int.parse(timeParts[1]);
+                                      } catch (e) {
+                                        // Invalid time, skip or handle
+                                        return const SizedBox.shrink();
+                                      }
+                                      final timeString = _formatTime(hour, minute);
+                                      final songDateTime = DateTime(selectedDay.year, selectedDay.month, selectedDay.day, hour, minute);
+                                      final isChecked = songDateTime.isBefore(DateTime.now());
+                                      return Padding(
+                                        padding: const EdgeInsets.only(bottom: 8),
+                                        child: ScheduleItem(
+                                          time: timeString,
+                                          title: fileName, // Use the actual file name from device
+                                          isChecked: isChecked,
+                                          isLast: index == _poojaTimes.length - 1,
+                                          icon: Icons.music_note,
+                                        ),
+                                      );
+                                    }),
+                                  ],
+                                  if (alarmList.isEmpty && reminderList.isEmpty && (!_namazEnabled || _namazTimes.isEmpty) && (!_sunriseEnabled || _poojaTimes.isEmpty))
+                                    Padding(
+                                      padding: const EdgeInsets.all(8),
+                                      child: Text(
+                                        'No alarms or reminders scheduled for this day',
+                                        style: AppTextStyles.body.copyWith(color: Colors.grey),
+                                      ),
+                                    ),
+                                ],
+                              );
+                            }),
+                          ],
                         ],
                       ),
                     ),

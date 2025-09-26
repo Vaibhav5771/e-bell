@@ -9,13 +9,13 @@ import '../utils/theme_state.dart';
 import '../utils/app_text_styles.dart';
 
 class EventsTab extends StatefulWidget {
-  final List<AlarmSong> todaysAlarmSongs;
+  final List<AlarmSong> alarmSongs;
   final CalendarLogic calendarLogic;
   final Function(DateTime, DateTime) onDaySelected;
 
   const EventsTab({
     super.key,
-    required this.todaysAlarmSongs,
+    required this.alarmSongs,
     required this.calendarLogic,
     required this.onDaySelected,
   });
@@ -28,8 +28,11 @@ class _EventsTabState extends State<EventsTab> {
   @override
   Widget build(BuildContext context) {
     final themeProvider = Provider.of<ThemeProvider>(context);
-    // Use all todaysAlarmSongs as alarms (no alarmType filter)
-    final alarmSongs = widget.todaysAlarmSongs;
+    // Filter for reminders (startTimestamp != 0)
+    final reminderSongs = widget.alarmSongs
+        .where((song) => song.startTimestamp != 0 && song.isScheduledForDay(widget.calendarLogic.selectedDay))
+        .toList()
+      ..sort((a, b) => (a.hour * 60 + a.minute).compareTo(b.hour * 60 + b.minute));
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -99,7 +102,7 @@ class _EventsTabState extends State<EventsTab> {
                   padding: const EdgeInsets.symmetric(horizontal: 8.0),
                   child: Text(
                     isSameDay(widget.calendarLogic.selectedDay, DateTime.now())
-                        ? "Today's Alarms"
+                        ? "Today's Reminders"
                         : DateFormat('MMMM d, y').format(widget.calendarLogic.selectedDay),
                     style: AppTextStyles.heading.copyWith(fontSize: 20),
                   ),
@@ -107,26 +110,26 @@ class _EventsTabState extends State<EventsTab> {
                 const SizedBox(height: 12),
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 8.0),
-                  child: alarmSongs.isEmpty
+                  child: reminderSongs.isEmpty
                       ? Text(
-                    'No alarms scheduled for this day',
+                    'No reminders scheduled for this day',
                     style: AppTextStyles.body.copyWith(color: Colors.grey),
                   )
                       : Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
-                    children: alarmSongs.asMap().entries.map((entry) {
+                    children: reminderSongs.asMap().entries.map((entry) {
                       final index = entry.key;
                       final song = entry.value;
                       final timeString = song.getTimeString(context);
-                      final isChecked = song.status == 1 && song.isPast(DateTime.now());
+                      final isChecked = song.status == 1 && song.isPast(widget.calendarLogic.selectedDay, DateTime.now());
                       return Padding(
                         padding: const EdgeInsets.only(bottom: 8),
                         child: ScheduleItem(
                           time: timeString,
-                          title: song.fileName, // Fixed syntax error
+                          title: song.fileName,
                           isChecked: isChecked,
-                          isLast: index == alarmSongs.length - 1, // Pass isLast for styling
-                          icon: Icons.music_note, // Icon for alarms
+                          isLast: index == reminderSongs.length - 1,
+                          icon: Icons.music_note,
                         ),
                       );
                     }).toList(),
