@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:device_info_plus/device_info_plus.dart';
@@ -9,16 +10,17 @@ import 'package:network_info_plus/network_info_plus.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
 import 'package:path_provider/path_provider.dart';
-import 'package:e_bell/pages/tablogic1.dart';
-import 'package:e_bell/services/bell_service.dart';
+import 'package:http/http.dart' as http;
+
+import 'comingsoon.dart';
 import '../music_tabs/recordingpage.dart';
+import '../services/bell_service.dart';
 import '../utils/theme_state.dart';
 import '../utils/app_text_styles.dart';
-import 'comingsoon.dart';
+import 'tablogic1.dart';
 
 class MusicLibrary extends StatefulWidget {
   final TabLogic1 tabLogic;
-
   const MusicLibrary({super.key, required this.tabLogic});
 
   @override
@@ -31,8 +33,16 @@ class _MusicLibraryState extends State<MusicLibrary> {
   String connectionStatus = "Checking Wi-Fi...";
   Timer? wifiCheckTimer;
   final String targetSsid = "IoGen_Speaker";
+
+  // Local recordings
   List<String> recordings = [];
   bool _isLoading = true;
+
+  // API songs
+  List<String> apiSongs = [];
+  String? currentlyPlayingApiSong;
+
+  // Audio player
   AudioPlayer? _player;
   int? _currentlyPlayingIndex;
   StreamSubscription<PlayerState>? _playerStateSubscription;
@@ -45,6 +55,7 @@ class _MusicLibraryState extends State<MusicLibrary> {
     _player = AudioPlayer();
     _initPlayer();
     _loadRecordings();
+    _fetchApiSongs();
   }
 
   @override
@@ -57,57 +68,32 @@ class _MusicLibraryState extends State<MusicLibrary> {
     super.dispose();
   }
 
+  /// ----------------- AUDIO PLAYER -----------------
   Future<void> _initPlayer() async {
-    try {
-      _playerStateSubscription = _player?.playerStateStream.listen((state) {
+    _playerStateSubscription = _player?.playerStateStream.listen((state) {
+      if (mounted) {
         setState(() {
           if (state.processingState == ProcessingState.completed) {
             _currentlyPlayingIndex = null;
+            currentlyPlayingApiSong = null;
           }
         });
-      }, onError: (e) {
-        debugPrint("Player state stream error: $e");
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Playback error: $e', style: AppTextStyles.body)),
-          );
-        }
-        setState(() {
-          _currentlyPlayingIndex = null;
-        });
-      });
-    } catch (e) {
-      debugPrint('Failed to initialize player: $e');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to initialize player: $e', style: AppTextStyles.body)),
-        );
       }
-    }
+    });
   }
 
+  /// ----------------- RECORDINGS -----------------
   Future<void> _loadRecordings() async {
+    setState(() => _isLoading = true);
     try {
-      setState(() => _isLoading = true);
-
-      final directory = await getApplicationDocumentsDirectory();
-      final recordingsDir = Directory('${directory.path}/recordings');
-
-      if (!await recordingsDir.exists()) {
-        await recordingsDir.create(recursive: true);
-      }
-
-      final files = await recordingsDir.list().toList();
-
-      final mp3Files = files
-          .whereType<File>()
-          .where((file) => file.path.toLowerCase().endsWith('.mp3'))
-          .toList();
-
+      final dir = await getApplicationDocumentsDirectory();
+      final recDir = Directory('${dir.path}/recordings');
+      if (!await recDir.exists()) await recDir.create(recursive: true);
+      final files = await recDir.list().toList();
+      final mp3Files = files.whereType<File>().where((f) => f.path.endsWith('.mp3')).toList();
       mp3Files.sort((a, b) => b.statSync().modified.compareTo(a.statSync().modified));
-
       setState(() {
-        recordings = mp3Files.map((file) => file.path).toList();
+        recordings = mp3Files.map((f) => f.path).toList();
         _isLoading = false;
       });
     } catch (e) {
@@ -125,14 +111,7 @@ class _MusicLibraryState extends State<MusicLibrary> {
       final filePath = recordings[index];
       final file = File(filePath);
 
-      if (!await file.exists()) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('File not found: ${file.path}', style: AppTextStyles.body)),
-          );
-        }
-        return;
-      }
+      if (!await file.exists()) return;
 
       if (_currentlyPlayingIndex == index && _player?.playing == true) {
         await _player?.pause();
@@ -146,11 +125,9 @@ class _MusicLibraryState extends State<MusicLibrary> {
 
       await _player?.stop();
       setState(() => _currentlyPlayingIndex = index);
-
       await _player?.setFilePath(filePath);
       await _player?.play();
     } catch (e) {
-      debugPrint('Error playing audio: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Error playing audio: $e', style: AppTextStyles.body)),
@@ -164,7 +141,6 @@ class _MusicLibraryState extends State<MusicLibrary> {
     try {
       final file = File(filePath);
       await file.delete();
-
       setState(() {
         recordings.removeAt(index);
         if (_currentlyPlayingIndex != null && _currentlyPlayingIndex! >= index) {
@@ -176,14 +152,12 @@ class _MusicLibraryState extends State<MusicLibrary> {
           }
         }
       });
-
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Recording deleted', style: AppTextStyles.body)),
         );
       }
     } catch (e) {
-      debugPrint("Error deleting file: $e");
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Error deleting file: $e', style: AppTextStyles.body)),
@@ -192,11 +166,81 @@ class _MusicLibraryState extends State<MusicLibrary> {
     }
   }
 
+  /// ----------------- API SONGS -----------------
+  Future<void> _fetchApiSongs() async {
+    try {
+      final response = await http.get(Uri.parse("http://192.168.2.1/alarmsong/"));
+      if (response.statusCode == 200) {
+        final jsonResponse = json.decode(response.body);
+        final List<dynamic> files = jsonResponse["Data"][0]["files"];
+        setState(() {
+          apiSongs = files.map((e) => e[0].toString()).toList();
+        });
+      }
+    } catch (e) {
+      debugPrint('Error fetching API songs: $e');
+    }
+  }
+
+  Future<void> _playApiSong(String songName) async {
+    try {
+      final response = await http.post(
+        Uri.parse("http://192.168.2.1/preview/"),
+        body: "1,$songName",
+      );
+      if (response.statusCode == 200) {
+        setState(() {
+          currentlyPlayingApiSong = songName;
+          _currentlyPlayingIndex = null;
+          _player?.stop();
+        });
+      }
+    } catch (e) {
+      debugPrint('Error playing API song: $e');
+    }
+  }
+
+  Future<void> _pauseApiSong() async {
+    try {
+      final response = await http.post(
+        Uri.parse("http://192.168.2.1/preview/"),
+        body: "0",
+      );
+      if (response.statusCode == 200) {
+        setState(() {
+          currentlyPlayingApiSong = null;
+        });
+      }
+    } catch (e) {
+      debugPrint('Error pausing API song: $e');
+    }
+  }
+
+  Future<void> _deleteApiSong(String songName) async {
+    try {
+      final response = await http.post(
+        Uri.parse("http://192.168.2.1/delete/"),
+        body: "2,Alarm/$songName",
+      );
+      if (response.statusCode == 200) {
+        setState(() {
+          apiSongs.remove(songName);
+        });
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text("Deleted: $songName", style: AppTextStyles.body)),
+          );
+        }
+      }
+    } catch (e) {
+      debugPrint('Error deleting API song: $e');
+    }
+  }
+
+  /// ----------------- WIFI -----------------
   Future<void> _startWifiMonitoring() async {
     await _checkWifiConnection();
-    wifiCheckTimer = Timer.periodic(const Duration(seconds: 5), (timer) {
-      _checkWifiConnection();
-    });
+    wifiCheckTimer = Timer.periodic(const Duration(seconds: 5), (_) => _checkWifiConnection());
   }
 
   Future<void> _checkWifiConnection() async {
@@ -224,52 +268,47 @@ class _MusicLibraryState extends State<MusicLibrary> {
     }
   }
 
-  Future<bool> _checkPermissions() async {
-    if (Platform.isAndroid) {
-      final androidVersion = await _getAndroidVersion();
-      if (androidVersion >= 33) {
-        return (await Permission.audio.request()).isGranted;
-      } else {
-        return (await Permission.storage.request()).isGranted;
-      }
-    }
-    return true;
-  }
+  /// ----------------- PERMISSIONS -----------------
+  Future<bool> _requestPermissions() async {
+    Map<Permission, PermissionStatus> statuses;
 
-  Future<int> _getAndroidVersion() async {
     if (Platform.isAndroid) {
-      var version = await DeviceInfoPlugin().androidInfo;
-      return version.version.sdkInt;
-    }
-    return 0;
-  }
-
-  Future<void> _requestPermissions() async {
-    if (Platform.isAndroid) {
-      if ((await _getAndroidVersion()) >= 33) {
-        await [
+      final sdk = await _getAndroidVersion();
+      if (sdk >= 33) {
+        statuses = await [
           Permission.location,
-          Permission.nearbyWifiDevices,
           Permission.audio,
           Permission.microphone,
+          Permission.nearbyWifiDevices
         ].request();
       } else {
-        await [
+        statuses = await [
           Permission.location,
-          Permission.nearbyWifiDevices,
           Permission.storage,
           Permission.microphone,
+          Permission.nearbyWifiDevices
         ].request();
       }
     } else {
-      await [
+      statuses = await [
         Permission.location,
-        Permission.nearbyWifiDevices,
         Permission.microphone,
+        Permission.nearbyWifiDevices
       ].request();
     }
+
+    // Check if all required permissions are granted
+    bool allGranted = statuses.values.every((status) => status.isGranted);
+    return allGranted;
   }
 
+
+  Future<int> _getAndroidVersion() async {
+    if (Platform.isAndroid) return (await DeviceInfoPlugin().androidInfo).version.sdkInt;
+    return 0;
+  }
+
+  /// ----------------- UI -----------------
   @override
   Widget build(BuildContext context) {
     final themeProvider = Provider.of<ThemeProvider>(context);
@@ -279,6 +318,7 @@ class _MusicLibraryState extends State<MusicLibrary> {
         children: [
           Column(
             children: [
+              // Tabs & Wifi
               Padding(
                 padding: const EdgeInsets.all(16.0),
                 child: Column(
@@ -292,7 +332,6 @@ class _MusicLibraryState extends State<MusicLibrary> {
                         borderRadius: BorderRadius.circular(9),
                       ),
                       child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                         children: [
                           Expanded(
                             child: widget.tabLogic.buildTab(
@@ -314,11 +353,7 @@ class _MusicLibraryState extends State<MusicLibrary> {
                       ),
                     ),
                     const SizedBox(height: 10),
-                    Text(
-                      connectionStatus,
-                      style: AppTextStyles.body,
-                      textAlign: TextAlign.center,
-                    ),
+                    Text(connectionStatus, style: AppTextStyles.body, textAlign: TextAlign.center),
                   ],
                 ),
               ),
@@ -327,8 +362,8 @@ class _MusicLibraryState extends State<MusicLibrary> {
                 child: SingleChildScrollView(
                   padding: const EdgeInsets.only(bottom: 80),
                   child: widget.tabLogic.selectedTabIndex == 0
-                      ? _buildLibraryContent()
-                      : _buildMyMusicContent(),
+                      ? _buildLibraryList()
+                      : _buildMyMusicList(),
                 ),
               ),
             ],
@@ -339,37 +374,17 @@ class _MusicLibraryState extends State<MusicLibrary> {
               right: 16,
               child: Container(
                 width: 180,
-                decoration: BoxDecoration(
-                  color: Colors.transparent,
-                  borderRadius: BorderRadius.circular(12),
-                ),
                 child: Column(
-                  children: [
-                    _buildFabOption('Add Music'),
-                    _buildFabOption('Record Music'),
-                  ],
+                  children: [_buildFabOption('Add Music'), _buildFabOption('Record Music')],
                 ),
               ),
             ),
         ],
       ),
       floatingActionButton: FloatingActionButton(
-        onPressed: () {
-          setState(() {
-            _isFabMenuOpen = !_isFabMenuOpen;
-          });
-        },
+        onPressed: () => setState(() => _isFabMenuOpen = !_isFabMenuOpen),
         backgroundColor: themeProvider.selectedColor,
-        shape: const CircleBorder(
-          side: BorderSide(
-            color: Colors.transparent,
-          ),
-        ),
-        child: Icon(
-          _isFabMenuOpen ? Icons.close : Icons.music_note,
-          size: 28,
-          color: themeProvider.textColor,
-        ),
+        child: Icon(_isFabMenuOpen ? Icons.close : Icons.music_note, color: themeProvider.textColor, size: 28),
       ),
     );
   }
@@ -377,80 +392,78 @@ class _MusicLibraryState extends State<MusicLibrary> {
   Widget _buildFabOption(String title) {
     final themeProvider = Provider.of<ThemeProvider>(context);
     return ListTile(
-      leading: Icon(
-        title == 'Add Music' ? Icons.add : Icons.mic,
-        color: themeProvider.selectedColor,
-      ),
+      leading: Icon(title == 'Add Music' ? Icons.add : Icons.mic, color: themeProvider.selectedColor),
       title: Text(title, style: AppTextStyles.body),
       onTap: () async {
         setState(() => _isFabMenuOpen = false);
         if (title == 'Add Music') {
-          if (await _checkPermissions()) {
-            final newFilePath = await BellService().uploadMp3(context, null, isWifiConnected);
-            if (newFilePath != null && mounted) {
-              await _loadRecordings();
-              widget.tabLogic.setSelectedTab(1);
-            }
+          if (await _requestPermissions()) {
+            final newFile = await BellService().uploadMp3(context, null, isWifiConnected);
+            if (newFile != null && mounted) _loadRecordings();
           }
         } else {
           final micStatus = await Permission.microphone.status;
-          if (!micStatus.isGranted) {
-            final result = await Permission.microphone.request();
-            if (!result.isGranted) {
-              if (mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text('Microphone permission required', style: AppTextStyles.body)),
-                );
-              }
-              return;
-            }
-          }
-
+          if (!micStatus.isGranted) await Permission.microphone.request();
           final newRecordingPath = await Navigator.push<String>(
             context,
             MaterialPageRoute(builder: (context) => const AudioRecorderPage()),
           );
-
-          if (newRecordingPath != null && mounted) {
-            await _loadRecordings();
-            widget.tabLogic.setSelectedTab(1);
-          }
+          if (newRecordingPath != null && mounted) _loadRecordings();
         }
       },
     );
   }
 
-  Widget _buildLibraryContent() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _buildSectionTitle('Category'),
-        _buildCategoryGrid(),
-        _buildSectionTitle('Trending Music'),
-        _buildTrendingList(),
-      ],
+  Widget _buildLibraryList() {
+    if (apiSongs.isEmpty) return const Center(child: CircularProgressIndicator());
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16.0),
+      child: ListView.builder(
+        shrinkWrap: true,
+        physics: const NeverScrollableScrollPhysics(),
+        itemCount: apiSongs.length,
+        itemBuilder: (context, index) {
+          final song = apiSongs[index];
+          final isPlaying = currentlyPlayingApiSong == song;
+          return Container(
+            margin: const EdgeInsets.only(bottom: 12),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(12),
+              boxShadow: [BoxShadow(color: Colors.grey.shade300, blurRadius: 4, offset: const Offset(0, 2))],
+            ),
+            child: ListTile(
+              leading: ClipRRect(
+                borderRadius: BorderRadius.circular(8),
+                child: Container(width: 50, height: 50, color: Colors.red[200], child: const Icon(Icons.music_note, color: Colors.white)),
+              ),
+              title: Text(song, style: AppTextStyles.body),
+              trailing: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  IconButton(
+                    icon: Icon(isPlaying ? Icons.pause_circle_filled : Icons.play_circle_fill, color: Colors.orange, size: 36),
+                    onPressed: () => isPlaying ? _pauseApiSong() : _playApiSong(song),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.delete, color: Colors.red),
+                    onPressed: () => _deleteApiSong(song),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
     );
   }
 
-  Widget _buildMyMusicContent() {
-    if (_isLoading) {
-      return const Center(child: CircularProgressIndicator());
-    }
-
-    if (recordings.isEmpty) {
-      return Center(
-        child: Text(
-          'No recordings yet.\nTap the + button to record something!',
-          textAlign: TextAlign.center,
-          style: AppTextStyles.body,
-        ),
-      );
-    }
-
-    return _buildMyMusicList();
-  }
-
   Widget _buildMyMusicList() {
+    if (_isLoading) return const Center(child: CircularProgressIndicator());
+    if (recordings.isEmpty) {
+      return Center(child: Text('No recordings yet.\nTap the + button to record something!', textAlign: TextAlign.center, style: AppTextStyles.body));
+    }
+
     final themeProvider = Provider.of<ThemeProvider>(context);
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16.0),
@@ -461,165 +474,26 @@ class _MusicLibraryState extends State<MusicLibrary> {
         itemBuilder: (context, index) {
           final filePath = recordings[index];
           final fileName = filePath.split('/').last;
-
           return Dismissible(
             key: Key(filePath),
-            background: Container(
-              color: Colors.red,
-              alignment: Alignment.centerRight,
-              padding: const EdgeInsets.only(right: 20),
-              child: const Icon(Icons.delete, color: Colors.white),
-            ),
-            onDismissed: (direction) {
-              setState(() {
-                recordings.removeAt(index);
-                if (_currentlyPlayingIndex != null && _currentlyPlayingIndex! >= index) {
-                  if (_currentlyPlayingIndex == index) {
-                    _currentlyPlayingIndex = null;
-                    _player?.stop();
-                  } else {
-                    _currentlyPlayingIndex = _currentlyPlayingIndex! - 1;
-                  }
-                }
-              });
-              _deleteRecording(index, filePath);
-            },
+            background: Container(color: Colors.red, alignment: Alignment.centerRight, padding: const EdgeInsets.only(right: 20), child: const Icon(Icons.delete, color: Colors.white)),
+            onDismissed: (_) => _deleteRecording(index, filePath),
             child: Container(
               margin: const EdgeInsets.only(bottom: 12),
               decoration: BoxDecoration(
                 color: Colors.white,
                 borderRadius: BorderRadius.circular(12),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.grey.shade300,
-                    blurRadius: 4,
-                    offset: const Offset(0, 2),
-                  ),
-                ],
+                boxShadow: [BoxShadow(color: Colors.grey.shade300, blurRadius: 4, offset: const Offset(0, 2))],
               ),
               child: ListTile(
                 leading: ClipRRect(
                   borderRadius: BorderRadius.circular(8),
-                  child: Image.asset(
-                    'assets/Music.jpg',
-                    width: 50,
-                    height: 50,
-                    fit: BoxFit.cover,
-                  ),
+                  child: Image.asset('assets/Music.jpg', width: 50, height: 50, fit: BoxFit.cover),
                 ),
                 title: Text(fileName, style: AppTextStyles.body),
                 subtitle: Text('00:00', style: AppTextStyles.small),
-                trailing: Icon(
-                  _currentlyPlayingIndex == index && _player?.playing == true
-                      ? Icons.pause_circle_filled
-                      : Icons.play_circle_fill,
-                  color: themeProvider.selectedColor,
-                  size: 30,
-                ),
+                trailing: Icon(_currentlyPlayingIndex == index && _player?.playing == true ? Icons.pause_circle_filled : Icons.play_circle_fill, color: themeProvider.selectedColor, size: 30),
                 onTap: () => _playRecording(index),
-              ),
-            ),
-          );
-        },
-      ),
-    );
-  }
-
-  Widget _buildSectionTitle(String title) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      child: Text(
-        title,
-        style: AppTextStyles.subheading.copyWith(fontWeight: FontWeight.bold),
-      ),
-    );
-  }
-
-  Widget _buildCategoryGrid() {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16.0),
-      child: GridView.builder(
-        shrinkWrap: true,
-        physics: const NeverScrollableScrollPhysics(),
-        itemCount: 4,
-        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-          crossAxisCount: 2,
-          crossAxisSpacing: 16,
-          mainAxisSpacing: 16,
-          childAspectRatio: 1,
-        ),
-        itemBuilder: (context, index) {
-          return GestureDetector(
-            onTap: () => Navigator.push(
-              context,
-              MaterialPageRoute(builder: (context) => const ComingSoonPage()),
-            ),
-            child: Container(
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(12),
-                image: const DecorationImage(
-                  image: AssetImage('assets/Music.jpg'),
-                  fit: BoxFit.cover,
-                ),
-              ),
-              child: Align(
-                alignment: Alignment.bottomLeft,
-                child: Padding(
-                  padding: const EdgeInsets.all(8.0),
-                  child: Text(
-                    'Category',
-                    style: AppTextStyles.link.copyWith(
-                      fontWeight: FontWeight.bold,
-                      color: Colors.white,
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          );
-        },
-      ),
-    );
-  }
-
-  Widget _buildTrendingList() {
-    final themeProvider = Provider.of<ThemeProvider>(context);
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16.0),
-      child: ListView.builder(
-        shrinkWrap: true,
-        physics: const NeverScrollableScrollPhysics(),
-        itemCount: 2,
-        itemBuilder: (context, index) {
-          return Container(
-            margin: const EdgeInsets.only(bottom: 12),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(12),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.grey.shade300,
-                  blurRadius: 4,
-                  offset: const Offset(0, 2),
-                ),
-              ],
-            ),
-            child: ListTile(
-              leading: ClipRRect(
-                borderRadius: BorderRadius.circular(8),
-                child: Image.asset(
-                  'assets/Music.jpg',
-                  width: 50,
-                  height: 50,
-                  fit: BoxFit.cover,
-                ),
-              ),
-              title: Text('Song ${index + 1}', style: AppTextStyles.body),
-              subtitle: Text('00:00', style: AppTextStyles.small),
-              trailing: Icon(
-                Icons.play_circle_fill,
-                color: themeProvider.selectedColor,
-                size: 30,
               ),
             ),
           );
