@@ -50,7 +50,7 @@ class _ReminderPageState extends State<ReminderPage> {
 
   Future<void> _loadUploadedFiles() async {
     try {
-      final response = await http.get(Uri.parse('http://192.168.2.1/alarmsong')).timeout(
+      final response = await http.get(Uri.parse('http://192.168.2.1/songs')).timeout(
         const Duration(seconds: 10),
         onTimeout: () {
           throw Exception('Request to IoT device timed out');

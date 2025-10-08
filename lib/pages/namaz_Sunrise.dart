@@ -105,7 +105,7 @@ class _ReligiousAlarmsState extends State<ReligiousAlarms> {
   // Fetch Namaz sound files from IoT device
   Future<void> _fetchNamazSounds() async {
     try {
-      final response = await http.get(Uri.parse('http://192.168.2.1/namaz'));
+      final response = await http.get(Uri.parse('http://192.168.2.1/songs'));
 
       if (response.statusCode == 200) {
         final Map<String, dynamic> data = json.decode(response.body);
@@ -150,17 +150,29 @@ class _ReligiousAlarmsState extends State<ReligiousAlarms> {
 
   // Send disable request for Namaz
   Future<void> _sendNamazDisableRequest() async {
-    const String url = 'http://192.168.2.1/regselect/';
+    const String url = 'http://192.168.2.1/regctrl/';
+    final now = DateTime.now();
+    final int year = now.year;
+    final int month = now.month;
+    final int date = now.day;
+
+    // Default location and timezone values (same as used in _sendNamazRequest)
+    double lat = 18.476982;
+    double lng = 73.808417;
+    const double tz = 5.5;
+    final int buffMin = _namazOffset.round();
+
+    final String body = '1,0,$lat,$lng,$tz,$year,$month,$date,$buffMin';
 
     setState(() => _isNamazLoading = true);
 
     try {
       final response = await http.post(
         Uri.parse(url),
-        body: '1,', // Empty filename to disable
+        body: body,
       );
       if (response.statusCode == 200) {
-        print('Namaz disabled successfully');
+        print('Namaz disabled successfully: $body');
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
@@ -203,17 +215,28 @@ class _ReligiousAlarmsState extends State<ReligiousAlarms> {
 
   // Send disable request for Sunrise & Sunset
   Future<void> _sendSunriseDisableRequest() async {
-    const String url = 'http://192.168.2.1/regselect/';
+    const String url = 'http://192.168.2.1/regctrl/';
+    final now = DateTime.now();
+    final int year = now.year;
+    final int month = now.month;
+    final int date = now.day;
+
+    final int buffMin = _sunriseOffset.round();
+    double lat = 18.476982;
+    double lng = 73.808417;
+    const double tz = 5.5;
+
+    final String body = '0,0,$lat,$lng,$tz,$year,$month,$date,$buffMin';
 
     setState(() => _isSunriseLoading = true);
 
     try {
       final response = await http.post(
         Uri.parse(url),
-        body: '2,', // Empty filename to disable
+        body: body,
       );
       if (response.statusCode == 200) {
-        print('Sunrise/Sunset disabled successfully');
+        print('Sunrise/Sunset disabled successfully: $body');
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
@@ -257,7 +280,7 @@ class _ReligiousAlarmsState extends State<ReligiousAlarms> {
   // Fetch Sunrise/Sunset sound files from IoT device
   Future<void> _fetchSunriseSounds() async {
     try {
-      final response = await http.get(Uri.parse('http://192.168.2.1/pooja'));
+      final response = await http.get(Uri.parse('http://192.168.2.1/songs'));
 
       if (response.statusCode == 200) {
         final Map<String, dynamic> data = json.decode(response.body);
@@ -502,12 +525,10 @@ class _ReligiousAlarmsState extends State<ReligiousAlarms> {
     final int month = now.month;
     final int date = now.day;
 
-    // Convert slider value to minutes for buff_min (direct minute value)
     final int buffMin = _namazOffset.round();
-
     double lat = 18.476982;
     double lng = 73.808417;
-    const double tz = 5.5; // Updated timezone from log
+    const double tz = 5.5;
 
     if (enabled) {
       final location = await _getDeviceLocation();
@@ -518,6 +539,8 @@ class _ReligiousAlarmsState extends State<ReligiousAlarms> {
     }
 
     final String body = '1,${enabled ? 1 : 0},$lat,$lng,$tz,$year,$month,$date,$buffMin';
+
+    setState(() => _isNamazLoading = true);
 
     try {
       final response = await http.post(
@@ -534,12 +557,14 @@ class _ReligiousAlarmsState extends State<ReligiousAlarms> {
                 'Namaz ${enabled ? 'enabled' : 'disabled'} | API: $body',
                 style: AppTextStyles.body,
               ),
-              duration: Duration(seconds: 3),
+              duration: const Duration(seconds: 3),
             ),
           );
         }
-        // Send sound selection request
-        await _sendNamazSoundRequest();
+        // Send sound selection request only when enabling
+        if (enabled) {
+          await _sendNamazSoundRequest();
+        }
       } else {
         print('Failed to send Namaz request: ${response.statusCode}');
         if (mounted) {
@@ -566,6 +591,8 @@ class _ReligiousAlarmsState extends State<ReligiousAlarms> {
         );
       }
     }
+
+    setState(() => _isNamazLoading = false);
   }
 
   // Send POST request to the IoT device for Sunrise & Sunset (Pooja)
@@ -576,12 +603,10 @@ class _ReligiousAlarmsState extends State<ReligiousAlarms> {
     final int month = now.month;
     final int date = now.day;
 
-    // Convert slider value to minutes for buff_min (direct minute value)
     final int buffMin = _sunriseOffset.round();
-
     double lat = 18.476982;
     double lng = 73.808417;
-    const double tz = 5.5; // Updated timezone from log
+    const double tz = 5.5;
 
     if (enabled) {
       final location = await _getDeviceLocation();
@@ -591,7 +616,9 @@ class _ReligiousAlarmsState extends State<ReligiousAlarms> {
       }
     }
 
-    final String body = '0,${enabled ? 1 : 0},$lat,$lng,$tz,$year,$month,$date,$buffMin';
+    final String body = '2,${enabled ? 1 : 0},$lat,$lng,$tz,$year,$month,$date,$buffMin';
+
+    setState(() => _isSunriseLoading = true);
 
     try {
       final response = await http.post(
@@ -608,12 +635,14 @@ class _ReligiousAlarmsState extends State<ReligiousAlarms> {
                 'Sunrise/Sunset ${enabled ? 'enabled' : 'disabled'} | API: $body',
                 style: AppTextStyles.body,
               ),
-              duration: Duration(seconds: 3),
+              duration: const Duration(seconds: 3),
             ),
           );
         }
-        // Send sound selection request
-        await _sendSunriseSoundRequest();
+        // Send sound selection request only when enabling
+        if (enabled) {
+          await _sendSunriseSoundRequest();
+        }
       } else {
         print('Failed to send Sunrise & Sunset request: ${response.statusCode}');
         if (mounted) {
@@ -640,6 +669,8 @@ class _ReligiousAlarmsState extends State<ReligiousAlarms> {
         );
       }
     }
+
+    setState(() => _isSunriseLoading = false);
   }
 
   // Send sound change request for Namaz with individual prayer sounds
@@ -1215,6 +1246,7 @@ class _ReligiousAlarmsState extends State<ReligiousAlarms> {
             ],
           ),
         ),
+        centerTitle: true, // Added to center the title
         actions: [
           TextButton(
             onPressed: () async {
@@ -1276,15 +1308,7 @@ class _ReligiousAlarmsState extends State<ReligiousAlarms> {
                           });
                           await _saveSettings();
                           _checkNamazChanges();
-
-                          // Send API request to device
-                          if (value) {
-                            // Turn on Namaz
-                            await _sendNamazSoundRequest(); // This will send the sound selection
-                          } else {
-                            // Turn off Namaz - send empty filename to disable
-                            await _sendNamazDisableRequest();
-                          }
+                          await _sendNamazRequest(value); // Use unified request function
                         },
                         activeColor: themeProvider.selectedColor,
                       ),
@@ -1498,15 +1522,7 @@ class _ReligiousAlarmsState extends State<ReligiousAlarms> {
                           });
                           await _saveSettings();
                           _checkSunriseChanges();
-
-                          // Send API request to device
-                          if (value) {
-                            // Turn on Sunrise/Sunset
-                            await _sendSunriseSoundRequest(); // This will send the sound selection
-                          } else {
-                            // Turn off Sunrise/Sunset - send empty filename to disable
-                            await _sendSunriseDisableRequest();
-                          }
+                          await _sendSunriseSunsetRequest(value); // Use unified request function
                         },
                         activeColor: themeProvider.selectedColor,
                       ),

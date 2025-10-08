@@ -437,6 +437,137 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  Future<void> _deleteAlarm(AlarmSong alarm) async {
+    if (!isWifiConnected || !connectionStatus.contains(targetSsid)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            "Please connect to IoGen_Speaker Wi-Fi to delete alarm",
+            style: AppTextStyles.body,
+          ),
+        ),
+      );
+      return;
+    }
+
+    try {
+      final client = http.Client();
+
+      // NEW API FORMAT: "filename,hour,min,s_epoch,e_epoch,weeks"
+      // id parameter is no longer needed in the payload
+      final requestData = "${alarm.fileName},${alarm.hour},${alarm.minute},${alarm.startTimestamp},${alarm.endTimestamp},${alarm.days}";
+
+      debugPrint("Sending delete request: $requestData");
+
+      final response = await client.post(
+        Uri.parse('http://192.168.2.1/delete/'),
+        headers: {'Content-Type': 'text/plain'},
+        body: requestData,
+      ).timeout(
+        const Duration(seconds: 5),
+        onTimeout: () => throw Exception('Delete alarm API timed out'),
+      );
+
+      if (response.statusCode == 200) {
+        setState(() {
+          _alarmSongs.remove(alarm);
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              "Alarm deleted successfully",
+              style: AppTextStyles.body,
+            ),
+          ),
+        );
+        await _loadPrayerTimesStatus(); // Refresh the alarm list
+      } else {
+        throw Exception('Delete alarm API HTTP ${response.statusCode}');
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            "Failed to delete alarm: $e",
+            style: AppTextStyles.body,
+          ),
+        ),
+      );
+    }
+  }
+
+  void _showAlarmDetailsDialog(AlarmSong alarm) {
+    final selectedColor = Provider.of<ThemeProvider>(context, listen: false).selectedColor;
+
+    String rawTime = "${alarm.hour % 12 == 0 ? 12 : alarm.hour % 12}:${alarm.minute.toString().padLeft(2, '0')}";
+    String period = alarm.hour >= 12 ? "PM" : "AM";
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: Colors.white,
+        title: Center(
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.baseline,
+            textBaseline: TextBaseline.alphabetic,
+            children: [
+              Text(
+                rawTime,
+                style: AppTextStyles.headingheading,
+              ),
+              const SizedBox(width: 4.0),
+              Text(
+                period,
+                style: AppTextStyles.heading.copyWith(
+                  color: selectedColor,
+                  fontSize: 20,
+                ),
+              ),
+            ],
+          ),
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            const SizedBox(height: 8),
+            _buildDaysRow(alarm.days, selectedColor),
+            const SizedBox(height: 16),
+            Text(
+              alarm.fileName,
+              style: AppTextStyles.body,
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+        actions: [
+          Center(
+            child: ElevatedButton(
+              onPressed: () async {
+                Navigator.pop(context);
+                await _deleteAlarm(alarm); // Fixed: pass the actual alarm object
+              },
+              style: ElevatedButton.styleFrom(
+                foregroundColor: Colors.red,
+                backgroundColor: Colors.red,
+                side: const BorderSide(color: Colors.red),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(50),
+                ),
+                padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 12),
+              ),
+              child: Text(
+                "Delete",
+                style: AppTextStyles.button.copyWith(color: Colors.white),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildPrayerTimeIndicator(BuildContext context, {
     required String label,
     required bool enabled,
@@ -634,13 +765,10 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-
-
   void _onDaySelected(DateTime selectedDay, DateTime focusedDay) {
     setState(() {
       _calendarLogic.setSelectedDay(selectedDay);
       _calendarLogic.setFocusedDay(focusedDay);
-
     });
   }
 
@@ -649,7 +777,6 @@ class _HomeScreenState extends State<HomeScreen> {
     setState(() {
       _calendarLogic.setFocusedDay(focusedDay);
       _calendarLogic.setSelectedDay(focusedDay);
-
     });
   }
 
@@ -743,7 +870,7 @@ class _HomeScreenState extends State<HomeScreen> {
     final List<String> abbr = ['M', 'T', 'W', 'T', 'F', 'S', 'S']; // Mon Tue Wed Thu Fri Sat Sun
     final List<int> bits = [1, 2, 3, 4, 5, 6, 7]; // bit1=Mon, ..., bit7=Sun
     return Row(
-      mainAxisAlignment: MainAxisAlignment.start,
+      mainAxisAlignment: MainAxisAlignment.center, // Changed from start to center
       children: List.generate(7, (i) {
         final bool active = (days & (1 << bits[i])) != 0;
         return Padding(
@@ -977,14 +1104,17 @@ class _HomeScreenState extends State<HomeScreen> {
                                       final isChecked = song.status == 1 && song.isPast(selectedDay, DateTime.now());
                                       final isLast = index == alarmList.length - 1;
 
-                                      return ScheduleItem(
-                                        time: timeString,
-                                        title: '', // Empty title
-                                        isChecked: isChecked,
-                                        isLast: isLast,
-                                        icon: Icons.music_note,
-                                        days: song.days,
-                                        selectedColor: themeProvider.selectedColor,
+                                      return GestureDetector(
+                                        onLongPress: () => _showAlarmDetailsDialog(song),
+                                        child: ScheduleItem(
+                                          time: timeString,
+                                          title: '', // Empty title
+                                          isChecked: isChecked,
+                                          isLast: isLast,
+                                          icon: Icons.music_note,
+                                          days: song.days,
+                                          selectedColor: themeProvider.selectedColor,
+                                        ),
                                       );
                                     }),
                                   ],

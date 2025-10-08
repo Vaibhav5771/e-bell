@@ -44,7 +44,7 @@ class _AlarmPageState extends State<AlarmPage> {
 
   Future<void> _loadUploadedFiles() async {
     try {
-      final response = await http.get(Uri.parse('http://192.168.2.1/alarmsong')).timeout(
+      final response = await http.get(Uri.parse('http://192.168.2.1/songs')).timeout(
         const Duration(seconds: 10),
         onTimeout: () {
           throw Exception('Request to IoT device timed out');
@@ -230,8 +230,12 @@ class _AlarmPageState extends State<AlarmPage> {
     int alarmType = 1; // 1 for alarm
 
     if (_isRepeatEnabled) {
+      // 🔹 When repeat is ON, calculate based on selected days
       week = _calculateWeekBitmask();
     } else {
+      // 🔹 When repeat is OFF, force week = 254 (all days)
+      week = 254;
+
       final now = DateTime.now();
       DateTime alarmDateTime = DateTime(
         now.year,
@@ -241,14 +245,13 @@ class _AlarmPageState extends State<AlarmPage> {
         mn,
       );
 
+      // Optional: if time already passed today, move to next day
       if (alarmDateTime.isBefore(now)) {
         alarmDateTime = alarmDateTime.add(const Duration(days: 1));
       }
 
       hr = alarmDateTime.hour;
       mn = alarmDateTime.minute;
-      const List<int> dayBitmasks = [2, 4, 8, 16, 32, 64, 128]; // [Mon, Tue, Wed, Thu, Fri, Sat, Sun]
-      week = dayBitmasks[alarmDateTime.weekday - 1];
     }
 
     String data = '$hr,$mn,$sEpoch,$eEpoch,$active,$week,$alarmType';
@@ -299,6 +302,7 @@ class _AlarmPageState extends State<AlarmPage> {
 
     Navigator.pop(context);
   }
+
 
   @override
   Widget build(BuildContext context) {

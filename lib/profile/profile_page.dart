@@ -15,17 +15,52 @@ class ProfileScreen extends StatefulWidget {
 }
 
 class _ProfileScreenState extends State<ProfileScreen> {
-  // Define the items list as a constant
   static const List<Map<String, dynamic>> _items = [
-    {'icon': Icons.person_outline, 'title': 'Account', 'screen': AccountScreen()},
     {'icon': Icons.settings, 'title': 'Device Setting', 'screen': DeviceSettingScreen()},
     {'icon': Icons.tune, 'title': 'App Setting', 'screen': AppSettingScreen()},
     {'icon': Icons.help_outline, 'title': 'Help & Privacy', 'screen': HelpPrivacyScreen()},
     {'icon': Icons.info_outline, 'title': 'App Info', 'screen': AppInfoScreen()},
   ];
 
-  // Track the currently selected device
-  String _selectedDevice = 'Device 1';
+  final AuthService _authService = AuthService();
+  Map<String, dynamic>? _userData;
+  bool _isLoading = true;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchUserData();
+  }
+
+  Future<void> _fetchUserData() async {
+    try {
+      final user = _authService.currentUser;
+      if (user != null) {
+        final data = await _authService.getUserData(user.uid);
+        if (mounted) {
+          setState(() {
+            _userData = data;
+            _isLoading = false;
+          });
+        }
+      } else {
+        if (mounted) {
+          setState(() {
+            _error = 'No user logged in';
+            _isLoading = false;
+          });
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _error = 'Failed to load user: $e';
+          _isLoading = false;
+        });
+      }
+    }
+  }
 
   Future<void> _handleLogout(BuildContext context) async {
     final themeProvider = Provider.of<ThemeProvider>(context, listen: false);
@@ -33,9 +68,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     bool confirmLogout = await showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(14.0),
-        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14.0)),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -46,27 +79,18 @@ class _ProfileScreenState extends State<ProfileScreen> {
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 20),
-            Divider(
-              height: 1,
-              thickness: 0.5,
-              color: Colors.grey[400],
-            ),
+            Divider(height: 1, thickness: 0.5, color: Colors.grey[400]),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceEvenly,
               children: [
                 TextButton(
                   onPressed: () => Navigator.pop(context, false),
-                  child: Text(
-                    "Cancel",
-                    style: AppTextStyles.link.copyWith(color: Colors.grey),
-                  ),
+                  child: Text("Cancel", style: AppTextStyles.link.copyWith(color: Colors.grey)),
                 ),
                 TextButton(
                   onPressed: () => Navigator.pop(context, true),
-                  child: Text(
-                    "Confirm",
-                    style: AppTextStyles.link.copyWith(color: themeProvider.selectedColor),
-                  ),
+                  child: Text("Confirm",
+                      style: AppTextStyles.link.copyWith(color: themeProvider.selectedColor)),
                 ),
               ],
             ),
@@ -81,126 +105,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
       } catch (e) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(
-                'Logout failed: $e',
-                style: AppTextStyles.body,
-              ),
-            ),
+            SnackBar(content: Text('Logout failed: $e', style: AppTextStyles.body)),
           );
         }
       }
     }
-  }
-
-  void _showSwitchAccountBottomSheet(BuildContext context) {
-    showModalBottomSheet(
-      context: context,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (BuildContext context) {
-        final themeProvider = Provider.of<ThemeProvider>(context);
-        return Container(
-          padding: EdgeInsets.all(16.0),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    'Switch Profile',
-                    style: AppTextStyles.subheading.copyWith(fontWeight: FontWeight.bold, color: Colors.black87),
-                  ),
-                  IconButton(
-                    icon: Icon(Icons.close, size: 24, color: themeProvider.textColor),
-                    onPressed: () => Navigator.pop(context),
-                  ),
-                ],
-              ),
-              SizedBox(height: 16),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                children: [
-                  _buildDeviceOption(context, label: 'Device 1'),
-                  _buildDeviceOption(context, label: 'Device 2'),
-                  _buildDeviceOption(context, label: 'Device 3'),
-                  _buildAddNewDeviceOption(context),
-                ],
-              ),
-              SizedBox(height: 16),
-            ],
-          ),
-        );
-      },
-    );
-  }
-
-  Widget _buildDeviceOption(BuildContext context, {required String label}) {
-    final themeProvider = Provider.of<ThemeProvider>(context);
-    return GestureDetector(
-      onTap: () {
-        setState(() {
-          _selectedDevice = label;
-        });
-        Navigator.pop(context);
-      },
-      child: Column(
-        children: [
-          Container(
-            width: 60,
-            height: 60,
-            decoration: BoxDecoration(
-              color: themeProvider.selectedColor,
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Icon(Icons.device_unknown, color: themeProvider.textColor, size: 30),
-          ),
-          SizedBox(height: 8),
-          Text(
-            label,
-            style: AppTextStyles.link.copyWith(color: Colors.black87),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildAddNewDeviceOption(BuildContext context) {
-    return GestureDetector(
-      onTap: () {
-        Navigator.pop(context);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              'Add new device functionality not implemented yet',
-              style: AppTextStyles.body,
-            ),
-          ),
-        );
-      },
-      child: Column(
-        children: [
-          Container(
-            width: 60,
-            height: 60,
-            decoration: BoxDecoration(
-              color: Colors.grey[200],
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Icon(Icons.add, color: Colors.black, size: 30),
-          ),
-          SizedBox(height: 8),
-          Text(
-            'Add new device',
-            style: AppTextStyles.link.copyWith(color: Colors.black87),
-            textAlign: TextAlign.center,
-          ),
-        ],
-      ),
-    );
   }
 
   Widget _buildListTile(BuildContext context,
@@ -221,10 +130,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
             child: Icon(icon, color: themeProvider.textColor, size: 24),
           ),
         ),
-        title: Text(
-          title,
-          style: AppTextStyles.body.copyWith(color: Colors.black87),
-        ),
+        title: Text(title, style: AppTextStyles.body.copyWith(color: Colors.black87)),
         trailing: Icon(Icons.arrow_forward_ios, color: Colors.grey[600], size: 16),
         onTap: onTap,
       ),
@@ -242,48 +148,43 @@ class _ProfileScreenState extends State<ProfileScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Header Section
+              // ✅ Profile Header Section (Dynamic Firebase Data)
               Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 20.0),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.center,
-                  children: [
-                    Container(
-                      width: 100,
-                      height: 100,
-                      decoration: BoxDecoration(
-                        color: themeProvider.selectedColor,
-                        borderRadius: BorderRadius.circular(8),
+                padding: const EdgeInsets.only(top: 40.0, bottom: 16.0),
+                child: Center(
+                  child: _isLoading
+                      ? const CircularProgressIndicator()
+                      : _error != null
+                      ? Text(_error!, style: AppTextStyles.body)
+                      : Column(
+                    children: [
+                      CircleAvatar(
+                        radius: 50,
+                        backgroundImage: AssetImage('assets/Frame.png'),
                       ),
-                      child: Icon(Icons.device_hub, color: themeProvider.textColor, size: 30),
-                    ),
-                    SizedBox(width: 16),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            _selectedDevice,
-                            style: AppTextStyles.heading.copyWith(fontSize: 20, color: Colors.black87),
-                          ),
-                          SizedBox(height: 4),
-                          GestureDetector(
-                            onTap: () {
-                              _showSwitchAccountBottomSheet(context);
-                            },
-                            child: Text(
-                              'Switch Account',
-                              style: AppTextStyles.link.copyWith(color: Colors.grey[600]),
-                            ),
-                          ),
-                        ],
+                      const SizedBox(height: 12),
+                      Text(
+                        _userData?['username'] ?? 'Unknown User',
+                        style: AppTextStyles.subheading.copyWith(
+                          fontSize: 20,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.black87,
+                        ),
                       ),
-                    ),
-                    Icon(Icons.arrow_forward_ios, color: Colors.grey[600], size: 18),
-                  ],
+                      const SizedBox(height: 4),
+                      Text(
+                        _userData?['email'] ?? 'user@example.com',
+                        style: AppTextStyles.body.copyWith(
+                          fontSize: 14,
+                          color: Colors.grey[600],
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
-              // White Box with Menu
+
+              // ✅ Existing Settings List Section
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
                 child: Container(
@@ -314,7 +215,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           onTap: () {
                             Navigator.push(
                               context,
-                              MaterialPageRoute(builder: (context) => _items[index]['screen'] as Widget),
+                              MaterialPageRoute(
+                                  builder: (context) =>
+                                  _items[index]['screen'] as Widget),
                             );
                           },
                         );
@@ -323,9 +226,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   ),
                 ),
               ),
-              // Logout Button
+
+              // ✅ Logout Button
               Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 16.0),
+                padding:
+                const EdgeInsets.symmetric(horizontal: 16.0, vertical: 16.0),
                 child: Container(
                   width: double.infinity,
                   decoration: BoxDecoration(
@@ -350,7 +255,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     ),
                     child: Text(
                       'Logout',
-                      style: AppTextStyles.body.copyWith(fontWeight: FontWeight.w600, color: Colors.redAccent),
+                      style: AppTextStyles.body.copyWith(
+                          fontWeight: FontWeight.w600, color: Colors.redAccent),
                     ),
                   ),
                 ),
