@@ -7,6 +7,7 @@ import 'package:provider/provider.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'dart:convert';
 import 'dart:async';
+import '../services/services.dart';
 import '../utils/theme_state.dart';
 import '../utils/app_text_styles.dart';
 
@@ -31,78 +32,22 @@ class _BellTabState extends State<BellTab> {
   }
 
   Future<void> _loadUploadedFiles() async {
-    setState(() => isLoading = true);
+    final bellService = BellService();
+    final soundFiles = await bellService.fetchSoundFiles(context);
 
-    try {
-      final response = await http.get(
-        Uri.parse('http://192.168.2.1/intrsong/'),
-      ).timeout(const Duration(seconds: 10));
-
-      debugPrint('Raw response: ${response.body}');
-
-      if (response.statusCode == 200) {
-        final jsonData = jsonDecode(response.body);
-        debugPrint('Parsed JSON: $jsonData');
-
-        List<String> files = [];
-
-        if (jsonData['Data'] != null && jsonData['Data'] is List) {
-          final dataList = jsonData['Data'] as List;
-
-          for (final dataItem in dataList) {
-            if (dataItem is Map && dataItem['files'] != null && dataItem['files'] is List) {
-              final filesList = dataItem['files'] as List;
-
-              for (final fileEntry in filesList) {
-                if (fileEntry is List && fileEntry.isNotEmpty && fileEntry[0] is String) {
-                  files.add(fileEntry[0] as String);
-                }
-              }
-            }
-          }
-        }
-
-        debugPrint('Extracted files: $files');
-
-        setState(() {
-          _soundOptions = files;
-          _soundOption = files.isNotEmpty ? files[0] : '';
-        });
-
-        if (files.isEmpty) {
-          debugPrint('No valid files found in response');
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text('No audio files found on device', style: AppTextStyles.body)),
-            );
-          }
-        }
-      } else {
-        debugPrint('API error: ${response.statusCode}');
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Server error: ${response.statusCode}', style: AppTextStyles.body)),
-          );
-        }
-      }
-    } catch (e) {
-      debugPrint('Error loading files: $e');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: ${e.toString()}', style: AppTextStyles.body)),
-        );
-      }
-    } finally {
-      if (mounted) {
-        setState(() => isLoading = false);
-      }
-    }
+    setState(() {
+      _soundOptions = soundFiles;
+      _soundOption = _soundOptions.isNotEmpty ? _soundOptions[0] : '';
+    });
   }
 
   List<String> _extractStringsFromList(List<dynamic> list) {
     return list
         .whereType<String>()
-        .where((item) => item.trim().isNotEmpty)
+        .where((item) =>
+    item
+        .trim()
+        .isNotEmpty)
         .toList();
   }
 
@@ -140,7 +85,8 @@ class _BellTabState extends State<BellTab> {
       if (response.statusCode == 200) {
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Bell sound updated successfully', style: AppTextStyles.body)),
+          SnackBar(content: Text(
+              'Bell sound updated successfully', style: AppTextStyles.body)),
         );
       } else {
         throw Exception('Failed to set bell sound: ${response.statusCode}');
@@ -148,7 +94,8 @@ class _BellTabState extends State<BellTab> {
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error setting bell sound: $e', style: AppTextStyles.body)),
+        SnackBar(content: Text(
+            'Error setting bell sound: $e', style: AppTextStyles.body)),
       );
     } finally {
       if (mounted) setState(() => _isSending = false);
@@ -162,7 +109,9 @@ class _BellTabState extends State<BellTab> {
         .toLowerCase();
     if (!sanitized.endsWith('.mp3') && !sanitized.endsWith('.wav')) {
       String ext = fileName.toLowerCase().endsWith('.mp3') ? '.mp3' : '.wav';
-      sanitized = '${sanitized.split('.').first}$ext';
+      sanitized = '${sanitized
+          .split('.')
+          .first}$ext';
     }
     return sanitized;
   }
@@ -217,7 +166,8 @@ class _BellTabState extends State<BellTab> {
       if (!file.name.toLowerCase().endsWith('.mp3') &&
           !file.name.toLowerCase().endsWith('.wav')) {
         if (!mounted) return;
-        _showDialog('Invalid File', 'Please select an MP3 or WAV audio file', false);
+        _showDialog(
+            'Invalid File', 'Please select an MP3 or WAV audio file', false);
         setState(() => _isUploading = false);
         return;
       }
@@ -272,49 +222,57 @@ class _BellTabState extends State<BellTab> {
   void _showPermissionDialog() {
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: Text('Permission Permanently Denied', style: AppTextStyles.heading),
-        content: Text(
-          'Please open app settings and grant permission to access audio files.',
-          style: AppTextStyles.body,
-          textAlign: TextAlign.center,
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: Text('Cancel', style: AppTextStyles.button.copyWith(color: Colors.black)),
+      builder: (context) =>
+          AlertDialog(
+            title: Text(
+                'Permission Permanently Denied', style: AppTextStyles.heading),
+            content: Text(
+              'Please open app settings and grant permission to access audio files.',
+              style: AppTextStyles.body,
+              textAlign: TextAlign.center,
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: Text('Cancel',
+                    style: AppTextStyles.button.copyWith(color: Colors.black)),
+              ),
+              ElevatedButton(
+                onPressed: () async {
+                  Navigator.pop(context);
+                  await openAppSettings();
+                },
+                child: Text('Open Settings',
+                    style: AppTextStyles.button.copyWith(color: Colors.black)),
+              ),
+            ],
           ),
-          ElevatedButton(
-            onPressed: () async {
-              Navigator.pop(context);
-              await openAppSettings();
-            },
-            child: Text('Open Settings', style: AppTextStyles.button.copyWith(color: Colors.black)),
-          ),
-        ],
-      ),
     );
   }
 
   void _showDialog(String title, String message, bool isSuccess) {
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        icon: Icon(
-          isSuccess ? Icons.check_circle : Icons.error,
-          color: isSuccess ? Colors.green : Colors.red,
-          size: 40,
-        ),
-        title: Text(title, style: AppTextStyles.heading, textAlign: TextAlign.center),
-        content: Text(message, style: AppTextStyles.body, textAlign: TextAlign.center),
-        actionsAlignment: MainAxisAlignment.center,
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: Text('OK', style: AppTextStyles.button.copyWith(color: Colors.black)),
+      builder: (context) =>
+          AlertDialog(
+            icon: Icon(
+              isSuccess ? Icons.check_circle : Icons.error,
+              color: isSuccess ? Colors.green : Colors.red,
+              size: 40,
+            ),
+            title: Text(title, style: AppTextStyles.heading,
+                textAlign: TextAlign.center),
+            content: Text(message, style: AppTextStyles.body,
+                textAlign: TextAlign.center),
+            actionsAlignment: MainAxisAlignment.center,
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: Text('OK',
+                    style: AppTextStyles.button.copyWith(color: Colors.black)),
+              ),
+            ],
           ),
-        ],
-      ),
     );
   }
 
@@ -341,55 +299,53 @@ class _BellTabState extends State<BellTab> {
                 children: [
                   Text(
                     'CURRENT BELL SOUND',
-                    style: AppTextStyles.small.copyWith(color: Colors.grey.shade600),
+                    style: AppTextStyles.small.copyWith(
+                        color: Colors.grey.shade600),
                   ),
                   const SizedBox(height: 12),
                   Row(
                     children: [
                       Expanded(
-                        child: DecoratedBox(
-                          decoration: BoxDecoration(
-                            border: Border.all(color: Colors.grey.shade300),
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 12),
-                            child: DropdownButton<String>(
-                              value: _soundOptions.contains(_soundOption)
-                                  ? _soundOption
-                                  : null,
-                              items: _soundOptions
-                                  .map((sound) => DropdownMenuItem(
-                                value: sound,
-                                child: Text(
-                                  sound,
-                                  style: AppTextStyles.body,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              ))
-                                  .toList(),
-                              onChanged: (value) {
-                                if (value != null) {
-                                  setState(() => _soundOption = value);
-                                  _setBellSound();
-                                }
-                              },
-                              isExpanded: true,
-                              underline: const SizedBox(),
+                        child: GestureDetector(
+                          onTap: _soundOptions.isEmpty
+                              ? null
+                              : _selectSoundOption,
+                          child: DecoratedBox(
+                            decoration: BoxDecoration(
+                              border: Border.all(color: Colors.grey.shade300),
                               borderRadius: BorderRadius.circular(8),
-                              icon: Icon(Icons.arrow_drop_down,
-                                  color: themeProvider.textColor),
-                              iconSize: 24,
-                              dropdownColor: Colors.white,
-                              style: AppTextStyles.body,
-                              hint: Text('No sounds available', style: AppTextStyles.body),
+                            ),
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 16, vertical: 12),
+                              child: Row(
+                                mainAxisAlignment: MainAxisAlignment
+                                    .spaceBetween,
+                                children: [
+                                  Expanded(
+                                    child: Text(
+                                      _soundOption.isEmpty
+                                          ? 'No sound selected'
+                                          : _soundOption,
+                                      style: AppTextStyles.body,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                  Icon(Icons.chevron_right,
+                                      color: _soundOptions.isEmpty
+                                          ? Colors.grey
+                                          : themeProvider.textColor),
+                                ],
+                              ),
                             ),
                           ),
                         ),
                       ),
                       const SizedBox(width: 12),
                       ElevatedButton(
-                        onPressed: _isUploading || isLoading ? null : _uploadSoundFile,
+                        onPressed: _isUploading || isLoading
+                            ? null
+                            : _uploadSoundFile,
                         style: ElevatedButton.styleFrom(
                           backgroundColor: Colors.white,
                           foregroundColor: themeProvider.selectedColor,
@@ -409,7 +365,8 @@ class _BellTabState extends State<BellTab> {
                             color: themeProvider.selectedColor,
                           ),
                         )
-                            : Text('New', style: AppTextStyles.button.copyWith(color: themeProvider.selectedColor)),
+                            : Text('New', style: AppTextStyles.button.copyWith(
+                            color: themeProvider.selectedColor)),
                       ),
                     ],
                   ),
@@ -418,6 +375,70 @@ class _BellTabState extends State<BellTab> {
             ),
           ),
           const SizedBox(height: 24),
+        ],
+      ),
+    );
+  }
+
+  void _selectSoundOption() {
+    if (_soundOptions.isEmpty) return;
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      builder: (context) {
+        return _buildSoundSelectionSheet();
+      },
+    );
+  }
+
+  Widget _buildSoundSelectionSheet() {
+    final themeProvider = Provider.of<ThemeProvider>(context);
+    final maxHeight = MediaQuery
+        .of(context)
+        .size
+        .height * 0.6;
+
+    return ConstrainedBox(
+      constraints: BoxConstraints(
+        maxHeight: maxHeight,
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: Text(
+              'Select Bell Sound',
+              style: AppTextStyles.subheading.copyWith(
+                  fontWeight: FontWeight.bold),
+            ),
+          ),
+          Expanded(
+            child: ListView.builder(
+              shrinkWrap: true,
+              itemCount: _soundOptions.length,
+              itemBuilder: (context, index) {
+                final sound = _soundOptions[index];
+                return ListTile(
+                  title: Text(
+                    sound,
+                    style: AppTextStyles.body,
+                  ),
+                  trailing: sound == _soundOption
+                      ? Icon(Icons.check, color: themeProvider.selectedColor)
+                      : null,
+                  onTap: () {
+                    setState(() {
+                      _soundOption = sound;
+                    });
+                    Navigator.pop(context);
+                    _setBellSound(); // Automatically set the bell sound when selected
+                  },
+                );
+              },
+            ),
+          ),
+          const SizedBox(height: 8),
         ],
       ),
     );

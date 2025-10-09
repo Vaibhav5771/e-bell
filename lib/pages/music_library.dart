@@ -14,7 +14,7 @@ import 'package:http/http.dart' as http;
 
 import 'comingsoon.dart';
 import '../music_tabs/recordingpage.dart';
-import '../services/bell_service.dart';
+import '../services/services.dart';
 import '../utils/theme_state.dart';
 import '../utils/app_text_styles.dart';
 import 'tablogic1.dart';
@@ -54,7 +54,7 @@ class _MusicLibraryState extends State<MusicLibrary> {
     _startWifiMonitoring();
     _player = AudioPlayer();
     _initPlayer();
-    _loadRecordings();
+    _loadUploadedFiles();
     _fetchApiSongs();
   }
 
@@ -83,28 +83,55 @@ class _MusicLibraryState extends State<MusicLibrary> {
   }
 
   /// ----------------- RECORDINGS -----------------
-  Future<void> _loadRecordings() async {
+  Future<void> _loadUploadedFiles() async {
     setState(() => _isLoading = true);
+
     try {
+      // 1️⃣ Load local recordings from app directory
       final dir = await getApplicationDocumentsDirectory();
       final recDir = Directory('${dir.path}/recordings');
       if (!await recDir.exists()) await recDir.create(recursive: true);
+
       final files = await recDir.list().toList();
-      final mp3Files = files.whereType<File>().where((f) => f.path.endsWith('.mp3')).toList();
+      final mp3Files = files
+          .whereType<File>()
+          .where((f) => f.path.toLowerCase().endsWith('.mp3'))
+          .toList();
+
+      // Sort by modified date (latest first)
       mp3Files.sort((a, b) => b.statSync().modified.compareTo(a.statSync().modified));
+
+      final localRecordings = mp3Files.map((f) => f.path).toList();
+
+      // 2️⃣ Fetch uploaded files from IoT device using BellService
+      final bellService = BellService();
+      final uploadedFiles = await bellService.fetchSoundFiles(context);
+
+      // 3️⃣ Merge lists & remove duplicates
+      final allSongs = <String>{
+        ...uploadedFiles,
+        ...localRecordings.map((f) => f.split(Platform.pathSeparator).last),
+      }.toList();
+
+      // 4️⃣ Update UI
+      if (!mounted) return;
       setState(() {
-        recordings = mp3Files.map((f) => f.path).toList();
+        recordings = localRecordings; // local device recordings
+        apiSongs = uploadedFiles; // songs fetched from IoT
         _isLoading = false;
       });
     } catch (e) {
       setState(() => _isLoading = false);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error loading recordings: $e', style: AppTextStyles.body)),
+          SnackBar(
+            content: Text('Error loading uploaded files: $e', style: AppTextStyles.body),
+          ),
         );
       }
     }
   }
+
 
   Future<void> _playRecording(int index) async {
     try {
@@ -216,26 +243,36 @@ class _MusicLibraryState extends State<MusicLibrary> {
     }
   }
 
-  Future<void> _deleteApiSong(String songName) async {
+  Future<void> _deleteApiSong(String fileName) async {
     try {
+      // Construct POST body in the new API format
+      // filename,hour,min,s_epoch,e_epoch,weeks
+      final body = "$fileName,0,0,0,0,0";
+
       final response = await http.post(
         Uri.parse("http://192.168.2.1/delete/"),
-        body: "2,Alarm/$songName",
+        body: body,
       );
+
       if (response.statusCode == 200) {
         setState(() {
-          apiSongs.remove(songName);
+          apiSongs.remove(fileName);
         });
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text("Deleted: $songName", style: AppTextStyles.body)),
+            SnackBar(
+              content: Text("Deleted: $fileName", style: AppTextStyles.body),
+            ),
           );
         }
+      } else {
+        debugPrint('Failed to delete API song. Status: ${response.statusCode}');
       }
     } catch (e) {
       debugPrint('Error deleting API song: $e');
     }
   }
+
 
   /// ----------------- WIFI -----------------
   Future<void> _startWifiMonitoring() async {
@@ -399,7 +436,7 @@ class _MusicLibraryState extends State<MusicLibrary> {
         if (title == 'Add Music') {
           if (await _requestPermissions()) {
             final newFile = await BellService().uploadMp3(context, null, isWifiConnected);
-            if (newFile != null && mounted) _loadRecordings();
+            if (newFile != null && mounted) _loadUploadedFiles();
           }
         } else {
           final micStatus = await Permission.microphone.status;
@@ -408,7 +445,7 @@ class _MusicLibraryState extends State<MusicLibrary> {
             context,
             MaterialPageRoute(builder: (context) => const AudioRecorderPage()),
           );
-          if (newRecordingPath != null && mounted) _loadRecordings();
+          if (newRecordingPath != null && mounted) _loadUploadedFiles();
         }
       },
     );

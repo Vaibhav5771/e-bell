@@ -3,6 +3,7 @@ import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'package:provider/provider.dart';
 import 'package:table_calendar/table_calendar.dart';
+import '../services/services.dart';
 import '../utils/theme_state.dart';
 import '../utils/app_text_styles.dart';
 
@@ -49,103 +50,13 @@ class _ReminderPageState extends State<ReminderPage> {
   }
 
   Future<void> _loadUploadedFiles() async {
-    try {
-      final response = await http.get(Uri.parse('http://192.168.2.1/songs')).timeout(
-        const Duration(seconds: 10),
-        onTimeout: () {
-          throw Exception('Request to IoT device timed out');
-        },
-      );
+    final bellService = BellService();
+    final soundFiles = await bellService.fetchSoundFiles(context);
 
-      if (response.statusCode == 200) {
-        final jsonData = jsonDecode(response.body);
-        final data = jsonData['Data'] as List<dynamic>?;
-
-        if (data != null && data.isNotEmpty) {
-          final filesData = data[0]['files'] as List<dynamic>?;
-
-          if (filesData != null && filesData.isNotEmpty) {
-            final filenames = filesData.map((file) {
-              return (file as List<dynamic>)[0] as String;
-            }).toList();
-
-            print('Fetched filenames: $filenames');
-            setState(() {
-              _soundOptions = filenames
-                  .where((file) =>
-              !file.contains('/') &&
-                  (file.toLowerCase().endsWith('.mp3') ||
-                      file.toLowerCase().endsWith('.wav')))
-                  .toList();
-              _soundOption = _soundOptions.isNotEmpty ? _soundOptions[0] : '';
-            });
-
-            if (_soundOptions.isEmpty) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text(
-                    'No valid audio files (MP3 or WAV) found in root directory.',
-                    style: AppTextStyles.body,
-                  ),
-                ),
-              );
-            }
-          } else {
-            setState(() {
-              _soundOptions = [];
-              _soundOption = '';
-            });
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text(
-                  'No sound files found.',
-                  style: AppTextStyles.body,
-                ),
-              ),
-            );
-          }
-        } else {
-          setState(() {
-            _soundOptions = [];
-            _soundOption = '';
-          });
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(
-                'No sound data available.',
-                style: AppTextStyles.body,
-              ),
-            ),
-          );
-        }
-      } else {
-        setState(() {
-          _soundOptions = [];
-          _soundOption = '';
-        });
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              'Failed to fetch sounds from device: ${response.statusCode}',
-              style: AppTextStyles.body,
-            ),
-          ),
-        );
-      }
-    } catch (e) {
-      setState(() {
-        _soundOptions = [];
-        _soundOption = '';
-      });
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'Error fetching sounds: Ensure you are connected to the speaker\'s Wi-Fi. Error: $e',
-            style: AppTextStyles.body,
-          ),
-        ),
-      );
-    }
+    setState(() {
+      _soundOptions = soundFiles;
+      _soundOption = _soundOptions.isNotEmpty ? _soundOptions[0] : '';
+    });
   }
 
   void _onFromDaySelected(DateTime selectedDay, DateTime focusedDay) {

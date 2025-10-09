@@ -13,7 +13,7 @@ import 'package:e_bell/pages/tablogic1.dart';
 import 'package:e_bell/bell/schedule_bell.dart';
 import 'package:e_bell/services/calender.dart';
 import 'package:e_bell/remainder/remainder_page.dart';
-import 'package:e_bell/services/bell_service.dart';
+import 'package:e_bell/services/services.dart';
 import 'package:e_bell/utils/theme_state.dart';
 import 'package:e_bell/tabs_planner/bell_tab.dart';
 import 'package:e_bell/tabs_planner/tab_logic1.dart';
