@@ -158,7 +158,7 @@ class _AlarmPageState extends State<AlarmPage> {
       week = _calculateWeekBitmask();
     } else {
       // 🔹 When repeat is OFF, force week = 254 (all days)
-      week = 254;
+      week = 255;
 
       final now = DateTime.now();
       DateTime alarmDateTime = DateTime(
@@ -196,6 +196,17 @@ class _AlarmPageState extends State<AlarmPage> {
           SnackBar(
             content: Text(
               '✅ Alarm set!\n$curlCommand',
+              style: AppTextStyles.body,
+            ),
+            duration: const Duration(seconds: 5),
+          ),
+        );
+      } else if (response.statusCode == 500) {
+        // 🔸 Internal server error (likely storage full)
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              '⚠️ Internal storage is full. Please delete some alarms or files before setting a new one.',
               style: AppTextStyles.body,
             ),
             duration: const Duration(seconds: 5),
@@ -464,7 +475,7 @@ class _AlarmPageState extends State<AlarmPage> {
 
     return ConstrainedBox(
       constraints: BoxConstraints(
-        maxHeight: maxHeight,
+        maxHeight: MediaQuery.of(context).size.height * 0.7,
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,

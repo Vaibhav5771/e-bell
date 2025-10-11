@@ -306,43 +306,85 @@ class _MusicLibraryState extends State<MusicLibrary> {
   }
 
   /// ----------------- PERMISSIONS -----------------
-  Future<bool> _requestPermissions() async {
-    Map<Permission, PermissionStatus> statuses;
+  Future<bool> _requestPermissions({bool forAddMusic = false}) async {
+    try {
+      debugPrint('Requesting permissions - forAddMusic: $forAddMusic');
 
-    if (Platform.isAndroid) {
-      final sdk = await _getAndroidVersion();
-      if (sdk >= 33) {
-        statuses = await [
-          Permission.location,
-          Permission.audio,
-          Permission.microphone,
-          Permission.nearbyWifiDevices
-        ].request();
+      if (forAddMusic) {
+        // For "Add Music", handle file picking permissions
+        if (Platform.isAndroid) {
+          final sdk = await _getAndroidVersion();
+          debugPrint('Android SDK version: $sdk');
+
+          if (sdk >= 33) {
+            debugPrint('Android 13+ detected, using photo picker - no storage permission needed');
+            return true;
+          } else {
+            debugPrint('Android <13, requesting storage permission');
+            final status = await Permission.storage.request();
+            debugPrint('Storage permission status: $status');
+            return status.isGranted;
+          }
+        } else {
+          // iOS - request photos permission for file access
+          debugPrint('iOS detected, requesting photos permission');
+          final status = await Permission.photos.request();
+          debugPrint('Photos permission status: $status');
+          return status.isGranted;
+        }
       } else {
-        statuses = await [
-          Permission.location,
-          Permission.storage,
-          Permission.microphone,
-          Permission.nearbyWifiDevices
-        ].request();
-      }
-    } else {
-      statuses = await [
-        Permission.location,
-        Permission.microphone,
-        Permission.nearbyWifiDevices
-      ].request();
-    }
+        // Original logic for other cases (recording, etc.)
+        debugPrint('Requesting full permissions set');
+        Map<Permission, PermissionStatus> statuses;
 
-    // Check if all required permissions are granted
-    bool allGranted = statuses.values.every((status) => status.isGranted);
-    return allGranted;
+        if (Platform.isAndroid) {
+          final sdk = await _getAndroidVersion();
+          if (sdk >= 33) {
+            statuses = await [
+              Permission.location,
+              Permission.audio,
+              Permission.microphone,
+              Permission.nearbyWifiDevices
+            ].request();
+          } else {
+            statuses = await [
+              Permission.location,
+              Permission.storage,
+              Permission.microphone,
+              Permission.nearbyWifiDevices
+            ].request();
+          }
+        } else {
+          statuses = await [
+            Permission.location,
+            Permission.microphone,
+            Permission.nearbyWifiDevices
+          ].request();
+        }
+
+        // Check if all required permissions are granted
+        bool allGranted = statuses.values.every((status) => status.isGranted);
+        debugPrint('All permissions granted: $allGranted');
+        return allGranted;
+      }
+    } catch (e) {
+      debugPrint('Permission request error: $e');
+      return false;
+    }
   }
 
-
   Future<int> _getAndroidVersion() async {
-    if (Platform.isAndroid) return (await DeviceInfoPlugin().androidInfo).version.sdkInt;
-    return 0;
+    try {
+      if (Platform.isAndroid) {
+        final androidInfo = await DeviceInfoPlugin().androidInfo;
+        debugPrint('Android SDK version: ${androidInfo.version.sdkInt}');
+        return androidInfo.version.sdkInt;
+      }
+      return 0;
+    } catch (e) {
+      debugPrint('Error getting Android version: $e');
+      return 0;
+    }
   }
 
   /// ----------------- UI -----------------
@@ -433,19 +475,56 @@ class _MusicLibraryState extends State<MusicLibrary> {
       title: Text(title, style: AppTextStyles.body),
       onTap: () async {
         setState(() => _isFabMenuOpen = false);
+
         if (title == 'Add Music') {
-          if (await _requestPermissions()) {
-            final newFile = await BellService().uploadMp3(context, null, isWifiConnected);
-            if (newFile != null && mounted) _loadUploadedFiles();
+          // Use simplified approach - let FilePicker handle permissions
+          await Future.delayed(const Duration(milliseconds: 300));
+
+          try {
+            final newFile = await BellService().uploadMp3(
+                context,
+                null, // filePath is null, so it will open file picker
+                isWifiConnected
+            );
+
+            if (newFile != null && mounted) {
+              // Refresh both local recordings and API songs
+              await _loadUploadedFiles();
+              await _fetchApiSongs();
+
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('Music added successfully!', style: AppTextStyles.body)),
+                );
+              }
+            }
+          } catch (e) {
+            debugPrint('Error in Add Music: $e');
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text('Error adding music: $e', style: AppTextStyles.body)),
+              );
+            }
           }
         } else {
-          final micStatus = await Permission.microphone.status;
-          if (!micStatus.isGranted) await Permission.microphone.request();
-          final newRecordingPath = await Navigator.push<String>(
-            context,
-            MaterialPageRoute(builder: (context) => const AudioRecorderPage()),
-          );
-          if (newRecordingPath != null && mounted) _loadUploadedFiles();
+          // Record Music functionality - use existing permission logic
+          final permissionsGranted = await _requestPermissions(forAddMusic: false);
+          if (permissionsGranted) {
+            await Future.delayed(const Duration(milliseconds: 300));
+            final newRecordingPath = await Navigator.push<String>(
+              context,
+              MaterialPageRoute(builder: (context) => const AudioRecorderPage()),
+            );
+            if (newRecordingPath != null && mounted) {
+              await _loadUploadedFiles();
+            }
+          } else {
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text('Microphone permission denied', style: AppTextStyles.body)),
+              );
+            }
+          }
         }
       },
     );
@@ -453,44 +532,58 @@ class _MusicLibraryState extends State<MusicLibrary> {
 
   Widget _buildLibraryList() {
     if (apiSongs.isEmpty) return const Center(child: CircularProgressIndicator());
+
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16.0),
-      child: ListView.builder(
-        shrinkWrap: true,
-        physics: const NeverScrollableScrollPhysics(),
-        itemCount: apiSongs.length,
-        itemBuilder: (context, index) {
-          final song = apiSongs[index];
-          final isPlaying = currentlyPlayingApiSong == song;
-          return Container(
-            margin: const EdgeInsets.only(bottom: 12),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(12),
-              boxShadow: [BoxShadow(color: Colors.grey.shade300, blurRadius: 4, offset: const Offset(0, 2))],
+      child: Container(
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.grey.withOpacity(0.2),
+              spreadRadius: 2,
+              blurRadius: 5,
+              offset: const Offset(0, 3),
             ),
-            child: ListTile(
-              leading: ClipRRect(
-                borderRadius: BorderRadius.circular(8),
-                child: Container(width: 50, height: 50, color: Colors.red[200], child: const Icon(Icons.music_note, color: Colors.white)),
-              ),
-              title: Text(song, style: AppTextStyles.body),
-              trailing: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  IconButton(
-                    icon: Icon(isPlaying ? Icons.pause_circle_filled : Icons.play_circle_fill, color: Colors.orange, size: 36),
-                    onPressed: () => isPlaying ? _pauseApiSong() : _playApiSong(song),
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.delete, color: Colors.red),
-                    onPressed: () => _deleteApiSong(song),
-                  ),
-                ],
-              ),
-            ),
-          );
-        },
+          ],
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(12),
+          child: ListView.builder(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            itemCount: apiSongs.length,
+            itemBuilder: (context, index) {
+              final song = apiSongs[index];
+              final isPlaying = currentlyPlayingApiSong == song;
+              return ListTile(
+                leading: Icon(Icons.music_note, color: Colors.grey[600]),
+                title: Text(
+                  song,
+                  style: AppTextStyles.body.copyWith(color: Colors.black87),
+                ),
+                trailing: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    IconButton(
+                      icon: Icon(
+                          isPlaying ? Icons.pause_circle_filled : Icons.play_circle_fill,
+                          color: Colors.orange,
+                          size: 28
+                      ),
+                      onPressed: () => isPlaying ? _pauseApiSong() : _playApiSong(song),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.delete, color: Colors.red, size: 20),
+                      onPressed: () => _deleteApiSong(song),
+                    ),
+                  ],
+                ),
+              );
+            },
+          ),
+        ),
       ),
     );
   }

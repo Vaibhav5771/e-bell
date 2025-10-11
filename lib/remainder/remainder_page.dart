@@ -744,7 +744,7 @@ class _ReminderPageState extends State<ReminderPage> {
 
     return ConstrainedBox(
       constraints: BoxConstraints(
-        maxHeight: maxHeight,
+        maxHeight: MediaQuery.of(context).size.height * 0.7,
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,

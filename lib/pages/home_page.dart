@@ -137,6 +137,8 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _loadingPrayerStatus = false;
   bool _errorLoadingStatus = false;
   final GlobalKey _calendarKey = GlobalKey();
+  DateTime? _lastPressedAt;  // ADD THIS LINE
+
 
   @override
   void initState() {
@@ -1111,7 +1113,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                           title: '', // Empty title
                                           isChecked: isChecked,
                                           isLast: isLast,
-                                          icon: Icons.music_note,
+                                          icon: Icons.alarm,
                                           days: song.days,
                                           selectedColor: themeProvider.selectedColor,
                                         ),
@@ -1141,7 +1143,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                         title: '', // Empty title
                                         isChecked: isChecked,
                                         isLast: isLast,
-                                        icon: Icons.music_note,
+                                        icon: Icons.notifications_outlined,
                                         days: song.days,
                                         selectedColor: themeProvider.selectedColor,
                                       );
@@ -1193,7 +1195,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                           title: fileName, // Use the actual file name from device
                                           isChecked: isChecked,
                                           isLast: index == _namazTimes.length - 1,
-                                          icon: Icons.music_note,
+                                          icon: Icons.mosque_outlined
                                         ),
                                       );
                                     }),
@@ -1244,7 +1246,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                           title: fileName, // Use the actual file name from device
                                           isChecked: isChecked,
                                           isLast: index == _poojaTimes.length - 1,
-                                          icon: Icons.music_note,
+                                          icon: Icons.sunny,
                                         ),
                                       );
                                     }),
@@ -1277,120 +1279,154 @@ class _HomeScreenState extends State<HomeScreen> {
       ProfileScreen(),
     ];
 
-    return Scaffold(
-      appBar: AppBar(
-        backgroundColor: Colors.white,
-        surfaceTintColor: Colors.white,
-        elevation: 0,
-        automaticallyImplyLeading: false,
-        title: Text(
-          'E-Bell',
-          style: TextStyle(
-            color: themeProvider.selectedColor,
-            fontWeight: FontWeight.bold,
-            fontSize: 28,
-          ),
-        ),
-        actions: [
-          IconButton(
-            icon: Icon(
-              Icons.access_time,
-              color: themeProvider.selectedColor,
+    return WillPopScope(  // CHANGED FROM: return Scaffold(
+        onWillPop: () async {
+      // If user is not on home screen (index 0), navigate to home
+      if (_selectedIndex != 0) {
+        setState(() {
+          _selectedIndex = 0;
+          _isFabMenuOpen = false;
+        });
+        return false; // Don't exit app
+      }
+
+      // If on home screen, implement double-tap to exit
+      if (_lastPressedAt == null ||
+          DateTime.now().difference(_lastPressedAt!) > const Duration(seconds: 2)) {
+        // First tap - show toast message
+        _lastPressedAt = DateTime.now();
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Press back again to exit',
+              style: AppTextStyles.body,
             ),
-            tooltip: 'Sync Time',
-            onPressed: _showTimePickerAndSync,
+            duration: const Duration(seconds: 2),
+            behavior: SnackBarBehavior.floating,
           ),
-        ],
-      ),
-      body: Stack(
-        children: [
-          screens[_selectedIndex],
-          if (_isFabMenuOpen && _selectedIndex == 0)
-            Positioned(
-              bottom: 80,
-              right: 16,
-              child: Container(
-                width: 180,
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(12),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.grey.withOpacity(0.3),
-                      spreadRadius: 2,
-                      blurRadius: 5,
-                    ),
-                  ],
-                ),
-                child: Column(
-                  children: [
-                    _buildFabOption('Reminder', true),
-                    _buildFabOption('Alarm', false),
-                    _buildFabOption('Regional Planner', false),
-                  ],
-                ),
-              ),
-            ),
-        ],
-      ),
-      floatingActionButton: _selectedIndex == 0
-          ? FloatingActionButton(
-        onPressed: () {
-          setState(() {
-            _isFabMenuOpen = !_isFabMenuOpen;
-          });
-        },
-        backgroundColor: themeProvider.selectedColor,
-        shape: const CircleBorder(),
-        child: Icon(
-          _isFabMenuOpen ? Icons.close : Icons.edit_calendar_outlined,
-          color: Colors.white,
-        ),
-      )
-          : null,
-      floatingActionButtonLocation: FloatingActionButtonLocation.miniEndFloat,
-      bottomNavigationBar: SizedBox(
-        height: 75,
-        child: BottomNavigationBar(
-          currentIndex: _selectedIndex,
-          onTap: _onNavBarTapped,
+        );
+        return false; // Don't exit app
+      }
+
+      // Second tap within 2 seconds - exit app
+      return true; // Exit app
+    },
+    child: Scaffold(
+        appBar: AppBar(
           backgroundColor: Colors.white,
+          surfaceTintColor: Colors.white,
           elevation: 0,
-          type: BottomNavigationBarType.fixed,
-          selectedFontSize: 0,
-          unselectedFontSize: 0,
-          items: [
-            BottomNavigationBarItem(
-              icon: _buildNavItem(
-                isSelected: _selectedIndex == 0,
-                selectedIcon: Icons.calendar_month,
-                unselectedIcon: Icons.calendar_month_outlined,
-                label: "Planner",
-                color: themeProvider.selectedColor,
-              ),
-              label: "",
+          automaticallyImplyLeading: false,
+          title: Text(
+            'E-Bell',
+            style: TextStyle(
+              color: themeProvider.selectedColor,
+              fontWeight: FontWeight.bold,
+              fontSize: 28,
             ),
-            BottomNavigationBarItem(
-              icon: _buildNavItem(
-                isSelected: _selectedIndex == 1,
-                selectedIcon: Icons.music_note,
-                unselectedIcon: Icons.music_note_outlined,
-                label: "Library",
-                color: themeProvider.selectedColor,
-              ),
-              label: "",
-            ),
-            BottomNavigationBarItem(
-              icon: _buildNavItem(
-                isSelected: _selectedIndex == 2,
-                selectedIcon: Icons.person,
-                unselectedIcon: Icons.person_outline,
-                label: "Profile",
-                color: themeProvider.selectedColor,
-              ),
-              label: "",
-            ),
+          ),
+          actions: [
+            // IconButton(
+            //   icon: Icon(
+            //     Icons.access_time,
+            //     color: themeProvider.selectedColor,
+            //   ),
+            //   tooltip: 'Sync Time',
+            //   onPressed: _showTimePickerAndSync,
+            // ),
           ],
+        ),
+        body: Stack(
+          children: [
+            screens[_selectedIndex],
+            if (_isFabMenuOpen && _selectedIndex == 0)
+              Positioned(
+                bottom: 80,
+                right: 16,
+                child: Container(
+                  width: 180,
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(12),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.grey.withOpacity(0.3),
+                        spreadRadius: 2,
+                        blurRadius: 5,
+                      ),
+                    ],
+                  ),
+                  child: Column(
+                    children: [
+                      _buildFabOption('Reminder', true),
+                      _buildFabOption('Alarm', false),
+                      _buildFabOption('Regional Planner', false),
+                    ],
+                  ),
+                ),
+              ),
+          ],
+        ),
+        floatingActionButton: _selectedIndex == 0
+            ? FloatingActionButton(
+          onPressed: () {
+            setState(() {
+              _isFabMenuOpen = !_isFabMenuOpen;
+            });
+          },
+          backgroundColor: themeProvider.selectedColor,
+          shape: const CircleBorder(),
+          child: Icon(
+            _isFabMenuOpen ? Icons.close : Icons.edit_calendar_outlined,
+            color: Colors.white,
+          ),
+        )
+            : null,
+        floatingActionButtonLocation: FloatingActionButtonLocation.miniEndFloat,
+        bottomNavigationBar: SizedBox(
+          height: 75,
+          child: BottomNavigationBar(
+            currentIndex: _selectedIndex,
+            onTap: _onNavBarTapped,
+            backgroundColor: Colors.white,
+            elevation: 0,
+            type: BottomNavigationBarType.fixed,
+            selectedFontSize: 0,
+            unselectedFontSize: 0,
+            items: [
+              BottomNavigationBarItem(
+                icon: _buildNavItem(
+                  isSelected: _selectedIndex == 0,
+                  selectedIcon: Icons.calendar_month,
+                  unselectedIcon: Icons.calendar_month_outlined,
+                  label: "Planner",
+                  color: themeProvider.selectedColor,
+                ),
+                label: "",
+              ),
+              BottomNavigationBarItem(
+                icon: _buildNavItem(
+                  isSelected: _selectedIndex == 1,
+                  selectedIcon: Icons.music_note,
+                  unselectedIcon: Icons.music_note_outlined,
+                  label: "Library",
+                  color: themeProvider.selectedColor,
+                ),
+                label: "",
+              ),
+              BottomNavigationBarItem(
+                icon: _buildNavItem(
+                  isSelected: _selectedIndex == 2,
+                  selectedIcon: Icons.person,
+                  unselectedIcon: Icons.person_outline,
+                  label: "Profile",
+                  color: themeProvider.selectedColor,
+                ),
+                label: "",
+              ),
+            ],
+          ),
         ),
       ),
     );

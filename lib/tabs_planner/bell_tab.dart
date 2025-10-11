@@ -152,72 +152,72 @@ class _BellTabState extends State<BellTab> {
     return true;
   }
 
-  Future<void> _uploadSoundFile() async {
-    try {
-      final hasPermission = await _checkAndRequestStoragePermission();
-      if (!hasPermission) return;
+  // Future<void> _uploadSoundFile() async {
+  //   try {
+  //     final hasPermission = await _checkAndRequestStoragePermission();
+  //     if (!hasPermission) return;
 
-      final result = await FilePicker.platform.pickFiles(type: FileType.audio);
-      if (result == null || result.files.isEmpty) return;
+  //     final result = await FilePicker.platform.pickFiles(type: FileType.audio);
+  //     if (result == null || result.files.isEmpty) return;
 
-      setState(() => _isUploading = true);
-      final file = result.files.first;
+  //     setState(() => _isUploading = true);
+  //     final file = result.files.first;
 
-      if (!file.name.toLowerCase().endsWith('.mp3') &&
-          !file.name.toLowerCase().endsWith('.wav')) {
-        if (!mounted) return;
-        _showDialog(
-            'Invalid File', 'Please select an MP3 or WAV audio file', false);
-        setState(() => _isUploading = false);
-        return;
-      }
+  //     if (!file.name.toLowerCase().endsWith('.mp3') &&
+  //         !file.name.toLowerCase().endsWith('.wav')) {
+  //       if (!mounted) return;
+  //       _showDialog(
+  //           'Invalid File', 'Please select an MP3 or WAV audio file', false);
+  //       setState(() => _isUploading = false);
+  //       return;
+  //     }
 
-      final sanitizedFileName = _sanitizeFileName(file.name);
+  //     final sanitizedFileName = _sanitizeFileName(file.name);
 
-      final request = http.MultipartRequest(
-        'POST',
-        Uri.parse('http://192.168.2.1/upload/default/$sanitizedFileName'),
-      );
+  //     final request = http.MultipartRequest(
+  //       'POST',
+  //       Uri.parse('http://192.168.2.1/upload/default/$sanitizedFileName'),
+  //     );
 
-      request.files.add(await http.MultipartFile.fromPath('file', file.path!));
+  //     request.files.add(await http.MultipartFile.fromPath('file', file.path!));
 
-      final response = await request.send().timeout(
-        const Duration(seconds: 15),
-        onTimeout: () {
-          throw Exception('File upload request timed out');
-        },
-      );
+  //     final response = await request.send().timeout(
+  //       const Duration(seconds: 15),
+  //       onTimeout: () {
+  //         throw Exception('File upload request timed out');
+  //       },
+  //     );
 
-      if (!mounted) return;
+  //     if (!mounted) return;
 
-      final body = await response.stream.bytesToString();
+  //     final body = await response.stream.bytesToString();
 
-      if (response.statusCode == 200) {
-        setState(() {
-          if (!_soundOptions.contains(sanitizedFileName)) {
-            _soundOptions.add(sanitizedFileName);
-          }
-          _soundOption = sanitizedFileName;
-        });
+  //     if (response.statusCode == 200) {
+  //       setState(() {
+  //         if (!_soundOptions.contains(sanitizedFileName)) {
+  //           _soundOptions.add(sanitizedFileName);
+  //         }
+  //         _soundOption = sanitizedFileName;
+  //       });
 
-        Future.delayed(const Duration(seconds: 2), () {
-          if (mounted) _loadUploadedFiles();
-        });
+  //       Future.delayed(const Duration(seconds: 2), () {
+  //         if (mounted) _loadUploadedFiles();
+  //       });
 
-        _showDialog('Success',
-            'File uploaded successfully: $sanitizedFileName\n$body', true);
-      } else {
-        _showDialog('Upload Failed',
-            'Status: ${response.statusCode}\nResponse: $body', false);
-      }
-    } catch (e) {
-      if (mounted) {
-        _showDialog('Error', 'File upload failed: $e', false);
-      }
-    } finally {
-      if (mounted) setState(() => _isUploading = false);
-    }
-  }
+  //       _showDialog('Success',
+  //           'File uploaded successfully: $sanitizedFileName\n$body', true);
+  //     } else {
+  //       _showDialog('Upload Failed',
+  //           'Status: ${response.statusCode}\nResponse: $body', false);
+  //     }
+  //   } catch (e) {
+  //     if (mounted) {
+  //       _showDialog('Error', 'File upload failed: $e', false);
+  //     }
+  //   } finally {
+  //     if (mounted) setState(() => _isUploading = false);
+  //   }
+  // }
 
   void _showPermissionDialog() {
     showDialog(
@@ -342,32 +342,32 @@ class _BellTabState extends State<BellTab> {
                         ),
                       ),
                       const SizedBox(width: 12),
-                      ElevatedButton(
-                        onPressed: _isUploading || isLoading
-                            ? null
-                            : _uploadSoundFile,
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.white,
-                          foregroundColor: themeProvider.selectedColor,
-                          side: BorderSide(color: themeProvider.selectedColor),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 16, vertical: 12),
-                        ),
-                        child: _isUploading
-                            ? SizedBox(
-                          width: 16,
-                          height: 16,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: themeProvider.selectedColor,
-                          ),
-                        )
-                            : Text('New', style: AppTextStyles.button.copyWith(
-                            color: themeProvider.selectedColor)),
-                      ),
+                      // ElevatedButton(
+                      //   onPressed: _isUploading || isLoading
+                      //       ? null
+                      //       : _uploadSoundFile,
+                      //   style: ElevatedButton.styleFrom(
+                      //     backgroundColor: Colors.white,
+                      //     foregroundColor: themeProvider.selectedColor,
+                      //     side: BorderSide(color: themeProvider.selectedColor),
+                      //     shape: RoundedRectangleBorder(
+                      //       borderRadius: BorderRadius.circular(8),
+                      //     ),
+                      //     padding: const EdgeInsets.symmetric(
+                      //         horizontal: 16, vertical: 12),
+                      //   ),
+                      //   child: _isUploading
+                      //       ? SizedBox(
+                      //     width: 16,
+                      //     height: 16,
+                      //     child: CircularProgressIndicator(
+                      //       strokeWidth: 2,
+                      //       color: themeProvider.selectedColor,
+                      //     ),
+                      //   )
+                      //       : Text('New', style: AppTextStyles.button.copyWith(
+                      //       color: themeProvider.selectedColor)),
+                      // ),
                     ],
                   ),
                 ],
@@ -400,7 +400,7 @@ class _BellTabState extends State<BellTab> {
 
     return ConstrainedBox(
       constraints: BoxConstraints(
-        maxHeight: maxHeight,
+        maxHeight: MediaQuery.of(context).size.height * 0.7,
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,

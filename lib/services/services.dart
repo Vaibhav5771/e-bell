@@ -192,13 +192,13 @@ class BellService {
     }
   }
 
+
   /// Uploads an MP3 file to the bell device.
-  Future<String?> uploadMp3(BuildContext context, String? filePath,
-      bool isWifiConnected) async {
+  Future<String?> uploadMp3(
+      BuildContext context, String? filePath, bool isWifiConnected) async {
     if (!isWifiConnected) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-            content: Text("Please connect to IoGen_Speaker Wi-Fi first")),
+        const SnackBar(content: Text("Please connect to IoGen_Speaker Wi-Fi first")),
       );
       return null;
     }
@@ -207,7 +207,7 @@ class BellService {
       String? selectedFilePath = filePath;
       String? fileName;
 
-      // If no filePath is provided, use FilePicker to select a file
+      // Let user pick a file if not provided
       if (selectedFilePath == null) {
         FilePickerResult? result = await FilePicker.platform.pickFiles(
           type: FileType.custom,
@@ -218,25 +218,22 @@ class BellService {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text("No file selected")),
           );
-          debugPrint("No file selected");
           return null;
         }
 
         selectedFilePath = result.files.single.path;
         fileName = result.files.single.name;
       } else {
-        fileName = selectedFilePath
-            .split('/')
-            .last;
+        fileName = selectedFilePath.split('/').last;
       }
 
+      // Validate file
       if (selectedFilePath == null ||
           (!fileName.toLowerCase().endsWith('.mp3') &&
               !fileName.toLowerCase().endsWith('.wav'))) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text("Invalid audio file selected")),
         );
-        debugPrint("Invalid file: $fileName");
         return null;
       }
 
@@ -245,7 +242,6 @@ class BellService {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text("Selected file does not exist")),
         );
-        debugPrint("File does not exist: $selectedFilePath");
         return null;
       }
 
@@ -254,7 +250,6 @@ class BellService {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text("File is too large (>10MB)")),
         );
-        debugPrint("File too large: $fileSize bytes");
         return null;
       }
 
@@ -263,70 +258,58 @@ class BellService {
       }
 
       final encodedFileName = Uri.encodeComponent(fileName);
-      final uri = 'http://192.168.2.1/upload/Alarm/$encodedFileName';
-      debugPrint("Sending file: $fileName, size: $fileSize bytes to $uri");
+      final uri = 'http://192.168.2.1/upload/$encodedFileName';
+      debugPrint("Uploading file: $fileName ($fileSize bytes) to $uri");
 
+      // Build the multipart request
       var request = http.MultipartRequest('POST', Uri.parse(uri))
         ..headers['Connection'] = 'keep-alive'
-        ..files.add(
-            await http.MultipartFile.fromPath('file', selectedFilePath));
+        ..files.add(await http.MultipartFile.fromPath('file', selectedFilePath));
 
-      // Show loading SnackBar
-      ScaffoldMessenger.of(context).showSnackBar(
+      // Show loader SnackBar (no fixed duration)
+      final loaderSnack = ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
+          duration: const Duration(days: 1), // keep visible indefinitely
           content: Row(
             children: [
-              const CircularProgressIndicator(),
+              const SizedBox(
+                height: 20,
+                width: 20,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
               const SizedBox(width: 16),
               Text("Uploading $fileName..."),
             ],
           ),
-          duration: const Duration(seconds: 15), // Slightly longer than 12.84s
         ),
       );
 
-      // Send the request and handle response in background
-      request.send().then((streamedResponse) async {
-        final response = await http.Response.fromStream(streamedResponse);
-        debugPrint("Upload response: ${response.statusCode}, ${response.body}");
-        if (response.statusCode == 200) {
-          debugPrint("Upload successful: $fileName");
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text("Successfully uploaded $fileName")),
-          );
-        } else {
-          debugPrint("Upload failed: ${response.statusCode}, ${response.body}");
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text(
-                "Upload failed: ${response.statusCode}, ${response.body}")),
-          );
-        }
-      }).catchError((e) {
-        debugPrint("Upload error: $e");
+      // Send upload
+      final streamedResponse = await request.send();
+      final response = await http.Response.fromStream(streamedResponse);
+
+      // Dismiss loader SnackBar immediately
+      ScaffoldMessenger.of(context).hideCurrentSnackBar();
+
+      debugPrint("Upload response: ${response.statusCode}, ${response.body}");
+
+      if (response.statusCode == 200) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("Upload error: $e")),
+          SnackBar(content: Text("✅ Successfully uploaded $fileName")),
         );
-      });
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("❌ Upload failed: ${response.statusCode}")),
+        );
+      }
 
-      // Fallback success SnackBar after 13 seconds
-      Future.delayed(const Duration(seconds: 13), () {
-        if (ScaffoldMessenger
-            .of(context)
-            .mounted) {
-          ScaffoldMessenger.of(context).hideCurrentSnackBar();
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text("Successfully uploaded $fileName")),
-          );
-        }
-      });
-
-      debugPrint("File sent: $fileName");
-      // Copy file to documents directory for persistence
+      // Copy file to documents directory
       final directory = await getApplicationDocumentsDirectory();
       final newPath = '${directory.path}/$fileName';
       await file.copy(newPath);
-      return newPath; // Return path in documents directory
+      return newPath;
     } catch (e) {
+      ScaffoldMessenger.of(context).hideCurrentSnackBar();
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text("Error uploading file: $e")),
       );

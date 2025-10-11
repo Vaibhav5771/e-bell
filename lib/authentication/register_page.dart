@@ -202,7 +202,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
                         Text(
-                          'EBELL_Version_V.2.0',
+                          'EBELL_Version_V.3.0',
                           style: AppTextStyles.small.copyWith(color: Colors.black54),
                         ),
                       ],

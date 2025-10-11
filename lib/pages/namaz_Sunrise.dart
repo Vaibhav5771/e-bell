@@ -36,6 +36,7 @@ class _ReligiousAlarmsState extends State<ReligiousAlarms> {
   String _selectedAsrSound = '';
   String _selectedMaghribSound = '';
   String _selectedIshaSound = '';
+  String _selectedTahajjudSound = '';
 
   // Individual sound selection for sunrise and sunset
   String _selectedSunriseSound = '';
@@ -60,6 +61,7 @@ class _ReligiousAlarmsState extends State<ReligiousAlarms> {
   String _originalAsrSound = '';
   String _originalMaghribSound = '';
   String _originalIshaSound = '';
+  String _originalTahajjudSound = '';
   double _originalNamazOffset = 0.0;
   String _originalSunriseSound = '';
   String _originalSunsetSound = '';
@@ -135,6 +137,11 @@ class _ReligiousAlarmsState extends State<ReligiousAlarms> {
             if (!_namazSoundFiles.contains(_selectedIshaSound)) {
               _selectedIshaSound = _namazSoundFiles[0];
               _originalIshaSound = _selectedIshaSound;
+            }
+            // ADD THIS - 6th prayer default selection
+            if (!_namazSoundFiles.contains(_selectedTahajjudSound)) {
+              _selectedTahajjudSound = _namazSoundFiles[0];
+              _originalTahajjudSound = _selectedTahajjudSound;
             }
           }
         });
@@ -325,6 +332,7 @@ class _ReligiousAlarmsState extends State<ReligiousAlarms> {
       _selectedAsrSound = prefs.getString('asrSound') ?? '';
       _selectedMaghribSound = prefs.getString('maghribSound') ?? '';
       _selectedIshaSound = prefs.getString('ishaSound') ?? '';
+      _selectedTahajjudSound = prefs.getString('tahajjudSound') ?? '';
 
       // Load selected sounds for sunrise and sunset
       _selectedSunriseSound = prefs.getString('sunriseSound') ?? '';
@@ -336,6 +344,7 @@ class _ReligiousAlarmsState extends State<ReligiousAlarms> {
       _originalAsrSound = _selectedAsrSound;
       _originalMaghribSound = _selectedMaghribSound;
       _originalIshaSound = _selectedIshaSound;
+      _originalTahajjudSound = _selectedTahajjudSound;
       _originalSunriseSound = _selectedSunriseSound;
       _originalSunsetSound = _selectedSunsetSound;
 
@@ -362,6 +371,7 @@ class _ReligiousAlarmsState extends State<ReligiousAlarms> {
     await prefs.setString('asrSound', _selectedAsrSound);
     await prefs.setString('maghribSound', _selectedMaghribSound);
     await prefs.setString('ishaSound', _selectedIshaSound);
+    await prefs.setString('tahajjudSound', _selectedTahajjudSound);
 
     // Save sound selections for sunrise and sunset
     await prefs.setString('sunriseSound', _selectedSunriseSound);
@@ -380,7 +390,8 @@ class _ReligiousAlarmsState extends State<ReligiousAlarms> {
           (_selectedAsrSound != _originalAsrSound) ||
           (_selectedMaghribSound != _originalMaghribSound) ||
           (_selectedIshaSound != _originalIshaSound) ||
-          (_namazOffset != _originalNamazOffset); // This line checks offset changes
+          (_selectedTahajjudSound != _originalTahajjudSound) || // ADD THIS
+          (_namazOffset != _originalNamazOffset);
     });
   }
 
@@ -685,6 +696,7 @@ class _ReligiousAlarmsState extends State<ReligiousAlarms> {
         "3": _selectedAsrSound.isNotEmpty ? _selectedAsrSound : "",
         "4": _selectedMaghribSound.isNotEmpty ? _selectedMaghribSound : "",
         "5": _selectedIshaSound.isNotEmpty ? _selectedIshaSound : "",
+        "6": _selectedTahajjudSound.isNotEmpty ? _selectedTahajjudSound : "",
       }
     };
 
@@ -805,44 +817,44 @@ class _ReligiousAlarmsState extends State<ReligiousAlarms> {
   }
 
   // Upload audio file to IoT device using the new API endpoints
-  Future<void> _uploadAudioFile(File file, String fileName, bool isNamaz) async {
-    setState(() => _isUploadingFile = true);
+  // Future<void> _uploadAudioFile(File file, String fileName, bool isNamaz) async {
+  //   setState(() => _isUploadingFile = true);
 
-    try {
-      // Create multipart request
-      var request = http.MultipartRequest(
-          'POST',
-          Uri.parse('http://192.168.2.1/upload/${isNamaz ? 'namaz' : 'pooja'}/$fileName')
-      );
+  //   try {
+  //     // Create multipart request
+  //     var request = http.MultipartRequest(
+  //         'POST',
+  //         Uri.parse('http://192.168.2.1/upload/${isNamaz ? 'namaz' : 'pooja'}/$fileName')
+  //     );
 
-      // Add file to request
-      request.files.add(await http.MultipartFile.fromPath(
-        'file',
-        file.path,
-        filename: fileName,
-      ));
+  //     // Add file to request
+  //     request.files.add(await http.MultipartFile.fromPath(
+  //       'file',
+  //       file.path,
+  //       filename: fileName,
+  //     ));
 
-      // Send request
-      var response = await request.send();
+  //     // Send request
+  //     var response = await request.send();
 
-      if (response.statusCode == 200) {
-        _showDialog("Success", "File uploaded successfully: $fileName");
+  //     if (response.statusCode == 200) {
+  //       _showDialog("Success", "File uploaded successfully: $fileName");
 
-        // Update the sound lists and refresh
-        if (isNamaz) {
-          await _fetchNamazSounds();
-        } else {
-          await _fetchSunriseSounds();
-        }
-      } else {
-        _showDialog("Error", "Failed to upload file: ${response.statusCode}");
-      }
-    } catch (e) {
-      _showDialog("Connection Error", "Make sure you're connected to the speaker's Wi-Fi.\n\nError: $e");
-    }
+  //       // Update the sound lists and refresh
+  //       if (isNamaz) {
+  //         await _fetchNamazSounds();
+  //       } else {
+  //         await _fetchSunriseSounds();
+  //       }
+  //     } else {
+  //       _showDialog("Error", "Failed to upload file: ${response.statusCode}");
+  //     }
+  //   } catch (e) {
+  //     _showDialog("Connection Error", "Make sure you're connected to the speaker's Wi-Fi.\n\nError: $e");
+  //   }
 
-    setState(() => _isUploadingFile = false);
-  }
+  //   setState(() => _isUploadingFile = false);
+  // }
 
   // Pick audio file from device storage and upload to IoT device
   Future<void> _pickAudioFile(bool isNamaz) async {
@@ -856,16 +868,16 @@ class _ReligiousAlarmsState extends State<ReligiousAlarms> {
       String fileName = result.files.single.name;
 
       // Check if the file has an audio extension
-      if (fileName.toLowerCase().endsWith('.mp3') ||
-          fileName.toLowerCase().endsWith('.wav') ||
-          fileName.toLowerCase().endsWith('.ogg') ||
-          fileName.toLowerCase().endsWith('.m4a')) {
+      // if (fileName.toLowerCase().endsWith('.mp3') ||
+      //     fileName.toLowerCase().endsWith('.wav') ||
+      //     fileName.toLowerCase().endsWith('.ogg') ||
+      //     fileName.toLowerCase().endsWith('.m4a')) {
 
-        // Upload the file using the new API
-        await _uploadAudioFile(File(filePath), fileName, isNamaz);
-      } else {
-        _showDialog("Invalid File", "Please select an audio file (MP3, WAV, OGG, M4A)");
-      }
+      //   // Upload the file using the new API
+      //   await _uploadAudioFile(File(filePath), fileName, isNamaz);
+      // } else {
+      //   _showDialog("Invalid File", "Please select an audio file (MP3, WAV, OGG, M4A)");
+      // }
     }
   }
 
@@ -882,7 +894,8 @@ class _ReligiousAlarmsState extends State<ReligiousAlarms> {
           _selectedDhuhrSound != _originalDhuhrSound ||
           _selectedAsrSound != _originalAsrSound ||
           _selectedMaghribSound != _originalMaghribSound ||
-          _selectedIshaSound != _originalIshaSound) {
+          _selectedIshaSound != _originalIshaSound ||
+          _selectedTahajjudSound != _originalTahajjudSound) {
         await _sendNamazSoundRequest();
       }
 
@@ -897,6 +910,7 @@ class _ReligiousAlarmsState extends State<ReligiousAlarms> {
         _originalMaghribSound = _selectedMaghribSound;
         _originalIshaSound = _selectedIshaSound;
         _originalNamazOffset = _namazOffset;
+        _originalTahajjudSound = _selectedTahajjudSound;
         _namazChanged = false;
         _isNamazLoading = false;
       });
@@ -1120,40 +1134,131 @@ class _ReligiousAlarmsState extends State<ReligiousAlarms> {
             'No sounds available',
             style: AppTextStyles.body.copyWith(color: Colors.grey),
           )
-              : DropdownButton<String>(
-            value: currentSound.isNotEmpty && _namazSoundFiles.contains(currentSound)
-                ? currentSound
-                : _namazSoundFiles.isNotEmpty
-                ? _namazSoundFiles[0]
-                : '',
-            items: _namazSoundFiles.map((file) {
-              return DropdownMenuItem<String>(
-                value: file,
-                child: Text(
-                  file,
-                  style: AppTextStyles.body,
-                  overflow: TextOverflow.ellipsis,
+              : GestureDetector(
+            onTap: () => _showNamazSoundSelection(namazName, currentSound, onChanged),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  currentSound.isNotEmpty ? currentSound : 'Select sound',
+                  style: AppTextStyles.body.copyWith(color: Colors.grey[600]),
                 ),
-              );
-            }).toList(),
-            onChanged: onChanged,
-            underline: const SizedBox(),
-            icon: const Icon(Icons.chevron_right, color: Colors.grey),
-            isDense: true,
-            alignment: Alignment.centerRight,
-            style: AppTextStyles.body.copyWith(color: Colors.black),
-            selectedItemBuilder: (BuildContext context) {
-              return _namazSoundFiles.map((file) {
-                return Align(
-                  alignment: Alignment.centerLeft,
-                  child: Text(
-                    file,
-                    style: AppTextStyles.body,
-                    overflow: TextOverflow.ellipsis,
+                const SizedBox(width: 4),
+                const Icon(Icons.chevron_right, color: Colors.grey, size: 20),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showNamazSoundSelection(String namazName, String currentSound, Function(String?) onChanged) {
+    if (_namazSoundFiles.isEmpty) return;
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      builder: (context) {
+        return _buildSoundSelectionSheet(
+          title: 'Select Sound for $namazName',
+          options: _namazSoundFiles,
+          selectedOption: currentSound,
+          onSelect: (value) {
+            onChanged(value);
+            Navigator.pop(context);
+          },
+        );
+      },
+    );
+  }
+
+  void _showSunriseSoundSelection(String eventName, String currentSound, Function(String?) onChanged) {
+    if (_sunriseSoundFiles.isEmpty) return;
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      builder: (context) {
+        return _buildSoundSelectionSheet(
+          title: 'Select Sound for $eventName',
+          options: _sunriseSoundFiles,
+          selectedOption: currentSound,
+          onSelect: (value) {
+            onChanged(value);
+            Navigator.pop(context);
+          },
+        );
+      },
+    );
+  }
+
+// Add this method to build the sound selection sheet (similar to your alarm page)
+  Widget _buildSoundSelectionSheet({
+    required String title,
+    required List<String> options,
+    required String selectedOption,
+    required Function(String) onSelect,
+  }) {
+    final themeProvider = Provider.of<ThemeProvider>(context);
+    final maxHeight = MediaQuery.of(context).size.height * 0.7; // 70% of screen height
+
+    return ConstrainedBox(
+      constraints: BoxConstraints(
+        maxHeight: MediaQuery.of(context).size.height * 0.7,
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Header with title
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: Text(
+              title,
+              style: AppTextStyles.subheading.copyWith(
+                fontWeight: FontWeight.bold,
+                fontSize: 18,
+              ),
+            ),
+          ),
+
+          // Divider
+          Divider(
+            height: 1,
+            thickness: 1,
+            color: Colors.grey[300],
+          ),
+
+          // Sound list
+          Expanded(
+            child: ListView.builder(
+              shrinkWrap: true,
+              itemCount: options.length,
+              itemBuilder: (context, index) {
+                final option = options[index];
+                return ListTile(
+                  title: Text(
+                    option,
+                    style: AppTextStyles.body.copyWith(
+                      fontSize: 16,
+                    ),
                   ),
+                  trailing: option == selectedOption
+                      ? Icon(Icons.check, color: themeProvider.selectedColor, size: 24)
+                      : null,
+                  onTap: () => onSelect(option),
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
                 );
-              }).toList();
-            },
+              },
+            ),
+          ),
+
+          // Bottom padding
+          const SizedBox(height: 8),
+
+          // Safe area for devices with notches
+          SizedBox(
+            height: MediaQuery.of(context).padding.bottom,
           ),
         ],
       ),
@@ -1176,40 +1281,19 @@ class _ReligiousAlarmsState extends State<ReligiousAlarms> {
             'No sounds available',
             style: AppTextStyles.body.copyWith(color: Colors.grey),
           )
-              : DropdownButton<String>(
-            value: currentSound.isNotEmpty && _sunriseSoundFiles.contains(currentSound)
-                ? currentSound
-                : _sunriseSoundFiles.isNotEmpty
-                ? _sunriseSoundFiles[0]
-                : '',
-            items: _sunriseSoundFiles.map((file) {
-              return DropdownMenuItem<String>(
-                value: file,
-                child: Text(
-                  file,
-                  style: AppTextStyles.body,
-                  overflow: TextOverflow.ellipsis,
+              : GestureDetector(
+            onTap: () => _showSunriseSoundSelection(eventName, currentSound, onChanged),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  currentSound.isNotEmpty ? currentSound : 'Select sound',
+                  style: AppTextStyles.body.copyWith(color: Colors.grey[600]),
                 ),
-              );
-            }).toList(),
-            onChanged: onChanged,
-            underline: const SizedBox(),
-            icon: const Icon(Icons.chevron_right, color: Colors.grey),
-            isDense: true,
-            alignment: Alignment.centerRight,
-            style: AppTextStyles.body.copyWith(color: Colors.black),
-            selectedItemBuilder: (BuildContext context) {
-              return _sunriseSoundFiles.map((file) {
-                return Align(
-                  alignment: Alignment.centerLeft,
-                  child: Text(
-                    file,
-                    style: AppTextStyles.body,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                );
-              }).toList();
-            },
+                const SizedBox(width: 4),
+                const Icon(Icons.chevron_right, color: Colors.grey, size: 20),
+              ],
+            ),
           ),
         ],
       ),
@@ -1239,7 +1323,7 @@ class _ReligiousAlarmsState extends State<ReligiousAlarms> {
             mainAxisSize: MainAxisSize.min,
             children: [
               Text(
-                'Regional Planner',
+                'Astro',
                 style: AppTextStyles.heading.copyWith(fontWeight: FontWeight.w500),
               ),
               Icon(Icons.arrow_drop_down, color: themeProvider.selectedColor),
@@ -1367,6 +1451,16 @@ class _ReligiousAlarmsState extends State<ReligiousAlarms> {
                           }
                         },
                       ),
+                      _buildNamazSoundSelection(
+                        'Jummah', // Name of the 6th prayer
+                        _selectedTahajjudSound,
+                            (value) {
+                          if (value != null) {
+                            setState(() => _selectedTahajjudSound = value);
+                            _checkNamazChanges();
+                          }
+                        },
+                      ),
 
                       // Time Adjustment Slider for Namaz - UPDATED with -15 to +15 range
                       Padding(
@@ -1382,9 +1476,9 @@ class _ReligiousAlarmsState extends State<ReligiousAlarms> {
                             Row(
                               children: [
                                 Text(
-                                  '-15m',
+                                  '-30m',
                                   style: AppTextStyles.body.copyWith(
-                                    color: _namazOffset == -15
+                                    color: _namazOffset == -30
                                         ? themeProvider.selectedColor
                                         : Colors.grey,
                                   ),
@@ -1392,8 +1486,8 @@ class _ReligiousAlarmsState extends State<ReligiousAlarms> {
                                 Expanded(
                                   child: Slider(
                                     value: _namazOffset,
-                                    min: -15,
-                                    max: 15,
+                                    min: -30,
+                                    max: 30,
                                     divisions: 30,
                                     label: '${_namazOffset.round()}m',
                                     onChanged: (value) {
@@ -1407,9 +1501,9 @@ class _ReligiousAlarmsState extends State<ReligiousAlarms> {
                                   ),
                                 ),
                                 Text(
-                                  '+15m',
+                                  '+30m',
                                   style: AppTextStyles.body.copyWith(
-                                    color: _namazOffset == 15
+                                    color: _namazOffset == 30
                                         ? themeProvider.selectedColor
                                         : Colors.grey,
                                   ),
@@ -1428,27 +1522,27 @@ class _ReligiousAlarmsState extends State<ReligiousAlarms> {
                           ],
                         ),
                       ),
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
-                        child: Center(
-                          child: ElevatedButton.icon(
-                            onPressed: () => _pickAudioFile(true),
-                            icon: Icon(Icons.upload_file, color: themeProvider.selectedColor),
-                            label: Text(
-                              'New',
-                              style: AppTextStyles.link.copyWith(color: themeProvider.selectedColor),
-                            ),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.grey[100],
-                              foregroundColor: Colors.black,
-                              elevation: 0,
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(10),
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
+                      // Padding(
+                      //   padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+                      //   child: Center(
+                      //     child: ElevatedButton.icon(
+                      //       onPressed: () => _pickAudioFile(true),
+                      //       icon: Icon(Icons.upload_file, color: themeProvider.selectedColor),
+                      //       label: Text(
+                      //         'New',
+                      //         style: AppTextStyles.link.copyWith(color: themeProvider.selectedColor),
+                      //       ),
+                      //       style: ElevatedButton.styleFrom(
+                      //         backgroundColor: Colors.grey[100],
+                      //         foregroundColor: Colors.black,
+                      //         elevation: 0,
+                      //         shape: RoundedRectangleBorder(
+                      //           borderRadius: BorderRadius.circular(10),
+                      //         ),
+                      //       ),
+                      //     ),
+                      //   ),
+                      // ),
                       // Save button for Namaz card
                       Padding(
                         padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
@@ -1566,9 +1660,9 @@ class _ReligiousAlarmsState extends State<ReligiousAlarms> {
                             Row(
                               children: [
                                 Text(
-                                  '-15m',
+                                  '-30m',
                                   style: AppTextStyles.body.copyWith(
-                                    color: _sunriseOffset == -15
+                                    color: _sunriseOffset == -30
                                         ? themeProvider.selectedColor
                                         : Colors.grey,
                                   ),
@@ -1576,8 +1670,8 @@ class _ReligiousAlarmsState extends State<ReligiousAlarms> {
                                 Expanded(
                                   child: Slider(
                                     value: _sunriseOffset,
-                                    min: -15,
-                                    max: 15,
+                                    min: -30,
+                                    max: 30,
                                     divisions: 30,
                                     label: '${_sunriseOffset.round()}m',
                                     onChanged: (value) {
@@ -1591,9 +1685,9 @@ class _ReligiousAlarmsState extends State<ReligiousAlarms> {
                                   ),
                                 ),
                                 Text(
-                                  '+15m',
+                                  '+30m',
                                   style: AppTextStyles.body.copyWith(
-                                    color: _sunriseOffset == 15
+                                    color: _sunriseOffset == 30
                                         ? themeProvider.selectedColor
                                         : Colors.grey,
                                   ),
@@ -1612,27 +1706,27 @@ class _ReligiousAlarmsState extends State<ReligiousAlarms> {
                           ],
                         ),
                       ),
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
-                        child: Center(
-                          child: ElevatedButton.icon(
-                            onPressed: () => _pickAudioFile(false),
-                            icon: Icon(Icons.upload_file, color: themeProvider.selectedColor),
-                            label: Text(
-                              'New',
-                              style: AppTextStyles.link.copyWith(color: themeProvider.selectedColor),
-                            ),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.grey[100],
-                              foregroundColor: Colors.black,
-                              elevation: 0,
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(10),
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
+                      // Padding(
+                      //   padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+                      //   child: Center(
+                      //     child: ElevatedButton.icon(
+                      //       onPressed: () => _pickAudioFile(false),
+                      //       icon: Icon(Icons.upload_file, color: themeProvider.selectedColor),
+                      //       label: Text(
+                      //         'New',
+                      //         style: AppTextStyles.link.copyWith(color: themeProvider.selectedColor),
+                      //       ),
+                      //       style: ElevatedButton.styleFrom(
+                      //         backgroundColor: Colors.grey[100],
+                      //         foregroundColor: Colors.black,
+                      //         elevation: 0,
+                      //         shape: RoundedRectangleBorder(
+                      //           borderRadius: BorderRadius.circular(10),
+                      //         ),
+                      //       ),
+                      //     ),
+                      //   ),
+                      // ),
                       // Save button for Sunrise card
                       Padding(
                         padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
