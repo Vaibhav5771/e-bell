@@ -23,6 +23,7 @@ import 'dart:async';
 import '../alarm/alarm_page.dart';
 import '../services/schedule_item.dart';
 import '../utils/app_text_styles.dart';
+import '../utils/quickalert.dart';
 
 class AlarmSong {
   final String fileName;
@@ -137,8 +138,6 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _loadingPrayerStatus = false;
   bool _errorLoadingStatus = false;
   final GlobalKey _calendarKey = GlobalKey();
-  DateTime? _lastPressedAt;  // ADD THIS LINE
-
 
   @override
   void initState() {
@@ -384,6 +383,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _loadPrayerTimesStatus() async {
     if (!mounted) return;
+    // In _loadPrayerTimesStatus(), replace the SnackBar for Wi-Fi check
     if (!isWifiConnected || !connectionStatus.contains(targetSsid)) {
       setState(() {
         _loadingPrayerStatus = false;
@@ -391,13 +391,9 @@ class _HomeScreenState extends State<HomeScreen> {
         _loadingAlarmSongs = false;
         _errorLoadingAlarmSongs = true;
       });
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'Please connect to IoGen_Speaker Wi-Fi to fetch data',
-            style: AppTextStyles.body,
-          ),
-        ),
+      AppAlert.error(
+        context,
+        text: 'Please connect to IoGen_Speaker Wi-Fi to fetch data',
       );
       return;
     }
@@ -433,21 +429,18 @@ class _HomeScreenState extends State<HomeScreen> {
         _loadingAlarmSongs = false;
         _errorLoadingAlarmSongs = true;
       });
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(e.toString(), style: AppTextStyles.body)),
+      AppAlert.error(
+        context,
+        text: e.toString(),
       );
     }
   }
 
   Future<void> _deleteAlarm(AlarmSong alarm) async {
     if (!isWifiConnected || !connectionStatus.contains(targetSsid)) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            "Please connect to IoGen_Speaker Wi-Fi to delete alarm",
-            style: AppTextStyles.body,
-          ),
-        ),
+      AppAlert.error(
+        context,
+        text: "Please connect to IoGen_Speaker Wi-Fi to delete alarm",
       );
       return;
     }
@@ -470,30 +463,24 @@ class _HomeScreenState extends State<HomeScreen> {
         onTimeout: () => throw Exception('Delete alarm API timed out'),
       );
 
+      // In _deleteAlarm(), replace the SnackBar for successful delete
       if (response.statusCode == 200) {
         setState(() {
           _alarmSongs.remove(alarm);
         });
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              "Alarm deleted successfully",
-              style: AppTextStyles.body,
-            ),
-          ),
+        AppAlert.success(
+          context,
+          text: "Alarm deleted successfully",
         );
         await _loadPrayerTimesStatus(); // Refresh the alarm list
       } else {
         throw Exception('Delete alarm API HTTP ${response.statusCode}');
       }
+      // In _deleteAlarm(), replace the SnackBar in catch block
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            "Failed to delete alarm: $e",
-            style: AppTextStyles.body,
-          ),
-        ),
+      AppAlert.error(
+        context,
+        text: "Failed to delete alarm: $e",
       );
     }
   }
@@ -715,13 +702,9 @@ class _HomeScreenState extends State<HomeScreen> {
 
     if (selectedTime != null) {
       if (!isWifiConnected || !connectionStatus.contains(targetSsid)) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              "Please connect to IoGen_Speaker Wi-Fi to sync time",
-              style: AppTextStyles.body,
-            ),
-          ),
+        AppAlert.error(
+          context,
+          text: "Please connect to IoGen_Speaker Wi-Fi to sync time",
         );
         return;
       }
@@ -733,35 +716,24 @@ class _HomeScreenState extends State<HomeScreen> {
         selectedTime.hour,
         selectedTime.minute,
       );
+      // In _showTimePickerAndSync(), replace the SnackBar for past time
       if (selectedDateTime.isBefore(now)) {
         selectedDateTime = selectedDateTime.add(const Duration(days: 1));
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              "Selected time is in the past. Setting for tomorrow: ${selectedTime.format(context)}",
-              style: AppTextStyles.body,
-            ),
-          ),
+        AppAlert.warning(
+          context,
+          text: "Selected time is in the past. Setting for tomorrow: ${selectedTime.format(context)}",
         );
       }
       try {
         await BellService().syncTime(context, selectedTime: selectedDateTime);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              "Time synced successfully: ${selectedTime.format(context)}",
-              style: AppTextStyles.body,
-            ),
-          ),
+        AppAlert.success(
+          context,
+          text: "Time synced successfully: ${selectedTime.format(context)}",
         );
       } catch (e) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              "Failed to sync time: $e",
-              style: AppTextStyles.body,
-            ),
-          ),
+        AppAlert.error(
+          context,
+          text: "Failed to sync time: $e",
         );
       }
     }
@@ -1195,7 +1167,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                           title: fileName, // Use the actual file name from device
                                           isChecked: isChecked,
                                           isLast: index == _namazTimes.length - 1,
-                                          icon: Icons.mosque_outlined
+                                          icon: Icons.mosque_outlined,
                                         ),
                                       );
                                     }),
@@ -1246,7 +1218,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                           title: fileName, // Use the actual file name from device
                                           isChecked: isChecked,
                                           isLast: index == _poojaTimes.length - 1,
-                                          icon: Icons.sunny,
+                                          icon: Icons.wb_sunny,
                                         ),
                                       );
                                     }),
@@ -1279,154 +1251,120 @@ class _HomeScreenState extends State<HomeScreen> {
       ProfileScreen(),
     ];
 
-    return WillPopScope(  // CHANGED FROM: return Scaffold(
-        onWillPop: () async {
-      // If user is not on home screen (index 0), navigate to home
-      if (_selectedIndex != 0) {
-        setState(() {
-          _selectedIndex = 0;
-          _isFabMenuOpen = false;
-        });
-        return false; // Don't exit app
-      }
-
-      // If on home screen, implement double-tap to exit
-      if (_lastPressedAt == null ||
-          DateTime.now().difference(_lastPressedAt!) > const Duration(seconds: 2)) {
-        // First tap - show toast message
-        _lastPressedAt = DateTime.now();
-
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              'Press back again to exit',
-              style: AppTextStyles.body,
-            ),
-            duration: const Duration(seconds: 2),
-            behavior: SnackBarBehavior.floating,
+    return Scaffold(
+      appBar: AppBar(
+        backgroundColor: Colors.white,
+        surfaceTintColor: Colors.white,
+        elevation: 0,
+        automaticallyImplyLeading: false,
+        title: Text(
+          'E-Bell',
+          style: TextStyle(
+            color: themeProvider.selectedColor,
+            fontWeight: FontWeight.bold,
+            fontSize: 28,
           ),
-        );
-        return false; // Don't exit app
-      }
-
-      // Second tap within 2 seconds - exit app
-      return true; // Exit app
-    },
-    child: Scaffold(
-        appBar: AppBar(
-          backgroundColor: Colors.white,
-          surfaceTintColor: Colors.white,
-          elevation: 0,
-          automaticallyImplyLeading: false,
-          title: Text(
-            'E-Bell',
-            style: TextStyle(
+        ),
+        actions: [
+          IconButton(
+            icon: Icon(
+              Icons.access_time,
               color: themeProvider.selectedColor,
-              fontWeight: FontWeight.bold,
-              fontSize: 28,
             ),
+            tooltip: 'Sync Time',
+            onPressed: _showTimePickerAndSync,
           ),
-          actions: [
-            // IconButton(
-            //   icon: Icon(
-            //     Icons.access_time,
-            //     color: themeProvider.selectedColor,
-            //   ),
-            //   tooltip: 'Sync Time',
-            //   onPressed: _showTimePickerAndSync,
-            // ),
-          ],
+        ],
+      ),
+      body: Stack(
+        children: [
+          screens[_selectedIndex],
+          if (_isFabMenuOpen && _selectedIndex == 0)
+            Positioned(
+              bottom: 2,
+              right: 16,
+              child: Container(
+                width: 180,
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(12),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.grey.withOpacity(0.3),
+                      spreadRadius: 2,
+                      blurRadius: 5,
+                    ),
+                  ],
+                ),
+                child: Column(
+                  children: [
+                    _buildFabOption('Reminder', true),
+                    _buildFabOption('Alarm', false),
+                    _buildFabOption('Regional Planner', false),
+                  ],
+                ),
+              ),
+            ),
+        ],
+      ),
+      floatingActionButton: _selectedIndex == 0
+          ? FloatingActionButton(
+        onPressed: () {
+          setState(() {
+            _isFabMenuOpen = !_isFabMenuOpen;
+          });
+        },
+        backgroundColor: themeProvider.selectedColor,
+        shape: const CircleBorder(),
+        child: Icon(
+          _isFabMenuOpen ? Icons.close : Icons.edit_calendar_outlined,
+          color: Colors.white,
         ),
-        body: Stack(
-          children: [
-            screens[_selectedIndex],
-            if (_isFabMenuOpen && _selectedIndex == 0)
-              Positioned(
-                bottom: 80,
-                right: 16,
-                child: Container(
-                  width: 180,
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(12),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.grey.withOpacity(0.3),
-                        spreadRadius: 2,
-                        blurRadius: 5,
-                      ),
-                    ],
-                  ),
-                  child: Column(
-                    children: [
-                      _buildFabOption('Reminder', true),
-                      _buildFabOption('Alarm', false),
-                      _buildFabOption('Regional Planner', false),
-                    ],
-                  ),
-                ),
+      )
+          : null,
+      floatingActionButtonLocation: FloatingActionButtonLocation.miniEndFloat,
+      bottomNavigationBar: SizedBox(
+        height: 75,
+        child: BottomNavigationBar(
+          currentIndex: _selectedIndex,
+          onTap: _onNavBarTapped,
+          backgroundColor: Colors.white,
+          elevation: 0,
+          type: BottomNavigationBarType.fixed,
+          selectedFontSize: 0,
+          unselectedFontSize: 0,
+          items: [
+            BottomNavigationBarItem(
+              icon: _buildNavItem(
+                isSelected: _selectedIndex == 0,
+                selectedIcon: Icons.calendar_month,
+                unselectedIcon: Icons.calendar_month_outlined,
+                label: "Planner",
+                color: themeProvider.selectedColor,
               ),
+              label: "",
+            ),
+            BottomNavigationBarItem(
+              icon: _buildNavItem(
+                isSelected: _selectedIndex == 1,
+                selectedIcon: Icons.music_note,
+                unselectedIcon: Icons.music_note_outlined,
+                label: "Library",
+                color: themeProvider.selectedColor,
+              ),
+              label: "",
+            ),
+            BottomNavigationBarItem(
+              icon: _buildNavItem(
+                isSelected: _selectedIndex == 2,
+                selectedIcon: Icons.person,
+                unselectedIcon: Icons.person_outline,
+                label: "Profile",
+                color: themeProvider.selectedColor,
+              ),
+              label: "",
+            ),
           ],
-        ),
-        floatingActionButton: _selectedIndex == 0
-            ? FloatingActionButton(
-          onPressed: () {
-            setState(() {
-              _isFabMenuOpen = !_isFabMenuOpen;
-            });
-          },
-          backgroundColor: themeProvider.selectedColor,
-          shape: const CircleBorder(),
-          child: Icon(
-            _isFabMenuOpen ? Icons.close : Icons.edit_calendar_outlined,
-            color: Colors.white,
-          ),
-        )
-            : null,
-        floatingActionButtonLocation: FloatingActionButtonLocation.miniEndFloat,
-        bottomNavigationBar: SizedBox(
-          height: 75,
-          child: BottomNavigationBar(
-            currentIndex: _selectedIndex,
-            onTap: _onNavBarTapped,
-            backgroundColor: Colors.white,
-            elevation: 0,
-            type: BottomNavigationBarType.fixed,
-            selectedFontSize: 0,
-            unselectedFontSize: 0,
-            items: [
-              BottomNavigationBarItem(
-                icon: _buildNavItem(
-                  isSelected: _selectedIndex == 0,
-                  selectedIcon: Icons.calendar_month,
-                  unselectedIcon: Icons.calendar_month_outlined,
-                  label: "Planner",
-                  color: themeProvider.selectedColor,
-                ),
-                label: "",
-              ),
-              BottomNavigationBarItem(
-                icon: _buildNavItem(
-                  isSelected: _selectedIndex == 1,
-                  selectedIcon: Icons.music_note,
-                  unselectedIcon: Icons.music_note_outlined,
-                  label: "Library",
-                  color: themeProvider.selectedColor,
-                ),
-                label: "",
-              ),
-              BottomNavigationBarItem(
-                icon: _buildNavItem(
-                  isSelected: _selectedIndex == 2,
-                  selectedIcon: Icons.person,
-                  unselectedIcon: Icons.person_outline,
-                  label: "Profile",
-                  color: themeProvider.selectedColor,
-                ),
-                label: "",
-              ),
-            ],
-          ),
         ),
       ),
     );

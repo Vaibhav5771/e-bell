@@ -18,6 +18,7 @@ import '../services/services.dart';
 import '../utils/theme_state.dart';
 import '../utils/app_text_styles.dart';
 import 'tablogic1.dart';
+import '../utils/quickalert.dart'; // Make sure to import QuickAlert
 
 class MusicLibrary extends StatefulWidget {
   final TabLogic1 tabLogic;
@@ -123,15 +124,13 @@ class _MusicLibraryState extends State<MusicLibrary> {
     } catch (e) {
       setState(() => _isLoading = false);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error loading uploaded files: $e', style: AppTextStyles.body),
-          ),
+        AppAlert.error(
+          context,
+          text: 'Error loading uploaded files: $e',
         );
       }
     }
   }
-
 
   Future<void> _playRecording(int index) async {
     try {
@@ -156,8 +155,9 @@ class _MusicLibraryState extends State<MusicLibrary> {
       await _player?.play();
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error playing audio: $e', style: AppTextStyles.body)),
+        AppAlert.error(
+          context,
+          text: 'Error playing audio: $e',
         );
       }
       setState(() => _currentlyPlayingIndex = null);
@@ -180,14 +180,16 @@ class _MusicLibraryState extends State<MusicLibrary> {
         }
       });
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Recording deleted', style: AppTextStyles.body)),
+        AppAlert.success(
+          context,
+          text: 'Recording deleted successfully',
         );
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error deleting file: $e', style: AppTextStyles.body)),
+        AppAlert.error(
+          context,
+          text: 'Error deleting file: $e',
         );
       }
     }
@@ -259,20 +261,30 @@ class _MusicLibraryState extends State<MusicLibrary> {
           apiSongs.remove(fileName);
         });
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text("Deleted: $fileName", style: AppTextStyles.body),
-            ),
+          AppAlert.success(
+            context,
+            text: "Successfully deleted: $fileName",
           );
         }
       } else {
         debugPrint('Failed to delete API song. Status: ${response.statusCode}');
+        if (mounted) {
+          AppAlert.error(
+            context,
+            text: 'Failed to delete song. Status: ${response.statusCode}',
+          );
+        }
       }
     } catch (e) {
       debugPrint('Error deleting API song: $e');
+      if (mounted) {
+        AppAlert.error(
+          context,
+          text: 'Error deleting API song: $e',
+        );
+      }
     }
   }
-
 
   /// ----------------- WIFI -----------------
   Future<void> _startWifiMonitoring() async {
@@ -306,85 +318,42 @@ class _MusicLibraryState extends State<MusicLibrary> {
   }
 
   /// ----------------- PERMISSIONS -----------------
-  Future<bool> _requestPermissions({bool forAddMusic = false}) async {
-    try {
-      debugPrint('Requesting permissions - forAddMusic: $forAddMusic');
+  Future<bool> _requestPermissions() async {
+    Map<Permission, PermissionStatus> statuses;
 
-      if (forAddMusic) {
-        // For "Add Music", handle file picking permissions
-        if (Platform.isAndroid) {
-          final sdk = await _getAndroidVersion();
-          debugPrint('Android SDK version: $sdk');
-
-          if (sdk >= 33) {
-            debugPrint('Android 13+ detected, using photo picker - no storage permission needed');
-            return true;
-          } else {
-            debugPrint('Android <13, requesting storage permission');
-            final status = await Permission.storage.request();
-            debugPrint('Storage permission status: $status');
-            return status.isGranted;
-          }
-        } else {
-          // iOS - request photos permission for file access
-          debugPrint('iOS detected, requesting photos permission');
-          final status = await Permission.photos.request();
-          debugPrint('Photos permission status: $status');
-          return status.isGranted;
-        }
+    if (Platform.isAndroid) {
+      final sdk = await _getAndroidVersion();
+      if (sdk >= 33) {
+        statuses = await [
+          Permission.location,
+          Permission.audio,
+          Permission.microphone,
+          Permission.nearbyWifiDevices
+        ].request();
       } else {
-        // Original logic for other cases (recording, etc.)
-        debugPrint('Requesting full permissions set');
-        Map<Permission, PermissionStatus> statuses;
-
-        if (Platform.isAndroid) {
-          final sdk = await _getAndroidVersion();
-          if (sdk >= 33) {
-            statuses = await [
-              Permission.location,
-              Permission.audio,
-              Permission.microphone,
-              Permission.nearbyWifiDevices
-            ].request();
-          } else {
-            statuses = await [
-              Permission.location,
-              Permission.storage,
-              Permission.microphone,
-              Permission.nearbyWifiDevices
-            ].request();
-          }
-        } else {
-          statuses = await [
-            Permission.location,
-            Permission.microphone,
-            Permission.nearbyWifiDevices
-          ].request();
-        }
-
-        // Check if all required permissions are granted
-        bool allGranted = statuses.values.every((status) => status.isGranted);
-        debugPrint('All permissions granted: $allGranted');
-        return allGranted;
+        statuses = await [
+          Permission.location,
+          Permission.storage,
+          Permission.microphone,
+          Permission.nearbyWifiDevices
+        ].request();
       }
-    } catch (e) {
-      debugPrint('Permission request error: $e');
-      return false;
+    } else {
+      statuses = await [
+        Permission.location,
+        Permission.microphone,
+        Permission.nearbyWifiDevices
+      ].request();
     }
+
+    // Check if all required permissions are granted
+    bool allGranted = statuses.values.every((status) => status.isGranted);
+    return allGranted;
   }
 
   Future<int> _getAndroidVersion() async {
-    try {
-      if (Platform.isAndroid) {
-        final androidInfo = await DeviceInfoPlugin().androidInfo;
-        debugPrint('Android SDK version: ${androidInfo.version.sdkInt}');
-        return androidInfo.version.sdkInt;
-      }
-      return 0;
-    } catch (e) {
-      debugPrint('Error getting Android version: $e');
-      return 0;
-    }
+    if (Platform.isAndroid) return (await DeviceInfoPlugin().androidInfo).version.sdkInt;
+    return 0;
   }
 
   /// ----------------- UI -----------------
@@ -403,34 +372,34 @@ class _MusicLibraryState extends State<MusicLibrary> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Container(
-                      height: 35,
-                      padding: const EdgeInsets.all(2),
-                      decoration: BoxDecoration(
-                        color: Colors.grey[400],
-                        borderRadius: BorderRadius.circular(9),
-                      ),
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: widget.tabLogic.buildTab(
-                              context: context,
-                              text: 'Library',
-                              index: 0,
-                              onTap: () => setState(() => widget.tabLogic.setSelectedTab(0)),
-                            ),
-                          ),
-                          Expanded(
-                            child: widget.tabLogic.buildTab(
-                              context: context,
-                              text: 'My Music',
-                              index: 1,
-                              onTap: () => setState(() => widget.tabLogic.setSelectedTab(1)),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
+                    // Container(
+                    //   height: 35,
+                    //   padding: const EdgeInsets.all(2),
+                    //   decoration: BoxDecoration(
+                    //     color: Colors.grey[400],
+                    //     borderRadius: BorderRadius.circular(9),
+                    //   ),
+                    //   child: Row(
+                    //     children: [
+                    //       Expanded(
+                    //         child: widget.tabLogic.buildTab(
+                    //           context: context,
+                    //           text: 'Library',
+                    //           index: 0,
+                    //           onTap: () => setState(() => widget.tabLogic.setSelectedTab(0)),
+                    //         ),
+                    //       ),
+                    //       Expanded(
+                    //         child: widget.tabLogic.buildTab(
+                    //           context: context,
+                    //           text: 'My Music',
+                    //           index: 1,
+                    //           onTap: () => setState(() => widget.tabLogic.setSelectedTab(1)),
+                    //         ),
+                    //       ),
+                    //     ],
+                    //   ),
+                    // ),
                     const SizedBox(height: 10),
                     Text(connectionStatus, style: AppTextStyles.body, textAlign: TextAlign.center),
                   ],
@@ -449,21 +418,44 @@ class _MusicLibraryState extends State<MusicLibrary> {
           ),
           if (_isFabMenuOpen)
             Positioned(
-              bottom: 80,
+              bottom: 80, // Increased to position it right above the FAB button
               right: 16,
               child: Container(
                 width: 180,
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(12),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.grey.withOpacity(0.3),
+                      spreadRadius: 2,
+                      blurRadius: 5,
+                    ),
+                  ],
+                ),
                 child: Column(
-                  children: [_buildFabOption('Add Music'), _buildFabOption('Record Music')],
+                  children: [
+                    _buildFabOption('Add Music'),
+                    _buildFabOption('Record Music'),
+                  ],
                 ),
               ),
             ),
         ],
       ),
       floatingActionButton: FloatingActionButton(
-        onPressed: () => setState(() => _isFabMenuOpen = !_isFabMenuOpen),
+        onPressed: () {
+          setState(() {
+            _isFabMenuOpen = !_isFabMenuOpen;
+          });
+        },
         backgroundColor: themeProvider.selectedColor,
-        child: Icon(_isFabMenuOpen ? Icons.close : Icons.music_note, color: themeProvider.textColor, size: 28),
+        shape: const CircleBorder(), // Changed back to circle for consistency
+        child: Icon(
+          _isFabMenuOpen ? Icons.close : Icons.music_note,
+          color: Colors.white, // Changed to white for better contrast
+          size: 28,
+        ),
       ),
     );
   }
@@ -477,10 +469,13 @@ class _MusicLibraryState extends State<MusicLibrary> {
         setState(() => _isFabMenuOpen = false);
 
         if (title == 'Add Music') {
-          // Use simplified approach - let FilePicker handle permissions
-          await Future.delayed(const Duration(milliseconds: 300));
+          // Request permissions first
+          final permissionsGranted = await _requestPermissions();
+          if (permissionsGranted) {
+            // Add a small delay to ensure the FAB menu closes completely
+            await Future.delayed(const Duration(milliseconds: 300));
 
-          try {
+            // Call uploadMp3 with proper parameters
             final newFile = await BellService().uploadMp3(
                 context,
                 null, // filePath is null, so it will open file picker
@@ -491,25 +486,27 @@ class _MusicLibraryState extends State<MusicLibrary> {
               // Refresh both local recordings and API songs
               await _loadUploadedFiles();
               await _fetchApiSongs();
-
-              if (mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text('Music added successfully!', style: AppTextStyles.body)),
-                );
-              }
+              AppAlert.success(
+                context,
+                text: 'Music added successfully!',
+              );
             }
-          } catch (e) {
-            debugPrint('Error in Add Music: $e');
+          } else {
             if (mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text('Error adding music: $e', style: AppTextStyles.body)),
+              AppAlert.error(
+                context,
+                text: 'Permissions denied. Cannot add music.',
               );
             }
           }
         } else {
-          // Record Music functionality - use existing permission logic
-          final permissionsGranted = await _requestPermissions(forAddMusic: false);
-          if (permissionsGranted) {
+          // Record Music functionality
+          final micStatus = await Permission.microphone.status;
+          if (!micStatus.isGranted) {
+            await Permission.microphone.request();
+          }
+
+          if (await Permission.microphone.isGranted) {
             await Future.delayed(const Duration(milliseconds: 300));
             final newRecordingPath = await Navigator.push<String>(
               context,
@@ -517,11 +514,16 @@ class _MusicLibraryState extends State<MusicLibrary> {
             );
             if (newRecordingPath != null && mounted) {
               await _loadUploadedFiles();
+              AppAlert.success(
+                context,
+                text: 'Recording saved successfully!',
+              );
             }
           } else {
             if (mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text('Microphone permission denied', style: AppTextStyles.body)),
+              AppAlert.error(
+                context,
+                text: 'Microphone permission denied',
               );
             }
           }
@@ -617,7 +619,7 @@ class _MusicLibraryState extends State<MusicLibrary> {
               ),
               child: ListTile(
                 leading: ClipRRect(
-                  borderRadius: BorderRadius.circular(8),
+                  borderRadius: BorderRadius.circular(12),
                   child: Image.asset('assets/Music.jpg', width: 50, height: 50, fit: BoxFit.cover),
                 ),
                 title: Text(fileName, style: AppTextStyles.body),

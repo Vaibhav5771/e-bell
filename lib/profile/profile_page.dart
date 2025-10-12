@@ -1,3 +1,4 @@
+import 'package:e_bell/utils/quickalert.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../authentication/auth_service.dart';
@@ -103,10 +104,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
     if (confirmLogout == true) {
       try {
         await AuthService().signOut();
+        AppAlert.success(
+          context,
+          text: 'Logged out successfully!',
+        );
       } catch (e) {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Logout failed: $e', style: AppTextStyles.body)),
+          AppAlert.error(
+            context,
+            text: 'Logout failed: $e',
           );
         }
       }
