@@ -188,7 +188,7 @@ class _ReminderPageState extends State<ReminderPage> {
 
     final data = '$hr,$mn,$sEpoch,$eEpoch,$active,$week,$alarmType';
     final url = 'http://192.168.2.1/settime/$_soundOption';
-    final curlCommand = 'curl -X POST $url -d "$data"';
+    final curlCommand = 'curl -X POST $url -d "\$data"';
 
     print('Sending POST request to: $url');
     print('Data: $data');
@@ -211,7 +211,7 @@ class _ReminderPageState extends State<ReminderPage> {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text(
-                '✅ Reminder set for ${reminderFromDateTime} with $_soundOption (Verified)\n$curlCommand',
+                '✅ Reminder set for ${reminderFromDateTime} with $_soundOption (Verified)\n\$curlCommand',
                 style: AppTextStyles.body,
               ),
               duration: const Duration(seconds: 5),
@@ -222,7 +222,7 @@ class _ReminderPageState extends State<ReminderPage> {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text(
-                '⚠️ Reminder set but verification failed for $_soundOption\n$curlCommand',
+                '⚠️ Reminder set but verification failed for $_soundOption\n\$curlCommand',
                 style: AppTextStyles.body,
               ),
               duration: const Duration(seconds: 5),
@@ -322,6 +322,42 @@ class _ReminderPageState extends State<ReminderPage> {
     );
   }
 
+  Widget _buildSectionContainer({required String title, required List<Widget> children}) {
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(bottom: 16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.grey.withOpacity(0.2),
+            blurRadius: 4,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Only render title if it's not empty. This allows sections without titles.
+          if (title.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: Text(
+                title,
+                style: AppTextStyles.subheading.copyWith(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 18,
+                ),
+              ),
+            ),
+          ...children,
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final themeProvider = Provider.of<ThemeProvider>(context);
@@ -360,191 +396,277 @@ class _ReminderPageState extends State<ReminderPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            TextField(
-              onChanged: (value) => setState(() => _title = value),
-              decoration: InputDecoration(
-                labelText: 'Title',
-                labelStyle: AppTextStyles.heading,
-                border: InputBorder.none,
-                enabledBorder: InputBorder.none,
-                focusedBorder: InputBorder.none,
-              ),
-            ),
-            _buildDivider(),
-            TextField(
-              onChanged: (value) => setState(() => _description = value),
-              decoration: InputDecoration(
-                labelText: 'Description',
-                labelStyle: AppTextStyles.body,
-                border: InputBorder.none,
-                enabledBorder: InputBorder.none,
-                focusedBorder: InputBorder.none,
-              ),
-              maxLines: 1,
-            ),
-            _buildDivider(),
-            const SizedBox(height: 16),
-            Text(
-              'Select Date',
-              style: AppTextStyles.subheading.copyWith(fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 12),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+            // Box 1: Title & Description
+            _buildSectionContainer(
+              title: 'Info',
               children: [
-                Text(
-                  'From',
-                  style: AppTextStyles.link.copyWith(color: Colors.grey),
+                TextField(
+                  onChanged: (value) => setState(() => _title = value),
+                  decoration: InputDecoration(
+                    labelText: 'Title',
+                    border: InputBorder.none,
+                    enabledBorder: InputBorder.none,
+                    focusedBorder: InputBorder.none,
+                    contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 1),
+                  ),
                 ),
-                const SizedBox(height: 4),
-                GestureDetector(
-                  onTap: () {
-                    setState(() {
-                      _showFromCalendar = !_showFromCalendar;
-                      _showToCalendar = false;
-                    });
-                  },
-                  child: SizedBox(
-                    width: 180,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
-                      decoration: BoxDecoration(
-                        border: Border.all(color: Colors.grey.shade300),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                _buildDivider(),
+                TextField(
+                  onChanged: (value) => setState(() => _description = value),
+                  decoration: InputDecoration(
+                    labelText: 'Description',
+                    labelStyle: AppTextStyles.body,
+                    border: InputBorder.none,
+                    enabledBorder: InputBorder.none,
+                    focusedBorder: InputBorder.none,
+                    contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  ),
+                  maxLines: 1,
+                ),
+              ],
+            ),
+
+            // Box 2: Schedule (Date & Time)
+            _buildSectionContainer(
+              title: 'Schedule',
+              children: [
+                // Date Selection - Right aligned layout
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+                  child: Column(
+                    children: [
+                      // From Date Row
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween, // This pushes items to edges
                         children: [
-                          Text(
-                            _formatDate(_selectedFromDay),
-                            style: AppTextStyles.body,
+                          SizedBox(
+                            width: 60, // Fixed width for "From" label
+                            child: Text(
+                              'From',
+                              style: AppTextStyles.body.copyWith(
+                                color: Colors.grey[600],
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
                           ),
-                          Icon(
-                            _showFromCalendar ? Icons.keyboard_arrow_up : Icons.keyboard_arrow_down,
-                            color: Colors.grey,
+                          Container(
+                            width: 180, // Fixed width for the date selection box
+                            child: GestureDetector(
+                              onTap: () {
+                                setState(() {
+                                  _showFromCalendar = !_showFromCalendar;
+                                  _showToCalendar = false;
+                                });
+                              },
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 12),
+                                decoration: BoxDecoration(
+                                  border: Border.all(color: Colors.grey.shade300),
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: Row(
+                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    Text(
+                                      _formatDate(_selectedFromDay),
+                                      style: AppTextStyles.body.copyWith(fontSize: 14),
+                                    ),
+                                    Icon(
+                                      _showFromCalendar ? Icons.keyboard_arrow_up : Icons.keyboard_arrow_down,
+                                      color: Colors.grey,
+                                      size: 20,
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
                           ),
                         ],
                       ),
-                    ),
-                  ),
-                ),
-                // Calendar appears directly below the From selector
-                if (_showFromCalendar)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 8.0),
-                    child: _buildCalendarPicker(themeProvider, true),
-                  ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'To',
-                  style: AppTextStyles.link.copyWith(color: Colors.grey),
-                ),
-                const SizedBox(height: 4),
-                GestureDetector(
-                  onTap: () {
-                    setState(() {
-                      _showToCalendar = !_showToCalendar;
-                      _showFromCalendar = false;
-                    });
-                  },
-                  child: SizedBox(
-                    width: 180,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
-                      decoration: BoxDecoration(
-                        border: Border.all(color: Colors.grey.shade300),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+
+                      // Calendar for From date
+                      if (_showFromCalendar)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 8.0),
+                          child: _buildCalendarPicker(themeProvider, true),
+                        ),
+
+                      const SizedBox(height: 12),
+
+                      // To Date Row
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween, // This pushes items to edges
                         children: [
-                          Text(
-                            _formatDate(_selectedToDay),
-                            style: AppTextStyles.body,
+                          SizedBox(
+                            width: 60, // Fixed width for "To" label
+                            child: Text(
+                              'To',
+                              style: AppTextStyles.body.copyWith(
+                                color: Colors.grey[600],
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
                           ),
-                          Icon(
-                            _showToCalendar ? Icons.keyboard_arrow_up : Icons.keyboard_arrow_down,
-                            color: Colors.grey,
+                          Container(
+                            width: 180, // Fixed width for the date selection box
+                            child: GestureDetector(
+                              onTap: () {
+                                setState(() {
+                                  _showToCalendar = !_showToCalendar;
+                                  _showFromCalendar = false;
+                                });
+                              },
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 12),
+                                decoration: BoxDecoration(
+                                  border: Border.all(color: Colors.grey.shade300),
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: Row(
+                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    Text(
+                                      _formatDate(_selectedToDay),
+                                      style: AppTextStyles.body.copyWith(fontSize: 14),
+                                    ),
+                                    Icon(
+                                      _showToCalendar ? Icons.keyboard_arrow_up : Icons.keyboard_arrow_down,
+                                      color: Colors.grey,
+                                      size: 20,
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
                           ),
                         ],
                       ),
-                    ),
+
+                      // Calendar for To date
+                      if (_showToCalendar)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 8.0),
+                          child: _buildCalendarPicker(themeProvider, false),
+                        ),
+                    ],
                   ),
                 ),
-                // Calendar appears directly below the To selector
-                if (_showToCalendar)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 8.0),
-                    child: _buildCalendarPicker(themeProvider, false),
+
+                // Time Selection - Right aligned layout
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween, // This pushes items to edges
+                    children: [
+                      SizedBox(
+                        width: 60, // Fixed width for "Time" label
+                        child: Text(
+                          'Time',
+                          style: AppTextStyles.body.copyWith(
+                            color: Colors.grey[600],
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ),
+                      Container(
+                        width: 180, // Fixed width for the time selection box
+                        child: GestureDetector(
+                          onTap: () {
+                            setState(() {
+                              _showTimePicker = !_showTimePicker;
+                            });
+                          },
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 12),
+                            decoration: BoxDecoration(
+                              border: Border.all(color: Colors.grey.shade300),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Text(
+                                  '${_selectedTime.hourOfPeriod == 0 ? 12 : _selectedTime.hourOfPeriod}:${_selectedTime.minute.toString().padLeft(2, '0')} $_period',
+                                  style: AppTextStyles.body.copyWith(fontSize: 14),
+                                ),
+                                Icon(
+                                  _showTimePicker ? Icons.keyboard_arrow_up : Icons.keyboard_arrow_down,
+                                  color: Colors.grey,
+                                  size: 20,
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
+                ),
+
+                // Time Picker
+                if (_showTimePicker)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16.0),
+                    child: _buildTimePicker(isSmallScreen, themeProvider),
+                  ),
+
+                const SizedBox(height: 8),
               ],
             ),
-            const SizedBox(height: 8),
-            _buildDivider(),
-            const SizedBox(height: 16),
-            GestureDetector(
-              onTap: () {
-                setState(() {
-                  _showTimePicker = !_showTimePicker;
-                });
-              },
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Select Time',
-                    style: AppTextStyles.subheading.copyWith(fontWeight: FontWeight.bold),
-                  ),
-                  const SizedBox(width: 8),
-                  Icon(
-                    _showTimePicker ? Icons.keyboard_arrow_up : Icons.keyboard_arrow_down,
-                    color: Colors.grey,
+
+            // Box 3: Other Options
+            // Previously used _buildSectionContainer(title: '', ...)
+            // Now we intentionally render a container without any title area.
+            Container(
+              width: double.infinity,
+              margin: const EdgeInsets.only(bottom: 16),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(12),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.grey.withOpacity(0.2),
+                    blurRadius: 4,
+                    offset: const Offset(0, 2),
                   ),
                 ],
               ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _buildOptionTile(
+                    context,
+                    title: 'Repeat',
+                    isSwitch: true,
+                    switchValue: _isRepeatEnabled,
+                    onSwitchChanged: (value) {
+                      setState(() {
+                        _isRepeatEnabled = value;
+                        if (!value) {
+                          _selectedDays = List.filled(7, false);
+                        }
+                      });
+                    },
+                  ),
+                  if (_isRepeatEnabled) _buildDaysSelector(),
+                  _buildDivider(),
+                  _buildOptionTile(
+                    context,
+                    title: 'Sound',
+                    value: _soundOption.isEmpty ? 'Select a sound' : _soundOption,
+                    onTap: _soundOptions.isEmpty ? null : _selectSoundOption,
+                  ),
+                  _buildDivider(),
+                  // _buildOptionTile(
+                  //   context,
+                  //   title: 'Important',
+                  //   isSwitch: true,
+                  //   switchValue: _isImportant,
+                  //   onSwitchChanged: (value) => setState(() => _isImportant = value),
+                  // ),
+                ],
+              ),
             ),
-            const SizedBox(height: 8),
-            if (_showTimePicker) _buildTimePicker(isSmallScreen, themeProvider),
-            _buildDivider(),
-            const SizedBox(height: 16),
-            _buildOptionTile(
-              context,
-              title: 'Repeat',
-              isSwitch: true,
-              switchValue: _isRepeatEnabled,
-              onSwitchChanged: (value) {
-                setState(() {
-                  _isRepeatEnabled = value;
-                  if (!value) {
-                    _selectedDays = List.filled(7, false);
-                  }
-                });
-              },
-            ),
-            if (_isRepeatEnabled) _buildDaysSelector(),
-            _buildDivider(),
-            _buildOptionTile(
-              context,
-              title: 'Sound',
-              value: _soundOption.isEmpty ? 'Select a sound' : _soundOption,
-              onTap: _soundOptions.isEmpty ? null : _selectSoundOption,
-            ),
-            _buildDivider(),
-            const SizedBox(height: 16),
-            _buildOptionTile(
-              context,
-              title: 'Important',
-              isSwitch: true,
-              switchValue: _isImportant,
-              onSwitchChanged: (value) => setState(() => _isImportant = value),
-            ),
-            _buildDivider(),
           ],
         ),
       ),
@@ -597,8 +719,9 @@ class _ReminderPageState extends State<ReminderPage> {
 
   Widget _buildTimePicker(bool isSmallScreen, ThemeProvider themeProvider) {
     return Container(
+      // Changed background to white as requested
       height: isSmallScreen ? 200.0 : 240.0,
-      color: Colors.grey[50],
+      color: Colors.white,
       padding: const EdgeInsets.symmetric(vertical: 16),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.center,
@@ -791,7 +914,7 @@ class _ReminderPageState extends State<ReminderPage> {
         Function(bool)? onSwitchChanged,
       }) {
     return ListTile(
-      contentPadding: const EdgeInsets.symmetric(vertical: 8),
+      contentPadding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
       title: Text(
         title,
         style: AppTextStyles.subheading.copyWith(fontWeight: FontWeight.bold),
