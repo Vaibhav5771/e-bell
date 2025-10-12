@@ -18,7 +18,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   final _usernameController = TextEditingController();
+  final _ssidController = TextEditingController();
+  final _devicePasswordController = TextEditingController();
   final _authService = AuthService();
+
   bool _isLoading = false;
   bool _isPasswordVisible = false;
 
@@ -27,24 +30,23 @@ class _RegisterScreenState extends State<RegisterScreen> {
     _emailController.dispose();
     _passwordController.dispose();
     _usernameController.dispose();
+    _ssidController.dispose();
+    _devicePasswordController.dispose();
     super.dispose();
   }
 
   Future<void> _register() async {
-    setState(() {
-      _isLoading = true;
-    });
-
+    setState(() => _isLoading = true);
     try {
-      debugPrint('RegisterScreen: Starting registration');
       final user = await _authService.signUpWithEmailAndPassword(
         _emailController.text.trim(),
         _passwordController.text.trim(),
         _usernameController.text.trim(),
+        _ssidController.text.trim(),
+        _devicePasswordController.text.trim(),
       );
-      debugPrint('RegisterScreen: User registered, UID: ${user.uid}');
+
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        debugPrint('RegisterScreen: Updating AuthState and navigating to DevicePage');
         final authState = Provider.of<AuthState>(context, listen: false);
         authState.setUser(
           user.uid,
@@ -58,21 +60,20 @@ class _RegisterScreenState extends State<RegisterScreen> {
           context,
           MaterialPageRoute(builder: (context) => const DevicePage()),
         );
-        debugPrint('RegisterScreen: Navigated to DevicePage');
       });
     } catch (e) {
-      debugPrint('RegisterScreen: Registration error: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Registration failed: ${e.toString()}', style: AppTextStyles.body)),
+          SnackBar(
+            content: Text(
+              'Registration failed: ${e.toString()}',
+              style: AppTextStyles.body,
+            ),
+          ),
         );
       }
     } finally {
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-        });
-      }
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
@@ -85,7 +86,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
             children: [
               const SizedBox(height: 80),
 
-              // Illustration image
+              // Illustration
               SizedBox(
                 height: 250,
                 child: Image.asset(
@@ -97,8 +98,13 @@ class _RegisterScreenState extends State<RegisterScreen> {
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 20.0),
                 child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     const SizedBox(height: 50),
+
+                    // ===== PERSONAL DETAILS =====
+                    Text("Personal Details", style: AppTextStyles.subheading),
+                    const SizedBox(height: 16),
 
                     // Username
                     TextField(
@@ -143,20 +149,56 @@ class _RegisterScreenState extends State<RegisterScreen> {
                                 ? Icons.visibility
                                 : Icons.visibility_off,
                           ),
-                          onPressed: () {
-                            setState(() {
-                              _isPasswordVisible = !_isPasswordVisible;
-                            });
-                          },
+                          onPressed: () =>
+                              setState(() => _isPasswordVisible = !_isPasswordVisible),
                         ),
                       ),
                     ),
+                    const SizedBox(height: 30),
 
+                    // ===== DEVICE DETAILS =====
+                    Text("Device Details", style: AppTextStyles.subheading),
+                    const SizedBox(height: 16),
+
+                    // SSID
+                    TextField(
+                      controller: _ssidController,
+                      decoration: InputDecoration(
+                        labelText: 'SSID',
+                        labelStyle: AppTextStyles.small.copyWith(color: Colors.grey[700]!),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+
+                    // Device Password
+                    TextField(
+                      controller: _devicePasswordController,
+                      obscureText: !_isPasswordVisible,
+                      decoration: InputDecoration(
+                        labelText: 'Device Password',
+                        labelStyle: AppTextStyles.small.copyWith(color: Colors.grey[700]!),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        suffixIcon: IconButton(
+                          icon: Icon(
+                            _isPasswordVisible
+                                ? Icons.visibility
+                                : Icons.visibility_off,
+                          ),
+                          onPressed: () =>
+                              setState(() => _isPasswordVisible = !_isPasswordVisible),
+                        ),
+                      ),
+                    ),
                     const SizedBox(height: 30),
 
                     // Register button
                     _isLoading
-                        ? const CircularProgressIndicator()
+                        ? const Center(child: CircularProgressIndicator())
                         : ElevatedButton(
                       onPressed: _register,
                       style: ElevatedButton.styleFrom(
@@ -166,47 +208,36 @@ class _RegisterScreenState extends State<RegisterScreen> {
                           borderRadius: BorderRadius.circular(10),
                         ),
                       ),
-                      child: Text(
-                        'Register',
-                        style: AppTextStyles.button,
-                      ),
+                      child: Text('Register', style: AppTextStyles.button),
                     ),
-
                     const SizedBox(height: 16),
 
                     // Login link
-                    TextButton(
-                      onPressed: widget.onTap,
-                      child: Text(
-                        'Already have an account? Login',
-                        style: AppTextStyles.link, // Using link style for clickable text
+                    Center(
+                      child: TextButton(
+                        onPressed: widget.onTap,
+                        child: Text(
+                          'Already have an account? Login',
+                          style: AppTextStyles.link,
+                        ),
                       ),
                     ),
+                    const SizedBox(height: 40),
 
-                    const SizedBox(height: 50),
-
-                    // Logo
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Image.asset(
-                          'assets/iogicon.png',
-                          height: 60,
-                        ),
-                      ],
+                    // Logo + Version
+                    Center(
+                      child: Column(
+                        children: [
+                          Image.asset('assets/iogicon.png', height: 60),
+                          const SizedBox(height: 10),
+                          Text(
+                            'EBELL_Version_V.3.0',
+                            style: AppTextStyles.small.copyWith(color: Colors.black54),
+                          ),
+                        ],
+                      ),
                     ),
-                    const SizedBox(height: 10),
-
-                    // Version text
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Text(
-                          'EBELL_Version_V.3.0',
-                          style: AppTextStyles.small.copyWith(color: Colors.black54),
-                        ),
-                      ],
-                    ),
+                    const SizedBox(height: 40),
                   ],
                 ),
               ),

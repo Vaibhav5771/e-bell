@@ -3,7 +3,7 @@ import 'package:provider/provider.dart';
 import '../authentication/auth_service.dart';
 import '../utils/theme_state.dart';
 import '../utils/app_text_styles.dart';
-import 'account_screen.dart';
+import 'devices_screen.dart';
 import 'app_setting.dart';
 import 'device_setting.dart';
 import 'app_info.dart';
@@ -16,6 +16,7 @@ class ProfileScreen extends StatefulWidget {
 
 class _ProfileScreenState extends State<ProfileScreen> {
   static const List<Map<String, dynamic>> _items = [
+    {'icon': Icons.device_hub, 'title': 'Added Devices', 'screen': AccountScreen()},
     {'icon': Icons.settings, 'title': 'Device Setting', 'screen': DeviceSettingScreen()},
     {'icon': Icons.tune, 'title': 'App Setting', 'screen': AppSettingScreen()},
     {'icon': Icons.help_outline, 'title': 'Help & Privacy', 'screen': HelpPrivacyScreen()},

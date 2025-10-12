@@ -19,7 +19,12 @@ class AuthService {
 
   // Sign up with email, password, and username
   Future<User> signUpWithEmailAndPassword(
-      String email, String password, String username) async {
+      String email,
+      String password,
+      String username,
+      String ssid,
+      String devicePassword,
+      ) async {
     try {
       UserCredential userCredential = await _auth.createUserWithEmailAndPassword(
         email: email,
@@ -29,15 +34,19 @@ class AuthService {
       await _firestore.collection('users').doc(userCredential.user!.uid).set({
         'email': email,
         'username': username,
+        'ssid': ssid.isNotEmpty ? ssid : 'IoGen_Speaker',
+        'devicePassword': devicePassword.isNotEmpty ? devicePassword : '12345678',
         'avatarUrl': 'assets/avatar_1.png',
         'createdAt': FieldValue.serverTimestamp(),
       });
+
 
       return userCredential.user!;
     } catch (e) {
       throw Exception('Sign-up failed: $e');
     }
   }
+
 
   // Get user data from Firestore
   Future<Map<String, dynamic>?> getUserData(String uid) async {

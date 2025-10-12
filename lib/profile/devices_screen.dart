@@ -88,55 +88,75 @@ class _AccountScreenState extends State<AccountScreen> {
             : Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            // Text(
+            //   'Name',
+            //   style: AppTextStyles.link.copyWith(color: Colors.grey),
+            // ),
+            // const SizedBox(height: 4),
+            // Text(
+            //   _userData?['username'] ?? 'N/A',
+            //   style: AppTextStyles.body,
+            // ),
+            // const Divider(height: 32),
+            // Text(
+            //   'Contact',
+            //   style: AppTextStyles.link.copyWith(color: Colors.grey),
+            // ),
+            // const SizedBox(height: 4),
+            // Text(
+            //   _userData?['contact'] ?? '1234567890',
+            //   style: AppTextStyles.body,
+            // ),
+            // const Divider(height: 32),
+            // Text(
+            //   'Email',
+            //   style: AppTextStyles.link.copyWith(color: Colors.grey),
+            // ),
+            // const SizedBox(height: 4),
+            // Text(
+            //   _userData?['email'] ?? 'N/A',
+            //   style: AppTextStyles.body,
+            // ),
+            // const Divider(height: 32),
             Text(
-              'Name',
+              'SSID',
               style: AppTextStyles.link.copyWith(color: Colors.grey),
             ),
             const SizedBox(height: 4),
             Text(
-              _userData?['username'] ?? 'N/A',
+              _userData?['ssid'] ?? 'IoGen_Speaker',
               style: AppTextStyles.body,
             ),
             const Divider(height: 32),
             Text(
-              'Contact',
+              'Device Password',
               style: AppTextStyles.link.copyWith(color: Colors.grey),
             ),
             const SizedBox(height: 4),
             Text(
-              _userData?['contact'] ?? '1234567890',
+              _userData?['devicePassword'] ?? '12345678',
               style: AppTextStyles.body,
             ),
             const Divider(height: 32),
-            Text(
-              'Email',
-              style: AppTextStyles.link.copyWith(color: Colors.grey),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              _userData?['email'] ?? 'N/A',
-              style: AppTextStyles.body,
-            ),
-            const Divider(height: 32),
-            Text(
-              'DOB',
-              style: AppTextStyles.link.copyWith(color: Colors.grey),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              _userData?['dob'] ?? '13-05-25',
-              style: AppTextStyles.body,
-            ),
-            const Divider(height: 32),
-            Text(
-              'Address',
-              style: AppTextStyles.link.copyWith(color: Colors.grey),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              _userData?['address'] ?? 'Lorem Ipsum Lorem Ipsum Lorem Ipsum',
-              style: AppTextStyles.body,
-            ),
+            // Text(
+            //   'DOB',
+            //   style: AppTextStyles.link.copyWith(color: Colors.grey),
+            // ),
+            // const SizedBox(height: 4),
+            // Text(
+            //   _userData?['dob'] ?? '13-05-25',
+            //   style: AppTextStyles.body,
+            // ),
+            // const Divider(height: 32),
+            // Text(
+            //   'Address',
+            //   style: AppTextStyles.link.copyWith(color: Colors.grey),
+            // ),
+            // const SizedBox(height: 4),
+            // Text(
+            //   _userData?['address'] ?? 'Lorem Ipsum Lorem Ipsum Lorem Ipsum',
+            //   style: AppTextStyles.body,
+            // ),
           ],
         ),
       ),
