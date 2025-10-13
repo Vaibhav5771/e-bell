@@ -1,3 +1,4 @@
+import 'package:e_bell/authentication/termsandconditions.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../utils/app_text_styles.dart';
@@ -58,7 +59,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
         Navigator.pushReplacement(
           context,
-          MaterialPageRoute(builder: (context) => const DevicePage()),
+          MaterialPageRoute(builder: (context) => const TermsAndConditionsPage()),
         );
       });
     } catch (e) {

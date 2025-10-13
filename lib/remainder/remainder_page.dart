@@ -88,7 +88,7 @@ class _ReminderPageState extends State<ReminderPage> {
 
   Future<bool> _verifyReminder(String soundOption, int hr, int mn, int sEpoch, int eEpoch, int week, int alarmType) async {
     try {
-      final response = await http.get(Uri.parse('http://192.168.2.1/alarmsong')).timeout(
+      final response = await http.get(Uri.parse('http://192.168.2.1/songs')).timeout(
         const Duration(seconds: 10),
         onTimeout: () {
           throw Exception('Verification request timed out');

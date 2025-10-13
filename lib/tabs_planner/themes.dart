@@ -15,11 +15,11 @@ class ThemePage extends StatefulWidget {
 class _ThemePageState extends State<ThemePage> {
   final List<Color> themeColors = [
     Colors.orange,
-    Colors.lightBlue,
+    Color(0xFF2274C8),
     Colors.green,
     Colors.blue,
     Colors.red,
-    Colors.orange[100]!,
+    Color(0xFFF6B923),
     Colors.black87,
     Colors.teal,
   ];

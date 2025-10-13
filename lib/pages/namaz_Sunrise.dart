@@ -23,8 +23,8 @@ class _ReligiousAlarmsState extends State<ReligiousAlarms> {
   List<String> _availableReligions = ['Hinduism', 'Islamic', 'Sikhism', 'Christianity', 'Buddhism'];
   List<String> _selectedReligions = ['Hinduism', 'Islamic']; // Default selections
 
-  bool _namazEnabled = true;
-  bool _sunriseEnabled = true;
+  bool _namazEnabled = false;
+  bool _sunriseEnabled = false;
 
   // Sound files fetched from IoT device
   List<String> _namazSoundFiles = [];
@@ -72,6 +72,22 @@ class _ReligiousAlarmsState extends State<ReligiousAlarms> {
     super.initState();
     _loadSettings();
     _fetchSoundFiles();
+    _checkAndSetDefaultOnDevice();
+  }
+
+  Future<void> _checkAndSetDefaultOnDevice() async {
+    final prefs = await SharedPreferences.getInstance();
+    final bool isFirstRun = prefs.getBool('isFirstRun') ?? true;
+
+    if (isFirstRun) {
+      if (_selectedReligions.contains('Islamic') && _namazEnabled) {
+        await _sendNamazRequest(true);
+      }
+      if (_selectedReligions.contains('Hinduism') && _sunriseEnabled) {
+        await _sendSunriseSunsetRequest(true);
+      }
+      await prefs.setBool('isFirstRun', false);
+    }
   }
 
   // Fetch sound files from IoT device

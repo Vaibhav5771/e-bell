@@ -23,7 +23,6 @@ import 'dart:async';
 import '../alarm/alarm_page.dart';
 import '../services/schedule_item.dart';
 import '../utils/app_text_styles.dart';
-import '../utils/quickalert.dart';
 
 class AlarmSong {
   final String fileName;
@@ -145,6 +144,7 @@ class _HomeScreenState extends State<HomeScreen> {
     _tabLogic = TabLogic();
     _musicTabLogic = TabLogic1();
     _calendarLogic = CalendarLogic();
+    _initializeApp();
     _requestPermissions();
     _startWifiMonitoring();
     _loadPrayerTimesStatus();
@@ -158,6 +158,22 @@ class _HomeScreenState extends State<HomeScreen> {
     _timer?.cancel();
     wifiCheckTimer?.cancel();
     super.dispose();
+  }
+
+  Future<void> _initializeApp() async {
+    // Start Wi-Fi monitoring first
+    await _startWifiMonitoring();
+
+    // Small delay to ensure Wi-Fi status is updated
+    await Future.delayed(const Duration(milliseconds: 3000));
+
+    // Now load the prayer times status
+    await _loadPrayerTimesStatus();
+
+    // Start the periodic timer for updates
+    _timer = Timer.periodic(const Duration(seconds: 30), (timer) {
+      _loadPrayerTimesStatus();
+    });
   }
 
   Future<void> _requestPermissions() async {
@@ -251,6 +267,9 @@ class _HomeScreenState extends State<HomeScreen> {
     });
   }
 
+  String _previousConnectionStatus = "";
+  String _previousWifiSSID = "";
+
   Future<void> _checkWifiConnection() async {
     try {
       var connectivityResult = await Connectivity().checkConnectivity();
@@ -259,20 +278,42 @@ class _HomeScreenState extends State<HomeScreen> {
         String? cleanedSSID = wifiSSID?.replaceAll('"', '').trim();
         debugPrint("Raw Wi-Fi SSID: $wifiSSID");
         debugPrint("Cleaned Wi-Fi SSID: $cleanedSSID");
+
+        bool isTargetWifi = cleanedSSID != null &&
+            cleanedSSID.toLowerCase() == targetSsid.toLowerCase();
+
         setState(() {
           isWifiConnected = true;
-          if (cleanedSSID != null &&
-              cleanedSSID.toLowerCase() == targetSsid.toLowerCase()) {
+          if (isTargetWifi) {
             connectionStatus = "Connected to $targetSsid";
           } else {
             connectionStatus = "Connected to Wi-Fi: ${cleanedSSID ?? 'Unknown'}";
           }
         });
+
+        // Only trigger API call if we just connected to target Wi-Fi
+        bool justConnectedToTarget = isTargetWifi &&
+            (_previousWifiSSID != cleanedSSID ||
+                !_previousConnectionStatus.contains(targetSsid));
+
+        if (isTargetWifi && justConnectedToTarget && mounted) {
+          debugPrint("Newly connected to target Wi-Fi, loading data...");
+          _loadPrayerTimesStatus();
+        }
+
+        // Update previous values
+        _previousWifiSSID = cleanedSSID ?? "";
+        _previousConnectionStatus = connectionStatus;
+
       } else {
         setState(() {
           isWifiConnected = false;
           connectionStatus = "Not connected to Wi-Fi";
         });
+
+        // Reset previous values when disconnecting
+        _previousWifiSSID = "";
+        _previousConnectionStatus = "";
       }
     } catch (e) {
       setState(() {
@@ -383,7 +424,6 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _loadPrayerTimesStatus() async {
     if (!mounted) return;
-    // In _loadPrayerTimesStatus(), replace the SnackBar for Wi-Fi check
     if (!isWifiConnected || !connectionStatus.contains(targetSsid)) {
       setState(() {
         _loadingPrayerStatus = false;
@@ -391,9 +431,13 @@ class _HomeScreenState extends State<HomeScreen> {
         _loadingAlarmSongs = false;
         _errorLoadingAlarmSongs = true;
       });
-      AppAlert.error(
-        context,
-        text: 'Please connect to IoGen_Speaker Wi-Fi to fetch data',
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Please connect to IoGen_Speaker Wi-Fi to fetch data',
+            style: AppTextStyles.body,
+          ),
+        ),
       );
       return;
     }
@@ -429,18 +473,21 @@ class _HomeScreenState extends State<HomeScreen> {
         _loadingAlarmSongs = false;
         _errorLoadingAlarmSongs = true;
       });
-      AppAlert.error(
-        context,
-        text: e.toString(),
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(e.toString(), style: AppTextStyles.body)),
       );
     }
   }
 
   Future<void> _deleteAlarm(AlarmSong alarm) async {
     if (!isWifiConnected || !connectionStatus.contains(targetSsid)) {
-      AppAlert.error(
-        context,
-        text: "Please connect to IoGen_Speaker Wi-Fi to delete alarm",
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            "Please connect to IoGen_Speaker Wi-Fi to delete alarm",
+            style: AppTextStyles.body,
+          ),
+        ),
       );
       return;
     }
@@ -463,24 +510,30 @@ class _HomeScreenState extends State<HomeScreen> {
         onTimeout: () => throw Exception('Delete alarm API timed out'),
       );
 
-      // In _deleteAlarm(), replace the SnackBar for successful delete
       if (response.statusCode == 200) {
         setState(() {
           _alarmSongs.remove(alarm);
         });
-        AppAlert.success(
-          context,
-          text: "Alarm deleted successfully",
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              "Alarm deleted successfully",
+              style: AppTextStyles.body,
+            ),
+          ),
         );
         await _loadPrayerTimesStatus(); // Refresh the alarm list
       } else {
         throw Exception('Delete alarm API HTTP ${response.statusCode}');
       }
-      // In _deleteAlarm(), replace the SnackBar in catch block
     } catch (e) {
-      AppAlert.error(
-        context,
-        text: "Failed to delete alarm: $e",
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            "Failed to delete alarm: $e",
+            style: AppTextStyles.body,
+          ),
+        ),
       );
     }
   }
@@ -702,9 +755,13 @@ class _HomeScreenState extends State<HomeScreen> {
 
     if (selectedTime != null) {
       if (!isWifiConnected || !connectionStatus.contains(targetSsid)) {
-        AppAlert.error(
-          context,
-          text: "Please connect to IoGen_Speaker Wi-Fi to sync time",
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              "Please connect to IoGen_Speaker Wi-Fi to sync time",
+              style: AppTextStyles.body,
+            ),
+          ),
         );
         return;
       }
@@ -716,24 +773,35 @@ class _HomeScreenState extends State<HomeScreen> {
         selectedTime.hour,
         selectedTime.minute,
       );
-      // In _showTimePickerAndSync(), replace the SnackBar for past time
       if (selectedDateTime.isBefore(now)) {
         selectedDateTime = selectedDateTime.add(const Duration(days: 1));
-        AppAlert.warning(
-          context,
-          text: "Selected time is in the past. Setting for tomorrow: ${selectedTime.format(context)}",
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              "Selected time is in the past. Setting for tomorrow: ${selectedTime.format(context)}",
+              style: AppTextStyles.body,
+            ),
+          ),
         );
       }
       try {
         await BellService().syncTime(context, selectedTime: selectedDateTime);
-        AppAlert.success(
-          context,
-          text: "Time synced successfully: ${selectedTime.format(context)}",
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              "Time synced successfully: ${selectedTime.format(context)}",
+              style: AppTextStyles.body,
+            ),
+          ),
         );
       } catch (e) {
-        AppAlert.error(
-          context,
-          text: "Failed to sync time: $e",
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              "Failed to sync time: $e",
+              style: AppTextStyles.body,
+            ),
+          ),
         );
       }
     }
@@ -1257,31 +1325,28 @@ class _HomeScreenState extends State<HomeScreen> {
         surfaceTintColor: Colors.white,
         elevation: 0,
         automaticallyImplyLeading: false,
-        title: Text(
-          'E-Bell',
-          style: TextStyle(
-            color: themeProvider.selectedColor,
-            fontWeight: FontWeight.bold,
-            fontSize: 28,
-          ),
+        title: Image.asset(
+          'assets/appbar_icon.png', // Make sure the path matches your asset
+          height: 40, // Adjust the height as needed
+          fit: BoxFit.contain,
         ),
-        actions: [
-          IconButton(
-            icon: Icon(
-              Icons.access_time,
-              color: themeProvider.selectedColor,
-            ),
-            tooltip: 'Sync Time',
-            onPressed: _showTimePickerAndSync,
-          ),
-        ],
+        // actions: [
+        //   // IconButton(
+        //   //   icon: Icon(
+        //   //     Icons.access_time,
+        //   //     color: themeProvider.selectedColor,
+        //   //   ),
+        //   //   tooltip: 'Sync Time',
+        //   //   onPressed: _showTimePickerAndSync,
+        //   // ),
+        // ],
       ),
       body: Stack(
         children: [
           screens[_selectedIndex],
           if (_isFabMenuOpen && _selectedIndex == 0)
             Positioned(
-              bottom: 2,
+              bottom: 80, // Increased to position it right above the FAB button
               right: 16,
               child: Container(
                 width: 180,
@@ -1307,6 +1372,7 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
         ],
       ),
+      // Replace your current FAB in HomeScreen with this:
       floatingActionButton: _selectedIndex == 0
           ? FloatingActionButton(
         onPressed: () {
@@ -1315,10 +1381,11 @@ class _HomeScreenState extends State<HomeScreen> {
           });
         },
         backgroundColor: themeProvider.selectedColor,
-        shape: const CircleBorder(),
+        shape: const CircleBorder(), // Ensure it's circular
         child: Icon(
           _isFabMenuOpen ? Icons.close : Icons.edit_calendar_outlined,
-          color: Colors.white,
+          color: Colors.white, // White icon for better contrast
+          size: 28, // Consistent size
         ),
       )
           : null,
