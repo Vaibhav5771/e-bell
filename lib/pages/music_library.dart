@@ -11,6 +11,7 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:http/http.dart' as http;
+import 'package:quickalert/quickalert.dart';
 
 import 'comingsoon.dart';
 import '../music_tabs/recordingpage.dart';
@@ -100,7 +101,8 @@ class _MusicLibraryState extends State<MusicLibrary> {
           .toList();
 
       // Sort by modified date (latest first)
-      mp3Files.sort((a, b) => b.statSync().modified.compareTo(a.statSync().modified));
+      mp3Files.sort(
+              (a, b) => b.statSync().modified.compareTo(a.statSync().modified));
 
       final localRecordings = mp3Files.map((f) => f.path).toList();
 
@@ -170,7 +172,8 @@ class _MusicLibraryState extends State<MusicLibrary> {
       await file.delete();
       setState(() {
         recordings.removeAt(index);
-        if (_currentlyPlayingIndex != null && _currentlyPlayingIndex! >= index) {
+        if (_currentlyPlayingIndex != null &&
+            _currentlyPlayingIndex! >= index) {
           if (_currentlyPlayingIndex == index) {
             _currentlyPlayingIndex = null;
             _player?.stop();
@@ -198,7 +201,8 @@ class _MusicLibraryState extends State<MusicLibrary> {
   /// ----------------- API SONGS -----------------
   Future<void> _fetchApiSongs() async {
     try {
-      final response = await http.get(Uri.parse("http://192.168.2.1/alarmsong/"));
+      final response =
+      await http.get(Uri.parse("http://192.168.2.1/alarmsong/"));
       if (response.statusCode == 200) {
         final jsonResponse = json.decode(response.body);
         final List<dynamic> files = jsonResponse["Data"][0]["files"];
@@ -213,19 +217,50 @@ class _MusicLibraryState extends State<MusicLibrary> {
 
   Future<void> _playApiSong(String songName) async {
     try {
+      // First, send stop API call
+      final stopResponse = await http.post(
+        Uri.parse("http://192.168.2.1/preview/"),
+        body: "0",
+      );
+
+      if (stopResponse.statusCode != 200) {
+        debugPrint(
+            'Warning: Stop API call failed with status: ${stopResponse.statusCode}');
+      }
+
+      // Add a small delay to ensure the stop command is processed
+      await Future.delayed(const Duration(milliseconds: 200));
+
+      // Then send the preview API call
       final response = await http.post(
         Uri.parse("http://192.168.2.1/preview/"),
         body: "1,$songName",
       );
+
       if (response.statusCode == 200) {
         setState(() {
           currentlyPlayingApiSong = songName;
           _currentlyPlayingIndex = null;
           _player?.stop();
         });
+      } else {
+        debugPrint(
+            'Error: Preview API call failed with status: ${response.statusCode}');
+        if (mounted) {
+          AppAlert.error(
+            context,
+            text: 'Failed to play song. Status: ${response.statusCode}',
+          );
+        }
       }
     } catch (e) {
       debugPrint('Error playing API song: $e');
+      if (mounted) {
+        AppAlert.error(
+          context,
+          text: 'Error playing API song: $e',
+        );
+      }
     }
   }
 
@@ -246,50 +281,80 @@ class _MusicLibraryState extends State<MusicLibrary> {
   }
 
   Future<void> _deleteApiSong(String fileName) async {
-    try {
-      // Construct POST body in the new API format
-      // filename,hour,min,s_epoch,e_epoch,weeks
-      final body = "$fileName,0,0,0,0,0";
+    if (mounted) {
+      showDialog(
+        context: context,
+        builder: (BuildContext context) {
+          return AlertDialog(
+            title: const Text('Confirm Delete'),
+            content: Text(
+                "Are you sure you want to delete '$fileName'? This action cannot be undone."),
+            actions: <Widget>[
+              TextButton(
+                child: const Text('Cancel'),
+                onPressed: () {
+                  Navigator.of(context).pop();
+                },
+              ),
+              TextButton(
+                child:
+                const Text('Delete', style: TextStyle(color: Colors.red)),
+                onPressed: () async {
+                  Navigator.of(context).pop(); // Close the dialog
+                  try {
+                    // Construct POST body in the new API format
+                    // filename,hour,min,s_epoch,e_epoch,weeks
+                    final body = "$fileName,0,0,0,0,0";
 
-      final response = await http.post(
-        Uri.parse("http://192.168.2.1/delete/"),
-        body: body,
+                    final response = await http.post(
+                      Uri.parse("http://192.168.2.1/delete/"),
+                      body: body,
+                    );
+
+                    if (response.statusCode == 200) {
+                      setState(() {
+                        apiSongs.remove(fileName);
+                      });
+                      if (mounted) {
+                        AppAlert.success(
+                          context,
+                          text: "Successfully deleted: $fileName",
+                        );
+                      }
+                    } else {
+                      debugPrint(
+                          'Failed to delete API song. Status: ${response.statusCode}');
+                      if (mounted) {
+                        AppAlert.error(
+                          context,
+                          text:
+                          'Failed to delete song. Status: ${response.statusCode}',
+                        );
+                      }
+                    }
+                  } catch (e) {
+                    debugPrint('Error deleting API song: $e');
+                    if (mounted) {
+                      AppAlert.error(
+                        context,
+                        text: 'Error deleting API song: $e',
+                      );
+                    }
+                  }
+                },
+              ),
+            ],
+          );
+        },
       );
-
-      if (response.statusCode == 200) {
-        setState(() {
-          apiSongs.remove(fileName);
-        });
-        if (mounted) {
-          AppAlert.success(
-            context,
-            text: "Successfully deleted: $fileName",
-          );
-        }
-      } else {
-        debugPrint('Failed to delete API song. Status: ${response.statusCode}');
-        if (mounted) {
-          AppAlert.error(
-            context,
-            text: 'Failed to delete song. Status: ${response.statusCode}',
-          );
-        }
-      }
-    } catch (e) {
-      debugPrint('Error deleting API song: $e');
-      if (mounted) {
-        AppAlert.error(
-          context,
-          text: 'Error deleting API song: $e',
-        );
-      }
     }
   }
 
   /// ----------------- WIFI -----------------
   Future<void> _startWifiMonitoring() async {
     await _checkWifiConnection();
-    wifiCheckTimer = Timer.periodic(const Duration(seconds: 5), (_) => _checkWifiConnection());
+    wifiCheckTimer = Timer.periodic(
+        const Duration(seconds: 5), (_) => _checkWifiConnection());
   }
 
   Future<void> _checkWifiConnection() async {
@@ -299,7 +364,8 @@ class _MusicLibraryState extends State<MusicLibrary> {
         String? wifiSSID = await NetworkInfo().getWifiName();
         setState(() {
           isWifiConnected = true;
-          connectionStatus = wifiSSID != null && wifiSSID.toLowerCase() == targetSsid.toLowerCase()
+          connectionStatus = wifiSSID != null &&
+              wifiSSID.toLowerCase() == targetSsid.toLowerCase()
               ? "Connected to $targetSsid"
               : "Connected to Wi-Fi: ${wifiSSID ?? 'Unknown'}";
         });
@@ -352,7 +418,8 @@ class _MusicLibraryState extends State<MusicLibrary> {
   }
 
   Future<int> _getAndroidVersion() async {
-    if (Platform.isAndroid) return (await DeviceInfoPlugin().androidInfo).version.sdkInt;
+    if (Platform.isAndroid)
+      return (await DeviceInfoPlugin().androidInfo).version.sdkInt;
     return 0;
   }
 
@@ -401,7 +468,17 @@ class _MusicLibraryState extends State<MusicLibrary> {
                     //   ),
                     // ),
                     const SizedBox(height: 10),
-                    Text(connectionStatus, style: AppTextStyles.body, textAlign: TextAlign.center),
+                    Text(
+                      'Available Music',
+                      style: AppTextStyles.heading.copyWith(
+                        fontSize: 24,
+                        fontWeight: FontWeight.bold,
+                      ),
+                      textAlign: TextAlign.left,
+                    ),
+                    const SizedBox(height: 10),
+                    Text(connectionStatus,
+                        style: AppTextStyles.body, textAlign: TextAlign.center),
                   ],
                 ),
               ),
@@ -463,7 +540,8 @@ class _MusicLibraryState extends State<MusicLibrary> {
   Widget _buildFabOption(String title) {
     final themeProvider = Provider.of<ThemeProvider>(context);
     return ListTile(
-      leading: Icon(title == 'Add Music' ? Icons.add : Icons.mic, color: themeProvider.selectedColor),
+      leading: Icon(title == 'Add Music' ? Icons.add : Icons.mic,
+          color: themeProvider.selectedColor),
       title: Text(title, style: AppTextStyles.body),
       onTap: () async {
         setState(() => _isFabMenuOpen = false);
@@ -479,8 +557,7 @@ class _MusicLibraryState extends State<MusicLibrary> {
             final newFile = await BellService().uploadMp3(
                 context,
                 null, // filePath is null, so it will open file picker
-                isWifiConnected
-            );
+                isWifiConnected);
 
             if (newFile != null && mounted) {
               // Refresh both local recordings and API songs
@@ -510,7 +587,8 @@ class _MusicLibraryState extends State<MusicLibrary> {
             await Future.delayed(const Duration(milliseconds: 300));
             final newRecordingPath = await Navigator.push<String>(
               context,
-              MaterialPageRoute(builder: (context) => const AudioRecorderPage()),
+              MaterialPageRoute(
+                  builder: (context) => const AudioRecorderPage()),
             );
             if (newRecordingPath != null && mounted) {
               await _loadUploadedFiles();
@@ -533,7 +611,8 @@ class _MusicLibraryState extends State<MusicLibrary> {
   }
 
   Widget _buildLibraryList() {
-    if (apiSongs.isEmpty) return const Center(child: CircularProgressIndicator());
+    if (apiSongs.isEmpty)
+      return const Center(child: CircularProgressIndicator());
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16.0),
@@ -570,14 +649,17 @@ class _MusicLibraryState extends State<MusicLibrary> {
                   children: [
                     IconButton(
                       icon: Icon(
-                          isPlaying ? Icons.pause_circle_filled : Icons.play_circle_fill,
+                          isPlaying
+                              ? Icons.pause_circle_filled
+                              : Icons.play_circle_fill,
                           color: Colors.orange,
-                          size: 28
-                      ),
-                      onPressed: () => isPlaying ? _pauseApiSong() : _playApiSong(song),
+                          size: 28),
+                      onPressed: () =>
+                      isPlaying ? _pauseApiSong() : _playApiSong(song),
                     ),
                     IconButton(
-                      icon: const Icon(Icons.delete, color: Colors.red, size: 20),
+                      icon:
+                      const Icon(Icons.delete, color: Colors.red, size: 20),
                       onPressed: () => _deleteApiSong(song),
                     ),
                   ],
@@ -593,7 +675,11 @@ class _MusicLibraryState extends State<MusicLibrary> {
   Widget _buildMyMusicList() {
     if (_isLoading) return const Center(child: CircularProgressIndicator());
     if (recordings.isEmpty) {
-      return Center(child: Text('No recordings yet.\nTap the + button to record something!', textAlign: TextAlign.center, style: AppTextStyles.body));
+      return Center(
+          child: Text(
+              'No recordings yet.\nTap the + button to record something!',
+              textAlign: TextAlign.center,
+              style: AppTextStyles.body));
     }
 
     final themeProvider = Provider.of<ThemeProvider>(context);
@@ -608,23 +694,38 @@ class _MusicLibraryState extends State<MusicLibrary> {
           final fileName = filePath.split('/').last;
           return Dismissible(
             key: Key(filePath),
-            background: Container(color: Colors.red, alignment: Alignment.centerRight, padding: const EdgeInsets.only(right: 20), child: const Icon(Icons.delete, color: Colors.white)),
+            background: Container(
+                color: Colors.red,
+                alignment: Alignment.centerRight,
+                padding: const EdgeInsets.only(right: 20),
+                child: const Icon(Icons.delete, color: Colors.white)),
             onDismissed: (_) => _deleteRecording(index, filePath),
             child: Container(
               margin: const EdgeInsets.only(bottom: 12),
               decoration: BoxDecoration(
                 color: Colors.white,
                 borderRadius: BorderRadius.circular(12),
-                boxShadow: [BoxShadow(color: Colors.grey.shade300, blurRadius: 4, offset: const Offset(0, 2))],
+                boxShadow: [
+                  BoxShadow(
+                      color: Colors.grey.shade300,
+                      blurRadius: 4,
+                      offset: const Offset(0, 2))
+                ],
               ),
               child: ListTile(
                 leading: ClipRRect(
                   borderRadius: BorderRadius.circular(12),
-                  child: Image.asset('assets/Music.jpg', width: 50, height: 50, fit: BoxFit.cover),
+                  child: Image.asset('assets/Music.jpg',
+                      width: 50, height: 50, fit: BoxFit.cover),
                 ),
                 title: Text(fileName, style: AppTextStyles.body),
                 subtitle: Text('00:00', style: AppTextStyles.small),
-                trailing: Icon(_currentlyPlayingIndex == index && _player?.playing == true ? Icons.pause_circle_filled : Icons.play_circle_fill, color: themeProvider.selectedColor, size: 30),
+                trailing: Icon(
+                    _currentlyPlayingIndex == index && _player?.playing == true
+                        ? Icons.pause_circle_filled
+                        : Icons.play_circle_fill,
+                    color: themeProvider.selectedColor,
+                    size: 30),
                 onTap: () => _playRecording(index),
               ),
             ),

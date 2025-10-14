@@ -29,6 +29,7 @@ class _AudioRecorderPageState extends State<AudioRecorderPage> {
   bool _isConverting = false;
   bool _isPlaying = false;
   bool _isLooping = false;
+  bool _isUploading = false; // New state for upload loading
   String? _filePath;
   String? _mp3FilePath;
   String? _errorMessage;
@@ -528,6 +529,10 @@ class _AudioRecorderPageState extends State<AudioRecorderPage> {
       return;
     }
 
+    setState(() {
+      _isUploading = true; // Show loading indicator
+    });
+
     try {
       final file = File(_mp3FilePath!);
       if (!await file.exists()) {
@@ -577,14 +582,7 @@ class _AudioRecorderPageState extends State<AudioRecorderPage> {
       debugPrint('Upload result: $uploadedPath');
 
       if (uploadedPath != null && mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              'Recording saved and uploaded successfully',
-              style: AppTextStyles.body,
-            ),
-          ),
-        );
+        // Navigate back to MusicLibrary page with the uploaded file path
         Navigator.pop(context, uploadedPath);
       } else if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -601,14 +599,22 @@ class _AudioRecorderPageState extends State<AudioRecorderPage> {
       setState(() {
         _errorMessage = 'Save/Upload error: $e';
       });
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'Save/Upload error: $e',
-            style: AppTextStyles.body,
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Save/Upload error: $e',
+              style: AppTextStyles.body,
+            ),
           ),
-        ),
-      );
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isUploading = false; // Hide loading indicator
+        });
+      }
     }
   }
 
@@ -616,159 +622,188 @@ class _AudioRecorderPageState extends State<AudioRecorderPage> {
   Widget build(BuildContext context) {
     final themeProvider = Provider.of<ThemeProvider>(context);
 
-    return Scaffold(
-      backgroundColor: Colors.white,
-      appBar: AppBar(
-        leading: IconButton(
-          icon: Icon(Icons.close, color: Colors.black),
-          onPressed: () => Navigator.pop(context),
-        ),
-        title: Text(
-          'Recording',
-          style: AppTextStyles.heading,
-        ),
-        centerTitle: true,
-        backgroundColor: Colors.white,
-        elevation: 0.5,
-      ),
-      body: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            if (_isConverting)
-              Column(
-                children: [
-                  const CircularProgressIndicator(),
-                  const SizedBox(height: 20),
-                  Text(
-                    'Converting to MP3...',
-                    style: AppTextStyles.body,
+    return Stack(
+      children: [
+        Scaffold(
+          backgroundColor: Colors.white,
+          appBar: AppBar(
+            leading: IconButton(
+              icon: Icon(Icons.close, color: Colors.black),
+              onPressed: () => Navigator.pop(context),
+            ),
+            title: Text(
+              'Recording',
+              style: AppTextStyles.heading,
+            ),
+            centerTitle: true,
+            backgroundColor: Colors.white,
+            elevation: 0.5,
+          ),
+          body: Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                if (_isConverting)
+                  Column(
+                    children: [
+                      const CircularProgressIndicator(),
+                      const SizedBox(height: 20),
+                      Text(
+                        'Converting to MP3...',
+                        style: AppTextStyles.body,
+                      ),
+                    ],
+                  )
+                else
+                  Icon(
+                    _isRecording ? Icons.mic : Icons.mic_none,
+                    size: 80,
+                    color: _isRecording
+                        ? themeProvider.selectedColor
+                        : Colors.grey[400],
                   ),
-                ],
-              )
-            else
-              Icon(
-                _isRecording ? Icons.mic : Icons.mic_none,
-                size: 80,
-                color: _isRecording
-                    ? themeProvider.selectedColor
-                    : Colors.grey[400],
-              ),
-            const SizedBox(height: 20),
-            Text(
-              _isRecording
-                  ? 'Recording...'
-                  : _mp3FilePath != null
-                  ? 'Recording Ready: ${_mp3FilePath!.split('/').last}'
-                  : 'Ready to record',
-              style: AppTextStyles.heading.copyWith(
-                fontSize: 20,
-                color: _isRecording ? themeProvider.selectedColor : Colors.black,
-              ),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 20),
-            Text(
-              _connectionStatus,
-              style: AppTextStyles.body,
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 30),
-            if (_errorMessage != null)
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 20),
-                child: Text(
-                  _errorMessage!,
-                  style: AppTextStyles.body.copyWith(color: Colors.red),
+                const SizedBox(height: 20),
+                Text(
+                  _isRecording
+                      ? 'Recording...'
+                      : _mp3FilePath != null
+                      ? 'Recording Ready: ${_mp3FilePath!.split('/').last}'
+                      : 'Ready to record',
+                  style: AppTextStyles.heading.copyWith(
+                    fontSize: 20,
+                    color: _isRecording
+                        ? themeProvider.selectedColor
+                        : Colors.black,
+                  ),
                   textAlign: TextAlign.center,
                 ),
-              ),
-            const SizedBox(height: 30),
-            Wrap(
-              spacing: 10,
-              runSpacing: 10,
-              alignment: WrapAlignment.center,
-              children: [
-                ElevatedButton(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor:
-                    _isRecording ? Colors.red : themeProvider.selectedColor,
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 30, vertical: 15),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    elevation: 4,
-                  ),
-                  onPressed: _isConverting
-                      ? null
-                      : _isRecording
-                      ? _stopRecording
-                      : _startRecording,
-                  child: Text(
-                    _isRecording ? 'Stop Recording' : 'Start Recording',
-                    style: AppTextStyles.button,
-                  ),
+                const SizedBox(height: 20),
+                Text(
+                  _connectionStatus,
+                  style: AppTextStyles.body,
+                  textAlign: TextAlign.center,
                 ),
-                if (_mp3FilePath != null &&
-                    !_isRecording &&
-                    !_isConverting) ...[
-                  ElevatedButton(
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.blue,
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 15, vertical: 15),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      elevation: 4,
-                    ),
-                    onPressed: _playPauseRecording,
-                    child: Icon(
-                      _isPlaying ? Icons.pause : Icons.play_arrow,
-                      color: Colors.white,
-                      size: 24,
-                    ),
-                  ),
-                  ElevatedButton(
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: _isLooping ? Colors.purple : Colors.grey,
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 15, vertical: 15),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      elevation: 4,
-                    ),
-                    onPressed: _toggleLooping,
-                    child: Icon(
-                      Icons.loop,
-                      color: Colors.white,
-                      size: 24,
-                    ),
-                  ),
-                  ElevatedButton(
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.green,
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 30, vertical: 15),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      elevation: 4,
-                    ),
-                    onPressed: _saveAndUpload,
+                const SizedBox(height: 30),
+                if (_errorMessage != null)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 20),
                     child: Text(
-                      'Save & Upload',
-                      style: AppTextStyles.button,
+                      _errorMessage!,
+                      style: AppTextStyles.body.copyWith(color: Colors.red),
+                      textAlign: TextAlign.center,
+                    ),
+                  ),
+                const SizedBox(height: 30),
+                Wrap(
+                  spacing: 10,
+                  runSpacing: 10,
+                  alignment: WrapAlignment.center,
+                  children: [
+                    ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: _isRecording
+                            ? Colors.red
+                            : themeProvider.selectedColor,
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 30, vertical: 15),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        elevation: 4,
+                      ),
+                      onPressed: _isConverting
+                          ? null
+                          : _isRecording
+                          ? _stopRecording
+                          : _startRecording,
+                      child: Text(
+                        _isRecording ? 'Stop Recording' : 'Start Recording',
+                        style: AppTextStyles.button,
+                      ),
+                    ),
+                    if (_mp3FilePath != null &&
+                        !_isRecording &&
+                        !_isConverting) ...[
+                      ElevatedButton(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.blue,
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 15, vertical: 15),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          elevation: 4,
+                        ),
+                        onPressed: _playPauseRecording,
+                        child: Icon(
+                          _isPlaying ? Icons.pause : Icons.play_arrow,
+                          color: Colors.white,
+                          size: 24,
+                        ),
+                      ),
+                      ElevatedButton(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor:
+                          _isLooping ? Colors.purple : Colors.grey,
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 15, vertical: 15),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          elevation: 4,
+                        ),
+                        onPressed: _toggleLooping,
+                        child: Icon(
+                          Icons.loop,
+                          color: Colors.white,
+                          size: 24,
+                        ),
+                      ),
+                      ElevatedButton(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.green,
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 30, vertical: 15),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          elevation: 4,
+                        ),
+                        onPressed: _isUploading ? null : _saveAndUpload,
+                        child: Text(
+                          'Save & Upload',
+                          style: AppTextStyles.button,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+        if (_isUploading)
+          Container(
+            color: Colors.black54,
+            child: const Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  CircularProgressIndicator(),
+                  SizedBox(height: 20),
+                  Text(
+                    'Uploading recording...',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
                     ),
                   ),
                 ],
-              ],
+              ),
             ),
-          ],
-        ),
-      ),
+          ),
+      ],
     );
   }
 }

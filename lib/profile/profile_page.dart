@@ -1,6 +1,7 @@
 import 'package:e_bell/utils/quickalert.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart'; // Add this
 import '../authentication/auth_service.dart';
 import '../utils/theme_state.dart';
 import '../utils/app_text_styles.dart';
@@ -25,16 +26,37 @@ class _ProfileScreenState extends State<ProfileScreen> {
   ];
 
   final AuthService _authService = AuthService();
-  Map<String, dynamic>? _userData;
+  Map<String, String>? _userData; // Store username & email
   bool _isLoading = true;
   String? _error;
 
   @override
   void initState() {
     super.initState();
-    _fetchUserData();
+    _loadUserData();
   }
 
+  /// Load user data from SharedPreferences or Firebase
+  Future<void> _loadUserData() async {
+    final prefs = await SharedPreferences.getInstance();
+
+    // Check if data is already stored
+    final storedUsername = prefs.getString('username');
+    final storedEmail = prefs.getString('email');
+
+    if (storedUsername != null && storedEmail != null) {
+      // Use stored data
+      setState(() {
+        _userData = {'username': storedUsername, 'email': storedEmail};
+        _isLoading = false;
+      });
+    } else {
+      // Fetch from Firebase
+      await _fetchUserData();
+    }
+  }
+
+  /// Fetch from Firebase and store locally
   Future<void> _fetchUserData() async {
     try {
       final user = _authService.currentUser;
@@ -42,10 +64,18 @@ class _ProfileScreenState extends State<ProfileScreen> {
         final data = await _authService.getUserData(user.uid);
         if (mounted) {
           setState(() {
-            _userData = data;
+            _userData = {
+              'username': data?['username'] ?? 'Unknown User',
+              'email': data?['email'] ?? 'user@example.com',
+            };
             _isLoading = false;
           });
         }
+
+        // Store in SharedPreferences
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString('username', _userData!['username']!);
+        await prefs.setString('email', _userData!['email']!);
       } else {
         if (mounted) {
           setState(() {
@@ -64,6 +94,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
   }
 
+  /// Logout clears shared preferences
   Future<void> _handleLogout(BuildContext context) async {
     final themeProvider = Provider.of<ThemeProvider>(context, listen: false);
 
@@ -104,6 +135,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
     if (confirmLogout == true) {
       try {
         await AuthService().signOut();
+
+        // Clear stored user data
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.remove('username');
+        await prefs.remove('email');
+
         AppAlert.success(
           context,
           text: 'Logged out successfully!',
@@ -147,7 +184,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   @override
   Widget build(BuildContext context) {
     final themeProvider = Provider.of<ThemeProvider>(context);
-    print('ProfileScreen: Using color ${themeProvider.selectedColor}');
+
     return Scaffold(
       body: Container(
         color: Colors.grey[100],
@@ -155,7 +192,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // ✅ Profile Header Section (Dynamic Firebase Data)
+              // Profile Header
               Padding(
                 padding: const EdgeInsets.only(top: 40.0, bottom: 16.0),
                 child: Center(
@@ -191,7 +228,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 ),
               ),
 
-              // ✅ Existing Settings List Section
+              // Settings List
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
                 child: Container(
@@ -234,7 +271,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 ),
               ),
 
-              // ✅ Logout Button
+              // Logout Button
               Padding(
                 padding:
                 const EdgeInsets.symmetric(horizontal: 16.0, vertical: 16.0),

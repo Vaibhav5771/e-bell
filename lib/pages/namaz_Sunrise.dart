@@ -339,8 +339,8 @@ class _ReligiousAlarmsState extends State<ReligiousAlarms> {
     final prefs = await SharedPreferences.getInstance();
     setState(() {
       _selectedReligions = prefs.getStringList('selectedReligions') ?? ['Hinduism', 'Islamic'];
-      _namazEnabled = prefs.getBool('namazEnabled') ?? true;
-      _sunriseEnabled = prefs.getBool('sunriseEnabled') ?? true;
+      _namazEnabled = prefs.getBool('namazEnabled') ?? false;
+      _sunriseEnabled = prefs.getBool('sunriseEnabled') ?? false;
 
       // Load selected sounds for each namaz
       _selectedFajrSound = prefs.getString('fajrSound') ?? '';

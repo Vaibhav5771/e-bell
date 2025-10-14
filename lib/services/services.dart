@@ -71,10 +71,10 @@ class BellService {
         return [];
       }
     } catch (e) {
-      _showErrorSnackBar(
-          context,
-          'Error fetching sounds: Ensure you are connected to the speaker\'s Wi-Fi. Error: $e'
-      );
+      // _showErrorSnackBar(
+      //     context,
+      //     'Error fetching sounds: Ensure you are connected to the speaker\'s Wi-Fi. Error: $e'
+      // );
       return [];
     }
   }
