@@ -1326,47 +1326,53 @@ class _HomeScreenState extends State<HomeScreen> {
         elevation: 0,
         automaticallyImplyLeading: false,
         title: Image.asset(
-          'assets/appbar_icon.png', // Make sure the path matches your asset
-          height: 40, // Adjust the height as needed
+          'assets/appbar_icon.png',
+          height: 40,
           fit: BoxFit.contain,
         ),
-        // actions: [
-        //   // IconButton(
-        //   //   icon: Icon(
-        //   //     Icons.access_time,
-        //   //     color: themeProvider.selectedColor,
-        //   //   ),
-        //   //   tooltip: 'Sync Time',
-        //   //   onPressed: _showTimePickerAndSync,
-        //   // ),
-        // ],
       ),
       body: Stack(
         children: [
-          screens[_selectedIndex],
+          // Wrap your main content with GestureDetector to detect outside taps
+          GestureDetector(
+            onTap: () {
+              if (_isFabMenuOpen) {
+                setState(() {
+                  _isFabMenuOpen = false;
+                });
+              }
+            },
+            child: screens[_selectedIndex],
+          ),
+
           if (_isFabMenuOpen && _selectedIndex == 0)
             Positioned(
-              bottom: 80, // Increased to position it right above the FAB button
+              bottom: 80,
               right: 16,
-              child: Container(
-                width: 180,
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(12),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.grey.withOpacity(0.3),
-                      spreadRadius: 2,
-                      blurRadius: 5,
-                    ),
-                  ],
-                ),
-                child: Column(
-                  children: [
-                    _buildFabOption('Reminder', true),
-                    _buildFabOption('Alarm', false),
-                    _buildFabOption('Regional Planner', false),
-                  ],
+              child: GestureDetector(
+                onTap: () {
+                  // This prevents the menu from closing when clicking inside it
+                },
+                child: Container(
+                  width: 180,
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(12),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.grey.withOpacity(0.3),
+                        spreadRadius: 2,
+                        blurRadius: 5,
+                      ),
+                    ],
+                  ),
+                  child: Column(
+                    children: [
+                      _buildFabOption('Reminder', true),
+                      _buildFabOption('Alarm', false),
+                      _buildFabOption('Regional Planner', false),
+                    ],
+                  ),
                 ),
               ),
             ),

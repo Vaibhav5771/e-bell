@@ -431,90 +431,67 @@ class _MusicLibraryState extends State<MusicLibrary> {
       backgroundColor: Colors.grey[100],
       body: Stack(
         children: [
-          Column(
-            children: [
-              // Tabs & Wifi
-              Padding(
-                padding: const EdgeInsets.all(16.0),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // Container(
-                    //   height: 35,
-                    //   padding: const EdgeInsets.all(2),
-                    //   decoration: BoxDecoration(
-                    //     color: Colors.grey[400],
-                    //     borderRadius: BorderRadius.circular(9),
-                    //   ),
-                    //   child: Row(
-                    //     children: [
-                    //       Expanded(
-                    //         child: widget.tabLogic.buildTab(
-                    //           context: context,
-                    //           text: 'Library',
-                    //           index: 0,
-                    //           onTap: () => setState(() => widget.tabLogic.setSelectedTab(0)),
-                    //         ),
-                    //       ),
-                    //       Expanded(
-                    //         child: widget.tabLogic.buildTab(
-                    //           context: context,
-                    //           text: 'My Music',
-                    //           index: 1,
-                    //           onTap: () => setState(() => widget.tabLogic.setSelectedTab(1)),
-                    //         ),
-                    //       ),
-                    //     ],
-                    //   ),
-                    // ),
-                    const SizedBox(height: 10),
-                    Text(
-                      'Available Music',
-                      style: AppTextStyles.heading.copyWith(
-                        fontSize: 24,
-                        fontWeight: FontWeight.bold,
-                      ),
-                      textAlign: TextAlign.left,
-                    ),
-                    const SizedBox(height: 10),
-                    Text(connectionStatus,
-                        style: AppTextStyles.body, textAlign: TextAlign.center),
-                  ],
+          GestureDetector(
+            onTap: () {
+              if (_isFabMenuOpen) {
+                setState(() {
+                  _isFabMenuOpen = false;
+                });
+              }
+            },
+            child: Column(
+              children: [
+                // Tabs & Wifi
+                Padding(
+                  padding: const EdgeInsets.all(16.0),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const SizedBox(height: 10),
+                      Text(connectionStatus, style: AppTextStyles.body, textAlign: TextAlign.center),
+                    ],
+                  ),
                 ),
-              ),
-              const SizedBox(height: 10),
-              Expanded(
-                child: SingleChildScrollView(
-                  padding: const EdgeInsets.only(bottom: 80),
-                  child: widget.tabLogic.selectedTabIndex == 0
-                      ? _buildLibraryList()
-                      : _buildMyMusicList(),
+                const SizedBox(height: 10),
+                Expanded(
+                  child: SingleChildScrollView(
+                    padding: const EdgeInsets.only(bottom: 80),
+                    child: widget.tabLogic.selectedTabIndex == 0
+                        ? _buildLibraryList()
+                        : _buildMyMusicList(),
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
+
           if (_isFabMenuOpen)
             Positioned(
-              bottom: 80, // Increased to position it right above the FAB button
+              bottom: 80,
               right: 16,
-              child: Container(
-                width: 180,
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(12),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.grey.withOpacity(0.3),
-                      spreadRadius: 2,
-                      blurRadius: 5,
-                    ),
-                  ],
-                ),
-                child: Column(
-                  children: [
-                    _buildFabOption('Add Music'),
-                    _buildFabOption('Record Music'),
-                  ],
+              child: GestureDetector(
+                onTap: () {
+                  // This prevents the menu from closing when clicking inside it
+                },
+                child: Container(
+                  width: 180,
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(12),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.grey.withOpacity(0.3),
+                        spreadRadius: 2,
+                        blurRadius: 5,
+                      ),
+                    ],
+                  ),
+                  child: Column(
+                    children: [
+                      _buildFabOption('Add Music'),
+                      _buildFabOption('Record Music'),
+                    ],
+                  ),
                 ),
               ),
             ),

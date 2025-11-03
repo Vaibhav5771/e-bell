@@ -158,7 +158,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     const SizedBox(height: 10),
 
                     // Version text
-                    Text('EBELL_Version_V.3.0', style: AppTextStyles.small),
+                    Text('EBELL_Version_V.4.1', style: AppTextStyles.small),
                   ],
                 ),
               ),

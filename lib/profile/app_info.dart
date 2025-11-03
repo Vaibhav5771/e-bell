@@ -64,7 +64,7 @@ class AppInfoScreen extends StatelessWidget {
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 Text(
-                  'EBELL_Version_V.3.0',
+                  'EBELL_Version_V.4.1',
                   style: AppTextStyles.small,
                 ),
               ],

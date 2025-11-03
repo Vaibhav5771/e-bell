@@ -1,8 +1,8 @@
 import 'package:e_bell/authentication/register_page.dart';
 import 'package:e_bell/authentication/splash.dart';
+import 'package:e_bell/pages/home_page.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import '../pages/home_page.dart';
 import 'auth_state.dart';
 import 'login_page.dart';
 

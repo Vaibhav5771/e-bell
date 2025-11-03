@@ -232,7 +232,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                           Image.asset('assets/iogicon.png', height: 60),
                           const SizedBox(height: 10),
                           Text(
-                            'EBELL_Version_V.3.0',
+                            'EBELL_Version_V.4.1',
                             style: AppTextStyles.small.copyWith(color: Colors.black54),
                           ),
                         ],
