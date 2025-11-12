@@ -13,7 +13,7 @@ import '../utils/app_text_styles.dart';
 
 class ReligiousAlarms extends StatefulWidget {
   const ReligiousAlarms({super.key});
-g
+
   @override
   _ReligiousAlarmsState createState() => _ReligiousAlarmsState();
 }
