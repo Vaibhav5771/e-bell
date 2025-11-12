@@ -28,10 +28,10 @@ class AlarmSong {
   final String fileName;
   final int hour;
   final int minute;
-  final int startTimestamp; // Unix timestamp
-  final int endTimestamp; // Unix timestamp (0 if not applicable)
-  final int status; // Assuming 1 means active/played
-  final int days; // Bitmask for days of the week
+  final int startTimestamp;
+  final int endTimestamp;
+  final int status;
+  final int days;
 
   AlarmSong({
     required this.fileName,
@@ -55,54 +55,37 @@ class AlarmSong {
     );
   }
 
-  // Check if the song is scheduled for a specific day
   bool isScheduledForDay(DateTime day) {
-    final weekday = day.weekday; // 1 = Monday, 7 = Sunday
-    int bitPosition;
-    if (weekday == 7) {
-      bitPosition = 7; // Sunday = bit 7
-    } else {
-      bitPosition = weekday; // Monday (1) = bit 1, Tuesday (2) = bit 2, etc.
-    }
+    final weekday = day.weekday;
+    int bitPosition = weekday == 7 ? 7 : weekday;
     final dayBit = 1 << bitPosition;
     final dayMatches = (days & dayBit) != 0;
 
     bool inRange = true;
     if (startTimestamp != 0 || endTimestamp != 0) {
-      DateTime? startDT;
-      if (startTimestamp != 0) {
-        startDT = DateTime.fromMillisecondsSinceEpoch(startTimestamp * 1000);
-      }
-      DateTime? endDT;
-      if (endTimestamp != 0) {
-        endDT = DateTime.fromMillisecondsSinceEpoch(endTimestamp * 1000);
-      } else if (startDT != null) {
-        endDT = startDT;
-      } else {
+      DateTime? startDT = startTimestamp != 0
+          ? DateTime.fromMillisecondsSinceEpoch(startTimestamp * 1000)
+          : null;
+      DateTime? endDT = endTimestamp != 0
+          ? DateTime.fromMillisecondsSinceEpoch(endTimestamp * 1000)
+          : startDT;
+
+      if (startDT == null || endDT == null) {
         inRange = false;
-      }
-      if (inRange) {
+      } else {
         final dayDate = DateTime(day.year, day.month, day.day);
-        final startDate = DateTime(startDT!.year, startDT.month, startDT.day);
-        final endDate = DateTime(endDT!.year, endDT.month, endDT.day);
+        final startDate = DateTime(startDT.year, startDT.month, startDT.day);
+        final endDate = DateTime(endDT.year, endDT.month, endDT.day);
         inRange = !dayDate.isBefore(startDate) && !dayDate.isAfter(endDate);
       }
     }
-    final isScheduled = inRange && dayMatches;
-    debugPrint(
-        'Song: $fileName, Time: $hour:$minute, Days: $days (binary: ${days.toRadixString(2)}), '
-            'Weekday: $weekday, BitPosition: $bitPosition, DayBit: $dayBit, '
-            'Scheduled: $isScheduled');
-    return isScheduled;
+    return inRange && dayMatches;
   }
 
-  // Get the time string for display
   String getTimeString(BuildContext context) {
-    // Always use hour and minute for consistency
     return TimeOfDay(hour: hour, minute: minute).format(context);
   }
 
-  // Check if the song is in the past for a specific day
   bool isPast(DateTime day, DateTime now) {
     final songDateTime = DateTime(day.year, day.month, day.day, hour, minute);
     return songDateTime.isBefore(now);
@@ -116,7 +99,7 @@ class HomeScreen extends StatefulWidget {
   _HomeScreenState createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
+class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   List<String> _namazTimes = [];
   List<String> _poojaTimes = [];
   late TabLogic _tabLogic;
@@ -138,42 +121,55 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _errorLoadingStatus = false;
   final GlobalKey _calendarKey = GlobalKey();
 
+  // Debounce SnackBar
+  String? _lastShownSnackBarMessage;
+
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+
     _tabLogic = TabLogic();
     _musicTabLogic = TabLogic1();
     _calendarLogic = CalendarLogic();
+
     _initializeApp();
     _requestPermissions();
     _startWifiMonitoring();
-    _loadPrayerTimesStatus();
+
     _timer = Timer.periodic(const Duration(minutes: 1), (timer) {
-      _loadPrayerTimesStatus();
+      if (mounted && isWifiConnected && connectionStatus.contains(targetSsid)) {
+        _loadPrayerTimesStatus();
+      }
     });
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _timer?.cancel();
     wifiCheckTimer?.cancel();
     super.dispose();
   }
 
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+
+    if (state == AppLifecycleState.paused || state == AppLifecycleState.detached) {
+      wifiCheckTimer?.cancel();
+      _timer?.cancel();
+      debugPrint("Timers paused (app in background)");
+    } else if (state == AppLifecycleState.resumed) {
+      _startWifiMonitoring();
+      debugPrint("Wi-Fi monitoring resumed");
+    }
+  }
+
   Future<void> _initializeApp() async {
-    // Start Wi-Fi monitoring first
     await _startWifiMonitoring();
-
-    // Small delay to ensure Wi-Fi status is updated
     await Future.delayed(const Duration(milliseconds: 3000));
-
-    // Now load the prayer times status
-    await _loadPrayerTimesStatus();
-
-    // Start the periodic timer for updates
-    _timer = Timer.periodic(const Duration(seconds: 30), (timer) {
-      _loadPrayerTimesStatus();
-    });
+    if (mounted) _loadPrayerTimesStatus();
   }
 
   Future<void> _requestPermissions() async {
@@ -182,27 +178,16 @@ class _HomeScreenState extends State<HomeScreen> {
     if (!serviceEnabled) {
       serviceEnabled = await location.requestService();
       if (!serviceEnabled) {
-        setState(() {
-          connectionStatus = "Location service is disabled";
-        });
+        _updateConnectionStatus("Location service is disabled");
         _showLocationServiceDialog();
         return;
       }
     }
 
     var status = await Permission.location.request();
-    if (status.isDenied) {
-      setState(() {
-        connectionStatus = "Location permission denied";
-      });
+    if (status.isDenied || status.isPermanentlyDenied) {
+      _updateConnectionStatus("Location permission denied");
       _showPermissionDialog();
-    } else if (status.isPermanentlyDenied) {
-      setState(() {
-        connectionStatus = "Location permission permanently denied";
-      });
-      _showPermissionDialog();
-    } else {
-      debugPrint("Location permission granted");
     }
   }
 
@@ -267,8 +252,16 @@ class _HomeScreenState extends State<HomeScreen> {
     });
   }
 
-  String _previousConnectionStatus = "";
   String _previousWifiSSID = "";
+  String _previousConnectionStatus = "";
+
+  void _updateConnectionStatus(String status) {
+    if (mounted) {
+      setState(() {
+        connectionStatus = status;
+      });
+    }
+  }
 
   Future<void> _checkWifiConnection() async {
     try {
@@ -276,51 +269,41 @@ class _HomeScreenState extends State<HomeScreen> {
       if (connectivityResult.contains(ConnectivityResult.wifi)) {
         String? wifiSSID = await NetworkInfo().getWifiName();
         String? cleanedSSID = wifiSSID?.replaceAll('"', '').trim();
-        debugPrint("Raw Wi-Fi SSID: $wifiSSID");
-        debugPrint("Cleaned Wi-Fi SSID: $cleanedSSID");
+        String normalizedSSID = cleanedSSID?.toLowerCase() ?? '';
+        bool isTargetWifi = normalizedSSID == targetSsid.toLowerCase();
 
-        bool isTargetWifi = cleanedSSID != null &&
-            cleanedSSID.toLowerCase() == targetSsid.toLowerCase();
+        String displaySSID = cleanedSSID ?? 'Unknown';
+        String newStatus = isTargetWifi
+            ? "Connected to $targetSsid"
+            : "Connected to Wi-Fi: $displaySSID";
 
         setState(() {
           isWifiConnected = true;
-          if (isTargetWifi) {
-            connectionStatus = "Connected to $targetSsid";
-          } else {
-            connectionStatus = "Connected to Wi-Fi: ${cleanedSSID ?? 'Unknown'}";
-          }
+          connectionStatus = newStatus;
         });
 
-        // Only trigger API call if we just connected to target Wi-Fi
         bool justConnectedToTarget = isTargetWifi &&
             (_previousWifiSSID != cleanedSSID ||
                 !_previousConnectionStatus.contains(targetSsid));
 
-        if (isTargetWifi && justConnectedToTarget && mounted) {
-          debugPrint("Newly connected to target Wi-Fi, loading data...");
+        if (justConnectedToTarget && mounted) {
+          debugPrint("Newly connected to $targetSsid → fetching data");
           _loadPrayerTimesStatus();
         }
 
-        // Update previous values
         _previousWifiSSID = cleanedSSID ?? "";
-        _previousConnectionStatus = connectionStatus;
-
+        _previousConnectionStatus = newStatus;
       } else {
         setState(() {
           isWifiConnected = false;
           connectionStatus = "Not connected to Wi-Fi";
         });
-
-        // Reset previous values when disconnecting
         _previousWifiSSID = "";
         _previousConnectionStatus = "";
       }
     } catch (e) {
-      setState(() {
-        isWifiConnected = false;
-        connectionStatus = "Error checking Wi-Fi: $e";
-      });
-      debugPrint("Error checking Wi-Fi: $e");
+      _updateConnectionStatus("Error checking Wi-Fi: $e");
+      debugPrint("Wi-Fi check error: $e");
     }
   }
 
@@ -328,38 +311,16 @@ class _HomeScreenState extends State<HomeScreen> {
     http.Client? client;
     try {
       client = http.Client();
-      final response = await client.get(
-        Uri.parse('http://192.168.2.1/regtime'),
-      ).timeout(
-        const Duration(seconds: 5),
-        onTimeout: () {
-          throw Exception('regtime API timed out');
-        },
-      );
+      final response = await client.get(Uri.parse('http://192.168.2.1/regtime'))
+          .timeout(const Duration(seconds: 5), onTimeout: () => throw Exception('regtime timeout'));
 
-      if (response.statusCode != 200) {
-        throw Exception('regtime API HTTP ${response.statusCode}');
-      }
-
+      if (response.statusCode != 200) throw Exception('regtime HTTP ${response.statusCode}');
       final jsonData = jsonDecode(response.body);
 
-      final namazList = (jsonData['NAMAZ'] as List<dynamic>? ?? [])
-          .map((e) => e.toString())
-          .toList();
-
-      final poojaList = (jsonData['POOJA'] as List<dynamic>? ?? [])
-          .map((e) => e.toString())
-          .toList();
-
-      debugPrint('regtime → NAMAZ: $namazList, POOJA: $poojaList');
-
       return {
-        'namazTimes': namazList,
-        'poojaTimes': poojaList,
+        'namazTimes': (jsonData['NAMAZ'] as List?)?.cast<String>() ?? [],
+        'poojaTimes': (jsonData['POOJA'] as List?)?.cast<String>() ?? [],
       };
-    } catch (e) {
-      debugPrint('Error checking regtime: $e');
-      throw Exception('Failed to check regtime status: $e');
     } finally {
       client?.close();
     }
@@ -369,54 +330,35 @@ class _HomeScreenState extends State<HomeScreen> {
     http.Client? client;
     try {
       client = http.Client();
-      final response = await client.get(
-        Uri.parse('http://192.168.2.1/'),
-      ).timeout(
-        const Duration(seconds: 5),
-        onTimeout: () => throw Exception('Root API timed out'),
-      );
+      final response = await client.get(Uri.parse('http://192.168.2.1/'))
+          .timeout(const Duration(seconds: 5), onTimeout: () => throw Exception('root timeout'));
 
-      if (response.statusCode != 200) {
-        throw Exception('Root API HTTP ${response.statusCode}');
-      }
-
+      if (response.statusCode != 200) throw Exception('root HTTP ${response.statusCode}');
       final jsonData = jsonDecode(response.body);
 
-      final regionList = (jsonData['region'] as List<dynamic>? ?? []);
-      int poojaFlag = 0;
-      int namazFlag = 0;
-      for (var item in regionList) {
+      int namazFlag = 0, poojaFlag = 0;
+      for (var item in (jsonData['region'] as List?) ?? []) {
         if (item is Map) {
-          if (item.containsKey('POOJA')) poojaFlag = item['POOJA'] ?? 0;
-          if (item.containsKey('NAMAZ')) namazFlag = item['NAMAZ'] ?? 0;
+          namazFlag = item['NAMAZ'] ?? namazFlag;
+          poojaFlag = item['POOJA'] ?? poojaFlag;
         }
       }
 
-      final alarmDataList = jsonData['alarmData'] as List<dynamic>? ?? [];
       List<AlarmSong> alarmSongs = [];
+      final alarmDataList = jsonData['alarmData'] as List? ?? [];
       if (alarmDataList.isNotEmpty) {
-        final files = alarmDataList[0]['Filenames'] as List<dynamic>? ?? [];
+        final files = alarmDataList[0]['Filenames'] as List? ?? [];
         alarmSongs = files
-            .where((file) {
-          if (file.length < 7) return false;
-          final h = file[1];
-          final m = file[2];
-          return h is int && m is int && h >= 0 && h <= 23 && m >= 0 && m <= 59;
-        })
-            .map((file) => AlarmSong.fromJson(file))
+            .where((f) => f is List && f.length >= 7 && f[1] is int && f[2] is int)
+            .map((f) => AlarmSong.fromJson(f))
             .toList();
       }
-
-      debugPrint('Fetched alarm songs: ${alarmSongs.map((s) => "${s.fileName} @ ${s.hour}:${s.minute}, days: ${s.days}, start: ${s.startTimestamp}").toList()}');
 
       return {
         'namazEnabled': namazFlag == 1,
         'sunriseEnabled': poojaFlag == 1,
         'alarmSongs': alarmSongs,
       };
-    } catch (e) {
-      debugPrint("Error fetching region status and alarm songs: $e");
-      throw Exception("Failed to fetch region status and alarm songs: $e");
     } finally {
       client?.close();
     }
@@ -424,6 +366,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _loadPrayerTimesStatus() async {
     if (!mounted) return;
+
     if (!isWifiConnected || !connectionStatus.contains(targetSsid)) {
       setState(() {
         _loadingPrayerStatus = false;
@@ -431,15 +374,24 @@ class _HomeScreenState extends State<HomeScreen> {
         _loadingAlarmSongs = false;
         _errorLoadingAlarmSongs = true;
       });
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'Please connect to IoGen_Speaker Wi-Fi to fetch data',
-            style: AppTextStyles.body,
-          ),
-        ),
-      );
+
+      const message = 'Please connect to IoGen_Speaker Wi-Fi to fetch data';
+      if (_lastShownSnackBarMessage != message) {
+        _lastShownSnackBarMessage = message;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(message, style: AppTextStyles.body),
+                duration: const Duration(seconds: 3),
+              ),
+            );
+          }
+        });
+      }
       return;
+    } else {
+      _lastShownSnackBarMessage = null;
     }
 
     setState(() {
@@ -454,17 +406,17 @@ class _HomeScreenState extends State<HomeScreen> {
       final regtimeData = await _checkPrayerTimesStatus();
 
       if (!mounted) return;
+
       setState(() {
         _namazEnabled = regionStatus['namazEnabled'] ?? false;
         _sunriseEnabled = regionStatus['sunriseEnabled'] ?? false;
         _alarmSongs = (regionStatus['alarmSongs'] as List<AlarmSong>)
           ..sort((a, b) => (a.hour * 60 + a.minute).compareTo(b.hour * 60 + b.minute));
-        _namazTimes = regtimeData['namazTimes'] ?? [];
-        _poojaTimes = regtimeData['poojaTimes'] ?? [];
+        _namazTimes = regtimeData['namazTimes'];
+        _poojaTimes = regtimeData['poojaTimes'];
         _loadingPrayerStatus = false;
         _loadingAlarmSongs = false;
       });
-      debugPrint('Loaded ${_alarmSongs.length} alarm songs for display');
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -473,74 +425,51 @@ class _HomeScreenState extends State<HomeScreen> {
         _loadingAlarmSongs = false;
         _errorLoadingAlarmSongs = true;
       });
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(e.toString(), style: AppTextStyles.body)),
-      );
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(e.toString(), style: AppTextStyles.body)),
+          );
+        }
+      });
     }
   }
 
   Future<void> _deleteAlarm(AlarmSong alarm) async {
     if (!isWifiConnected || !connectionStatus.contains(targetSsid)) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            "Please connect to IoGen_Speaker Wi-Fi to delete alarm",
-            style: AppTextStyles.body,
-          ),
-        ),
+        SnackBar(content: Text("Please connect to IoGen_Speaker Wi-Fi to delete alarm")),
       );
       return;
     }
 
     try {
       final client = http.Client();
-
-      // NEW API FORMAT: "filename,hour,min,s_epoch,e_epoch,weeks"
-      // id parameter is no longer needed in the payload
       final requestData = "${alarm.fileName},${alarm.hour},${alarm.minute},${alarm.startTimestamp},${alarm.endTimestamp},${alarm.days}";
-
-      debugPrint("Sending delete request: $requestData");
-
       final response = await client.post(
         Uri.parse('http://192.168.2.1/delete/'),
         headers: {'Content-Type': 'text/plain'},
         body: requestData,
-      ).timeout(
-        const Duration(seconds: 5),
-        onTimeout: () => throw Exception('Delete alarm API timed out'),
-      );
+      ).timeout(const Duration(seconds: 5));
 
       if (response.statusCode == 200) {
-        setState(() {
-          _alarmSongs.remove(alarm);
-        });
+        setState(() => _alarmSongs.remove(alarm));
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              "Alarm deleted successfully",
-              style: AppTextStyles.body,
-            ),
-          ),
+          SnackBar(content: Text("Alarm deleted successfully")),
         );
-        await _loadPrayerTimesStatus(); // Refresh the alarm list
+        _loadPrayerTimesStatus();
       } else {
-        throw Exception('Delete alarm API HTTP ${response.statusCode}');
+        throw Exception('HTTP ${response.statusCode}');
       }
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            "Failed to delete alarm: $e",
-            style: AppTextStyles.body,
-          ),
-        ),
+        SnackBar(content: Text("Failed to delete alarm: $e")),
       );
     }
   }
 
   void _showAlarmDetailsDialog(AlarmSong alarm) {
     final selectedColor = Provider.of<ThemeProvider>(context, listen: false).selectedColor;
-
     String rawTime = "${alarm.hour % 12 == 0 ? 12 : alarm.hour % 12}:${alarm.minute.toString().padLeft(2, '0')}";
     String period = alarm.hour >= 12 ? "PM" : "AM";
 
@@ -554,18 +483,9 @@ class _HomeScreenState extends State<HomeScreen> {
             crossAxisAlignment: CrossAxisAlignment.baseline,
             textBaseline: TextBaseline.alphabetic,
             children: [
-              Text(
-                rawTime,
-                style: AppTextStyles.headingheading,
-              ),
-              const SizedBox(width: 4.0),
-              Text(
-                period,
-                style: AppTextStyles.heading.copyWith(
-                  color: selectedColor,
-                  fontSize: 20,
-                ),
-              ),
+              Text(rawTime, style: AppTextStyles.headingheading),
+              const SizedBox(width: 4),
+              Text(period, style: AppTextStyles.heading.copyWith(color: selectedColor, fontSize: 20)),
             ],
           ),
         ),
@@ -576,11 +496,7 @@ class _HomeScreenState extends State<HomeScreen> {
             const SizedBox(height: 8),
             _buildDaysRow(alarm.days, selectedColor),
             const SizedBox(height: 16),
-            Text(
-              alarm.fileName,
-              style: AppTextStyles.body,
-              textAlign: TextAlign.center,
-            ),
+            Text(alarm.fileName, style: AppTextStyles.body, textAlign: TextAlign.center),
           ],
         ),
         actions: [
@@ -588,21 +504,15 @@ class _HomeScreenState extends State<HomeScreen> {
             child: ElevatedButton(
               onPressed: () async {
                 Navigator.pop(context);
-                await _deleteAlarm(alarm); // Fixed: pass the actual alarm object
+                await _deleteAlarm(alarm);
               },
               style: ElevatedButton.styleFrom(
                 foregroundColor: Colors.red,
                 backgroundColor: Colors.red,
-                side: const BorderSide(color: Colors.red),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(50),
-                ),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(50)),
                 padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 12),
               ),
-              child: Text(
-                "Delete",
-                style: AppTextStyles.button.copyWith(color: Colors.white),
-              ),
+              child: Text("Delete", style: AppTextStyles.button.copyWith(color: Colors.white)),
             ),
           ),
         ],
@@ -623,42 +533,20 @@ class _HomeScreenState extends State<HomeScreen> {
       decoration: BoxDecoration(
         color: enabled ? themeProvider.selectedColor.withOpacity(0.1) : Colors.grey.withOpacity(0.1),
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: enabled ? themeProvider.selectedColor : Colors.grey,
-          width: 1,
-        ),
+        border: Border.all(color: enabled ? themeProvider.selectedColor : Colors.grey, width: 1),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(
-            enabled ? Icons.check_circle : Icons.circle,
-            color: enabled ? themeProvider.selectedColor : Colors.grey,
-            size: 14,
-          ),
+          Icon(enabled ? Icons.check_circle : Icons.circle, color: enabled ? themeProvider.selectedColor : Colors.grey, size: 14),
           const SizedBox(width: 6),
           Flexible(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  label,
-                  style: AppTextStyles.small.copyWith(
-                    color: enabled ? themeProvider.selectedColor : Colors.grey,
-                    fontSize: 12,
-                  ),
-                  overflow: TextOverflow.ellipsis,
-                ),
+                Text(label, style: AppTextStyles.small.copyWith(color: enabled ? themeProvider.selectedColor : Colors.grey, fontSize: 12)),
                 if (enabled && times.isNotEmpty)
-                  ...times.map((t) => Text(
-                    t,
-                    style: AppTextStyles.small.copyWith(
-                      color: Colors.black87,
-                      fontSize: 11,
-                      fontWeight: FontWeight.w500,
-                    ),
-                    overflow: TextOverflow.ellipsis,
-                  )),
+                  ...times.map((t) => Text(t, style: AppTextStyles.small.copyWith(color: Colors.black87, fontSize: 11, fontWeight: FontWeight.w500))),
               ],
             ),
           ),
@@ -671,70 +559,32 @@ class _HomeScreenState extends State<HomeScreen> {
     if (_loadingPrayerStatus) {
       return const Padding(
         padding: EdgeInsets.symmetric(vertical: 8),
-        child: Center(
-          child: SizedBox(
-            height: 20,
-            width: 20,
-            child: CircularProgressIndicator(strokeWidth: 2),
-          ),
-        ),
+        child: Center(child: SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2))),
       );
     }
-
     if (_errorLoadingStatus) {
       return Padding(
         padding: const EdgeInsets.symmetric(vertical: 8),
         child: Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Flexible(
-              child: Text(
-                'Failed to load status',
-                style: AppTextStyles.body.copyWith(fontSize: 14, color: Colors.red),
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
-            IconButton(
-              padding: EdgeInsets.zero,
-              constraints: const BoxConstraints(),
-              icon: const Icon(Icons.refresh, size: 20),
-              onPressed: _loadPrayerTimesStatus,
-              tooltip: 'Retry',
-            ),
+            Flexible(child: Text('Failed to load status', style: AppTextStyles.body.copyWith(fontSize: 14, color: Colors.red))),
+            IconButton(padding: EdgeInsets.zero, constraints: const BoxConstraints(), icon: const Icon(Icons.refresh, size: 20), onPressed: _loadPrayerTimesStatus),
           ],
         ),
       );
     }
-
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 8),
       child: SingleChildScrollView(
         scrollDirection: Axis.horizontal,
         child: Row(
           children: [
-            _buildPrayerTimeIndicator(context,
-              label: 'Alarms',
-              enabled: true,
-            ),
-            _buildPrayerTimeIndicator(context,
-              label: 'Reminders',
-              enabled: true,
-            ),
-            _buildPrayerTimeIndicator(context,
-              label: 'Namaz',
-              enabled: _namazEnabled,
-            ),
-            _buildPrayerTimeIndicator(context,
-              label: 'Sunrise/Sunset',
-              enabled: _sunriseEnabled,
-            ),
-            IconButton(
-              padding: EdgeInsets.zero,
-              constraints: const BoxConstraints(),
-              icon: const Icon(Icons.refresh, size: 20),
-              onPressed: _loadPrayerTimesStatus,
-              tooltip: 'Refresh',
-            ),
+            _buildPrayerTimeIndicator(context, label: 'Alarms', enabled: true),
+            _buildPrayerTimeIndicator(context, label: 'Reminders', enabled: true),
+            _buildPrayerTimeIndicator(context, label: 'Namaz', enabled: _namazEnabled),
+            _buildPrayerTimeIndicator(context, label: 'Sunrise/Sunset', enabled: _sunriseEnabled),
+            IconButton(padding: EdgeInsets.zero, constraints: const BoxConstraints(), icon: const Icon(Icons.refresh, size: 20), onPressed: _loadPrayerTimesStatus),
           ],
         ),
       ),
@@ -745,64 +595,25 @@ class _HomeScreenState extends State<HomeScreen> {
     TimeOfDay? selectedTime = await showTimePicker(
       context: context,
       initialTime: TimeOfDay.now(),
-      builder: (context, child) {
-        return MediaQuery(
-          data: MediaQuery.of(context).copyWith(alwaysUse24HourFormat: false),
-          child: child!,
-        );
-      },
+      builder: (context, child) => MediaQuery(data: MediaQuery.of(context).copyWith(alwaysUse24HourFormat: false), child: child!),
     );
 
     if (selectedTime != null) {
       if (!isWifiConnected || !connectionStatus.contains(targetSsid)) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              "Please connect to IoGen_Speaker Wi-Fi to sync time",
-              style: AppTextStyles.body,
-            ),
-          ),
-        );
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Please connect to IoGen_Speaker Wi-Fi to sync time")));
         return;
       }
       final now = DateTime.now();
-      DateTime selectedDateTime = DateTime(
-        now.year,
-        now.month,
-        now.day,
-        selectedTime.hour,
-        selectedTime.minute,
-      );
+      DateTime selectedDateTime = DateTime(now.year, now.month, now.day, selectedTime.hour, selectedTime.minute);
       if (selectedDateTime.isBefore(now)) {
         selectedDateTime = selectedDateTime.add(const Duration(days: 1));
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              "Selected time is in the past. Setting for tomorrow: ${selectedTime.format(context)}",
-              style: AppTextStyles.body,
-            ),
-          ),
-        );
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Set for tomorrow: ${selectedTime.format(context)}")));
       }
       try {
         await BellService().syncTime(context, selectedTime: selectedDateTime);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              "Time synced successfully: ${selectedTime.format(context)}",
-              style: AppTextStyles.body,
-            ),
-          ),
-        );
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Time synced: ${selectedTime.format(context)}")));
       } catch (e) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              "Failed to sync time: $e",
-              style: AppTextStyles.body,
-            ),
-          ),
-        );
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Sync failed: $e")));
       }
     }
   }
@@ -825,9 +636,7 @@ class _HomeScreenState extends State<HomeScreen> {
   void _onNavBarTapped(int index) {
     setState(() {
       _selectedIndex = index;
-      if (index == 1) {
-        _musicTabLogic.setSelectedTab(0);
-      }
+      if (index == 1) _musicTabLogic.setSelectedTab(0);
       _isFabMenuOpen = false;
     });
   }
@@ -840,63 +649,20 @@ class _HomeScreenState extends State<HomeScreen> {
         onTap: () async {
           setState(() => _isFabMenuOpen = false);
           switch (title) {
-            case 'Alarm':
-              await Navigator.push(
-                context,
-                MaterialPageRoute(builder: (context) => const AlarmPage()),
-              );
-              break;
-            case 'Reminder':
-              await Navigator.push(
-                context,
-                MaterialPageRoute(builder: (context) => const ReminderPage()),
-              );
-              break;
-            case 'Regional Planner':
-              await Navigator.push(
-                context,
-                MaterialPageRoute(builder: (context) => const ReligiousAlarms()),
-              );
-              break;
+            case 'Alarm': await Navigator.push(context, MaterialPageRoute(builder: (_) => const AlarmPage())); break;
+            case 'Reminder': await Navigator.push(context, MaterialPageRoute(builder: (_) => const ReminderPage())); break;
+            case 'Regional Planner': await Navigator.push(context, MaterialPageRoute(builder: (_) => const ReligiousAlarms())); break;
           }
         },
         child: Padding(
           padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
           child: Row(
             children: [
-              Container(
-                width: 24,
-                height: 24,
-                decoration: BoxDecoration(
-                  color: themeProvider.selectedColor,
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(
-                  Icons.add,
-                  color: Colors.white,
-                  size: 16,
-                ),
-              ),
+              Container(width: 24, height: 24, decoration: BoxDecoration(color: themeProvider.selectedColor, shape: BoxShape.circle), child: const Icon(Icons.add, color: Colors.white, size: 16)),
               const SizedBox(width: 16),
-              (title == 'Regional Planner')
-                  ? Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    'Regional',
-                    style: AppTextStyles.body.copyWith(color: Colors.black87),
-                  ),
-                  Text(
-                    'Planner',
-                    style: AppTextStyles.body.copyWith(color: Colors.black87),
-                  ),
-                ],
-              )
-                  : Text(
-                title,
-                style: AppTextStyles.body,
-              ),
+              title == 'Regional Planner'
+                  ? Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [Text('Regional', style: AppTextStyles.body.copyWith(color: Colors.black87)), Text('Planner', style: AppTextStyles.body.copyWith(color: Colors.black87))])
+                  : Text(title, style: AppTextStyles.body),
             ],
           ),
         ),
@@ -904,26 +670,17 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  String _formatTime(int hour, int minute) {
-    return DateFormat.jm().format(DateTime(2000, 1, 1, hour, minute));
-  }
+  String _formatTime(int hour, int minute) => DateFormat.jm().format(DateTime(2000, 1, 1, hour, minute));
 
   Widget _buildDaysRow(int days, Color selectedColor) {
-    final List<String> abbr = ['M', 'T', 'W', 'T', 'F', 'S', 'S']; // Mon Tue Wed Thu Fri Sat Sun
-    final List<int> bits = [1, 2, 3, 4, 5, 6, 7]; // bit1=Mon, ..., bit7=Sun
+    final List<String> abbr = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
     return Row(
-      mainAxisAlignment: MainAxisAlignment.center, // Changed from start to center
+      mainAxisAlignment: MainAxisAlignment.center,
       children: List.generate(7, (i) {
-        final bool active = (days & (1 << bits[i])) != 0;
+        final active = (days & (1 << (i + 1 == 7 ? 7 : i + 1))) != 0;
         return Padding(
           padding: const EdgeInsets.only(right: 4.0),
-          child: Text(
-            abbr[i],
-            style: AppTextStyles.subheading.copyWith(
-              color: active ? selectedColor : Colors.grey,
-              fontWeight: active ? FontWeight.bold : FontWeight.normal,
-            ),
-          ),
+          child: Text(abbr[i], style: AppTextStyles.subheading.copyWith(color: active ? selectedColor : Colors.grey, fontWeight: active ? FontWeight.bold : FontWeight.normal)),
         );
       }),
     );
@@ -936,6 +693,7 @@ class _HomeScreenState extends State<HomeScreen> {
     final selectedDay = _calendarLogic.selectedDay;
 
     final List<Widget> screens = [
+      // === PLANNER SCREEN ===
       SingleChildScrollView(
         child: Padding(
           padding: const EdgeInsets.all(16.0),
@@ -958,7 +716,6 @@ class _HomeScreenState extends State<HomeScreen> {
                         text: 'Event / Tasks',
                         index: 0,
                         onTap: () {
-                          debugPrint("Switching to Event/Tasks tab");
                           setState(() {
                             _tabLogic.setSelectedTab(0);
                           });
@@ -971,7 +728,6 @@ class _HomeScreenState extends State<HomeScreen> {
                         text: 'Bell',
                         index: 1,
                         onTap: () {
-                          debugPrint("Switching to Bell tab");
                           setState(() {
                             _tabLogic.setSelectedTab(1);
                           });
@@ -982,11 +738,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               ),
               const SizedBox(height: 16),
-              Text(
-                connectionStatus,
-                style: AppTextStyles.body,
-                textAlign: TextAlign.center,
-              ),
+              Text(connectionStatus, style: AppTextStyles.body, textAlign: TextAlign.center),
               const SizedBox(height: 16),
               _tabLogic.selectedTabIndex == 0
                   ? Column(
@@ -998,13 +750,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     decoration: BoxDecoration(
                       color: Colors.white,
                       borderRadius: BorderRadius.circular(12),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.grey.withOpacity(0.2),
-                          spreadRadius: 2,
-                          blurRadius: 5,
-                        ),
-                      ],
+                      boxShadow: [BoxShadow(color: Colors.grey.withOpacity(0.2), spreadRadius: 2, blurRadius: 5)],
                     ),
                     child: TableCalendar(
                       firstDay: _calendarLogic.firstDay,
@@ -1016,9 +762,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       calendarFormat: CalendarFormat.week,
                       headerStyle: HeaderStyle(
                         formatButtonVisible: false,
-                        titleTextStyle: AppTextStyles.subheading.copyWith(
-                          fontWeight: FontWeight.bold,
-                        ),
+                        titleTextStyle: AppTextStyles.subheading.copyWith(fontWeight: FontWeight.bold),
                         titleCentered: false,
                         leftChevronVisible: true,
                         rightChevronVisible: true,
@@ -1026,25 +770,13 @@ class _HomeScreenState extends State<HomeScreen> {
                       daysOfWeekStyle: DaysOfWeekStyle(
                         weekdayStyle: AppTextStyles.small,
                         weekendStyle: AppTextStyles.small,
-                        dowTextFormatter: (date, locale) =>
-                            DateFormat.E(locale).format(date).toUpperCase(),
+                        dowTextFormatter: (date, locale) => DateFormat.E(locale).format(date).toUpperCase(),
                       ),
                       calendarStyle: CalendarStyle(
-                        todayDecoration: BoxDecoration(
-                          color: Colors.grey[300],
-                          shape: BoxShape.circle,
-                        ),
-                        todayTextStyle: AppTextStyles.body.copyWith(
-                          fontWeight: FontWeight.bold,
-                        ),
-                        selectedDecoration: BoxDecoration(
-                          color: themeProvider.selectedColor,
-                          shape: BoxShape.circle,
-                        ),
-                        selectedTextStyle: AppTextStyles.body.copyWith(
-                          fontWeight: FontWeight.bold,
-                          color: Colors.white,
-                        ),
+                        todayDecoration: BoxDecoration(color: Colors.grey[300], shape: BoxShape.circle),
+                        todayTextStyle: AppTextStyles.body.copyWith(fontWeight: FontWeight.bold),
+                        selectedDecoration: BoxDecoration(color: themeProvider.selectedColor, shape: BoxShape.circle),
+                        selectedTextStyle: AppTextStyles.body.copyWith(fontWeight: FontWeight.bold, color: Colors.white),
                         defaultTextStyle: AppTextStyles.body,
                         weekendTextStyle: AppTextStyles.body,
                       ),
@@ -1055,14 +787,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     decoration: BoxDecoration(
                       color: Colors.white,
                       borderRadius: BorderRadius.circular(12),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.grey.withOpacity(0.3),
-                          spreadRadius: 2,
-                          blurRadius: 10,
-                          offset: const Offset(0, -2),
-                        ),
-                      ],
+                      boxShadow: [BoxShadow(color: Colors.grey.withOpacity(0.3), spreadRadius: 2, blurRadius: 10, offset: const Offset(0, -2))],
                     ),
                     child: Padding(
                       padding: const EdgeInsets.all(16.0),
@@ -1071,22 +796,14 @@ class _HomeScreenState extends State<HomeScreen> {
                         children: [
                           _buildStatusIndicators(),
                           Text(
-                            isSameDay(selectedDay, today)
-                                ? "Today's Schedule"
-                                : DateFormat('MMMM d, y').format(selectedDay),
+                            isSameDay(selectedDay, today) ? "Today's Schedule" : DateFormat('MMMM d, y').format(selectedDay),
                             style: AppTextStyles.subheading,
                           ),
                           const SizedBox(height: 12),
                           if (_loadingAlarmSongs) ...[
                             const Padding(
                               padding: EdgeInsets.symmetric(vertical: 8),
-                              child: Center(
-                                child: SizedBox(
-                                  height: 20,
-                                  width: 20,
-                                  child: CircularProgressIndicator(strokeWidth: 2),
-                                ),
-                              ),
+                              child: Center(child: SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2))),
                             ),
                           ],
                           if (_errorLoadingAlarmSongs) ...[
@@ -1095,35 +812,16 @@ class _HomeScreenState extends State<HomeScreen> {
                               child: Row(
                                 mainAxisAlignment: MainAxisAlignment.center,
                                 children: [
-                                  Flexible(
-                                    child: Text(
-                                      'Failed to load alarm songs',
-                                      style: AppTextStyles.body.copyWith(fontSize: 14, color: Colors.red),
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
-                                  ),
-                                  IconButton(
-                                    padding: EdgeInsets.zero,
-                                    constraints: const BoxConstraints(),
-                                    icon: const Icon(Icons.refresh, size: 20),
-                                    onPressed: _loadPrayerTimesStatus,
-                                    tooltip: 'Retry',
-                                  ),
+                                  Flexible(child: Text('Failed to load alarm songs', style: AppTextStyles.body.copyWith(fontSize: 14, color: Colors.red))),
+                                  IconButton(padding: EdgeInsets.zero, constraints: const BoxConstraints(), icon: const Icon(Icons.refresh, size: 20), onPressed: _loadPrayerTimesStatus),
                                 ],
                               ),
                             ),
                           ],
                           if (!_loadingAlarmSongs && !_errorLoadingAlarmSongs) ...[
                             Builder(builder: (context) {
-                              final alarmList = _alarmSongs
-                                  .where((s) => s.isScheduledForDay(selectedDay) && s.startTimestamp == 0)
-                                  .toList();
-                              final reminderList = _alarmSongs
-                                  .where((s) => s.isScheduledForDay(selectedDay) && s.startTimestamp != 0)
-                                  .toList();
-
-                              debugPrint(
-                                  'Reminders for ${DateFormat('yyyy-MM-dd').format(selectedDay)}: ${reminderList.map((s) => "${s.fileName} @ ${s.hour}:${s.minute}, start: ${s.startTimestamp}, end: ${s.endTimestamp}").join(', ')}');
+                              final alarmList = _alarmSongs.where((s) => s.isScheduledForDay(selectedDay) && s.startTimestamp == 0).toList();
+                              final reminderList = _alarmSongs.where((s) => s.isScheduledForDay(selectedDay) && s.startTimestamp != 0).toList();
 
                               return Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -1131,13 +829,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                   if (alarmList.isNotEmpty) ...[
                                     Padding(
                                       padding: const EdgeInsets.only(left: 8, top: 8, bottom: 8),
-                                      child: Text(
-                                        'Alarms',
-                                        style: AppTextStyles.subheading.copyWith(
-                                          fontWeight: FontWeight.w600,
-                                          color: Colors.black87,
-                                        ),
-                                      ),
+                                      child: Text('Alarms', style: AppTextStyles.subheading.copyWith(fontWeight: FontWeight.w600, color: Colors.black87)),
                                     ),
                                     ...alarmList.asMap().entries.map((entry) {
                                       final index = entry.key;
@@ -1150,7 +842,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                         onLongPress: () => _showAlarmDetailsDialog(song),
                                         child: ScheduleItem(
                                           time: timeString,
-                                          title: '', // Empty title
+                                          title: '',
                                           isChecked: isChecked,
                                           isLast: isLast,
                                           icon: Icons.alarm,
@@ -1163,13 +855,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                   if (reminderList.isNotEmpty) ...[
                                     Padding(
                                       padding: const EdgeInsets.only(left: 8, top: 8, bottom: 8),
-                                      child: Text(
-                                        'Reminders',
-                                        style: AppTextStyles.subheading.copyWith(
-                                          fontWeight: FontWeight.w600,
-                                          color: Colors.black87,
-                                        ),
-                                      ),
+                                      child: Text('Reminders', style: AppTextStyles.subheading.copyWith(fontWeight: FontWeight.w600, color: Colors.black87)),
                                     ),
                                     ...reminderList.asMap().entries.map((entry) {
                                       final index = entry.key;
@@ -1180,7 +866,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
                                       return ScheduleItem(
                                         time: timeString,
-                                        title: '', // Empty title
+                                        title: '',
                                         isChecked: isChecked,
                                         isLast: isLast,
                                         icon: Icons.notifications_outlined,
@@ -1192,37 +878,26 @@ class _HomeScreenState extends State<HomeScreen> {
                                   if (_namazEnabled && _namazTimes.isNotEmpty) ...[
                                     Padding(
                                       padding: const EdgeInsets.only(left: 8, top: 8, bottom: 8),
-                                      child: Text(
-                                        'Namaz',
-                                        style: AppTextStyles.subheading.copyWith(
-                                          fontWeight: FontWeight.w600,
-                                          color: Colors.black87,
-                                        ),
-                                      ),
+                                      child: Text('Namaz', style: AppTextStyles.subheading.copyWith(fontWeight: FontWeight.w600, color: Colors.black87)),
                                     ),
                                     ..._namazTimes.asMap().entries.map((entry) {
                                       final index = entry.key;
                                       final t = entry.value;
-                                      String fileName = 'Namaz'; // Default name
+                                      String fileName = 'Namaz';
                                       String timeStr = t;
-
-                                      // Extract file name from the time string
                                       if (t.contains(': ')) {
                                         final parts = t.split(': ');
                                         if (parts.length >= 2) {
-                                          fileName = parts[0]; // This will be the actual file name from device
+                                          fileName = parts[0];
                                           timeStr = parts[1];
                                         }
                                       }
-
-                                      int hour = 0;
-                                      int minute = 0;
+                                      int hour = 0, minute = 0;
                                       try {
                                         final timeParts = timeStr.split(':');
                                         hour = int.parse(timeParts[0]);
                                         minute = int.parse(timeParts[1]);
                                       } catch (e) {
-                                        // Invalid time, skip or handle
                                         return const SizedBox.shrink();
                                       }
                                       final timeString = _formatTime(hour, minute);
@@ -1232,7 +907,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                         padding: const EdgeInsets.only(bottom: 8),
                                         child: ScheduleItem(
                                           time: timeString,
-                                          title: fileName, // Use the actual file name from device
+                                          title: fileName,
                                           isChecked: isChecked,
                                           isLast: index == _namazTimes.length - 1,
                                           icon: Icons.mosque_outlined,
@@ -1243,37 +918,26 @@ class _HomeScreenState extends State<HomeScreen> {
                                   if (_sunriseEnabled && _poojaTimes.isNotEmpty) ...[
                                     Padding(
                                       padding: const EdgeInsets.only(left: 8, top: 8, bottom: 8),
-                                      child: Text(
-                                        'Sunrise/Sunset',
-                                        style: AppTextStyles.subheading.copyWith(
-                                          fontWeight: FontWeight.w600,
-                                          color: Colors.black87,
-                                        ),
-                                      ),
+                                      child: Text('Sunrise/Sunset', style: AppTextStyles.subheading.copyWith(fontWeight: FontWeight.w600, color: Colors.black87)),
                                     ),
                                     ..._poojaTimes.asMap().entries.map((entry) {
                                       final index = entry.key;
                                       final t = entry.value;
-                                      String fileName = 'Pooja'; // Default name
+                                      String fileName = 'Pooja';
                                       String timeStr = t;
-
-                                      // Extract file name from the time string
                                       if (t.contains(': ')) {
                                         final parts = t.split(': ');
                                         if (parts.length >= 2) {
-                                          fileName = parts[0]; // This will be the actual file name from device
+                                          fileName = parts[0];
                                           timeStr = parts[1];
                                         }
                                       }
-
-                                      int hour = 0;
-                                      int minute = 0;
+                                      int hour = 0, minute = 0;
                                       try {
                                         final timeParts = timeStr.split(':');
                                         hour = int.parse(timeParts[0]);
                                         minute = int.parse(timeParts[1]);
                                       } catch (e) {
-                                        // Invalid time, skip or handle
                                         return const SizedBox.shrink();
                                       }
                                       final timeString = _formatTime(hour, minute);
@@ -1283,7 +947,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                         padding: const EdgeInsets.only(bottom: 8),
                                         child: ScheduleItem(
                                           time: timeString,
-                                          title: fileName, // Use the actual file name from device
+                                          title: fileName,
                                           isChecked: isChecked,
                                           isLast: index == _poojaTimes.length - 1,
                                           icon: Icons.wb_sunny,
@@ -1294,10 +958,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                   if (alarmList.isEmpty && reminderList.isEmpty && (!_namazEnabled || _namazTimes.isEmpty) && (!_sunriseEnabled || _poojaTimes.isEmpty))
                                     Padding(
                                       padding: const EdgeInsets.all(8),
-                                      child: Text(
-                                        'No alarms or reminders scheduled for this day',
-                                        style: AppTextStyles.body.copyWith(color: Colors.grey),
-                                      ),
+                                      child: Text('No alarms or reminders scheduled for this day', style: AppTextStyles.body.copyWith(color: Colors.grey)),
                                     ),
                                 ],
                               );
@@ -1315,7 +976,9 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ),
       ),
+      // === MUSIC LIBRARY ===
       MusicLibrary(tabLogic: _musicTabLogic),
+      // === PROFILE ===
       ProfileScreen(),
     ];
 
@@ -1325,74 +988,42 @@ class _HomeScreenState extends State<HomeScreen> {
         surfaceTintColor: Colors.white,
         elevation: 0,
         automaticallyImplyLeading: false,
-        title: Image.asset(
-          'assets/appbar_icon.png',
-          height: 40,
-          fit: BoxFit.contain,
-        ),
+        title: Image.asset('assets/appbar_icon.png', height: 40, fit: BoxFit.contain),
       ),
       body: Stack(
         children: [
-          // Wrap your main content with GestureDetector to detect outside taps
           GestureDetector(
-            onTap: () {
-              if (_isFabMenuOpen) {
-                setState(() {
-                  _isFabMenuOpen = false;
-                });
-              }
-            },
+            onTap: () => setState(() => _isFabMenuOpen = false),
             child: screens[_selectedIndex],
           ),
-
           if (_isFabMenuOpen && _selectedIndex == 0)
             Positioned(
               bottom: 80,
               right: 16,
-              child: GestureDetector(
-                onTap: () {
-                  // This prevents the menu from closing when clicking inside it
-                },
-                child: Container(
-                  width: 180,
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(12),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.grey.withOpacity(0.3),
-                        spreadRadius: 2,
-                        blurRadius: 5,
-                      ),
-                    ],
-                  ),
-                  child: Column(
-                    children: [
-                      _buildFabOption('Reminder', true),
-                      _buildFabOption('Alarm', false),
-                      _buildFabOption('Regional Planner', false),
-                    ],
-                  ),
+              child: Container(
+                width: 180,
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(12),
+                  boxShadow: [BoxShadow(color: Colors.grey.withOpacity(0.3), spreadRadius: 2, blurRadius: 5)],
+                ),
+                child: Column(
+                  children: [
+                    _buildFabOption('Reminder', true),
+                    _buildFabOption('Alarm', false),
+                    _buildFabOption('Regional Planner', false),
+                  ],
                 ),
               ),
             ),
         ],
       ),
-      // Replace your current FAB in HomeScreen with this:
       floatingActionButton: _selectedIndex == 0
           ? FloatingActionButton(
-        onPressed: () {
-          setState(() {
-            _isFabMenuOpen = !_isFabMenuOpen;
-          });
-        },
+        onPressed: () => setState(() => _isFabMenuOpen = !_isFabMenuOpen),
         backgroundColor: themeProvider.selectedColor,
-        shape: const CircleBorder(), // Ensure it's circular
-        child: Icon(
-          _isFabMenuOpen ? Icons.close : Icons.edit_calendar_outlined,
-          color: Colors.white, // White icon for better contrast
-          size: 28, // Consistent size
-        ),
+        shape: const CircleBorder(),
+        child: Icon(_isFabMenuOpen ? Icons.close : Icons.edit_calendar_outlined, color: Colors.white, size: 28),
       )
           : null,
       floatingActionButtonLocation: FloatingActionButtonLocation.miniEndFloat,
@@ -1407,36 +1038,9 @@ class _HomeScreenState extends State<HomeScreen> {
           selectedFontSize: 0,
           unselectedFontSize: 0,
           items: [
-            BottomNavigationBarItem(
-              icon: _buildNavItem(
-                isSelected: _selectedIndex == 0,
-                selectedIcon: Icons.calendar_month,
-                unselectedIcon: Icons.calendar_month_outlined,
-                label: "Planner",
-                color: themeProvider.selectedColor,
-              ),
-              label: "",
-            ),
-            BottomNavigationBarItem(
-              icon: _buildNavItem(
-                isSelected: _selectedIndex == 1,
-                selectedIcon: Icons.music_note,
-                unselectedIcon: Icons.music_note_outlined,
-                label: "Library",
-                color: themeProvider.selectedColor,
-              ),
-              label: "",
-            ),
-            BottomNavigationBarItem(
-              icon: _buildNavItem(
-                isSelected: _selectedIndex == 2,
-                selectedIcon: Icons.person,
-                unselectedIcon: Icons.person_outline,
-                label: "Profile",
-                color: themeProvider.selectedColor,
-              ),
-              label: "",
-            ),
+            BottomNavigationBarItem(icon: _buildNavItem(isSelected: _selectedIndex == 0, selectedIcon: Icons.calendar_month, unselectedIcon: Icons.calendar_month_outlined, label: "Planner", color: themeProvider.selectedColor), label: ""),
+            BottomNavigationBarItem(icon: _buildNavItem(isSelected: _selectedIndex == 1, selectedIcon: Icons.music_note, unselectedIcon: Icons.music_note_outlined, label: "Library", color: themeProvider.selectedColor), label: ""),
+            BottomNavigationBarItem(icon: _buildNavItem(isSelected: _selectedIndex == 2, selectedIcon: Icons.person, unselectedIcon: Icons.person_outline, label: "Profile", color: themeProvider.selectedColor), label: ""),
           ],
         ),
       ),
@@ -1456,31 +1060,11 @@ Widget _buildNavItem({
     child: Column(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
-        Icon(
-          isSelected ? selectedIcon : unselectedIcon,
-          color: isSelected ? color : Colors.grey,
-        ),
+        Icon(isSelected ? selectedIcon : unselectedIcon, color: isSelected ? color : Colors.grey),
         const SizedBox(height: 4),
-        Text(
-          label,
-          style: AppTextStyles.small.copyWith(
-            fontSize: 12,
-            fontWeight: isSelected ? FontWeight.w600 : FontWeight.w400,
-            color: isSelected ? color : Colors.grey,
-          ),
-        ),
+        Text(label, style: AppTextStyles.small.copyWith(fontSize: 12, fontWeight: isSelected ? FontWeight.w600 : FontWeight.w400, color: isSelected ? color : Colors.grey)),
         const Spacer(),
-        Align(
-          alignment: Alignment.bottomCenter,
-          child: Container(
-            height: 4,
-            width: double.infinity,
-            decoration: BoxDecoration(
-              color: isSelected ? color : Colors.transparent,
-              borderRadius: BorderRadius.circular(50),
-            ),
-          ),
-        ),
+        Container(height: 4, width: double.infinity, decoration: BoxDecoration(color: isSelected ? color : Colors.transparent, borderRadius: BorderRadius.circular(50))),
       ],
     ),
   );

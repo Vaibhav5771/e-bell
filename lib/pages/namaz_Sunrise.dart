@@ -13,22 +13,24 @@ import '../utils/app_text_styles.dart';
 
 class ReligiousAlarms extends StatefulWidget {
   const ReligiousAlarms({super.key});
-
+g
   @override
   _ReligiousAlarmsState createState() => _ReligiousAlarmsState();
 }
 
 class _ReligiousAlarmsState extends State<ReligiousAlarms> {
   // Religion selection
-  List<String> _availableReligions = ['Hinduism', 'Islamic', 'Sikhism', 'Christianity', 'Buddhism'];
+  List<String> _availableReligions = ['Hinduism', 'Islamic', 'Sikhism', 'Christianity', 'Buddhism', 'Jainism'];
   List<String> _selectedReligions = ['Hinduism', 'Islamic']; // Default selections
 
   bool _namazEnabled = false;
   bool _sunriseEnabled = false;
+  bool _jainEnabled = false;
 
   // Sound files fetched from IoT device
   List<String> _namazSoundFiles = [];
   List<String> _sunriseSoundFiles = [];
+  List<String> _jainSoundFiles = [];
 
   // Individual sound selection for each namaz
   String _selectedFajrSound = '';
@@ -42,18 +44,28 @@ class _ReligiousAlarmsState extends State<ReligiousAlarms> {
   String _selectedSunriseSound = '';
   String _selectedSunsetSound = '';
 
+  // Individual sound selection for Jain prayers
+  String _selectedJainSound1 = '';
+  String _selectedJainSound2 = '';
+  String _selectedJainSound3 = '';
+  String _selectedJainSound4 = '';
+  String _selectedJainSound5 = '';
+
   // Time adjustment variables for sliders
   double _namazOffset = 0.0;
   double _sunriseOffset = 0.0;
+  double _jainOffset = 0.0;
 
   bool _isNamazLoading = false;
   bool _isSunriseLoading = false;
+  bool _isJainLoading = false;
   bool _isFetchingSounds = false;
   bool _isUploadingFile = false;
 
   // Track changes for save buttons
   bool _namazChanged = false;
   bool _sunriseChanged = false;
+  bool _jainChanged = false;
 
   // Store original values to compare changes
   String _originalFajrSound = '';
@@ -66,6 +78,12 @@ class _ReligiousAlarmsState extends State<ReligiousAlarms> {
   String _originalSunriseSound = '';
   String _originalSunsetSound = '';
   double _originalSunriseOffset = 0.0;
+  String _originalJainSound1 = '';
+  String _originalJainSound2 = '';
+  String _originalJainSound3 = '';
+  String _originalJainSound4 = '';
+  String _originalJainSound5 = '';
+  double _originalJainOffset = 0.0;
 
   @override
   void initState() {
@@ -86,6 +104,9 @@ class _ReligiousAlarmsState extends State<ReligiousAlarms> {
       if (_selectedReligions.contains('Hinduism') && _sunriseEnabled) {
         await _sendSunriseSunsetRequest(true);
       }
+      if (_selectedReligions.contains('Jainism') && _jainEnabled) {
+        await _sendJainRequest(true);
+      }
       await prefs.setBool('isFirstRun', false);
     }
   }
@@ -100,6 +121,9 @@ class _ReligiousAlarmsState extends State<ReligiousAlarms> {
       }
       if (_selectedReligions.contains('Hinduism')) {
         await _fetchSunriseSounds();
+      }
+      if (_selectedReligions.contains('Jainism')) {
+        await _fetchJainSounds();
       }
     } catch (e) {
       print('Error fetching sound files: $e');
@@ -154,7 +178,6 @@ class _ReligiousAlarmsState extends State<ReligiousAlarms> {
               _selectedIshaSound = _namazSoundFiles[0];
               _originalIshaSound = _selectedIshaSound;
             }
-            // ADD THIS - 6th prayer default selection
             if (!_namazSoundFiles.contains(_selectedTahajjudSound)) {
               _selectedTahajjudSound = _namazSoundFiles[0];
               _originalTahajjudSound = _selectedTahajjudSound;
@@ -168,6 +191,52 @@ class _ReligiousAlarmsState extends State<ReligiousAlarms> {
       }
     } catch (e) {
       print('Error fetching Namaz sounds: $e');
+    }
+  }
+
+  // Fetch Jain sound files from IoT device
+  Future<void> _fetchJainSounds() async {
+    try {
+      final response = await http.get(Uri.parse('http://192.168.2.1/songs'));
+
+      if (response.statusCode == 200) {
+        final Map<String, dynamic> data = json.decode(response.body);
+        final List<dynamic> filesData = data['Data'][0]['files'];
+
+        setState(() {
+          _jainSoundFiles = filesData.map<String>((file) => file[0] as String).toList();
+
+          // Set default selections if available
+          if (_jainSoundFiles.isNotEmpty) {
+            if (!_jainSoundFiles.contains(_selectedJainSound1)) {
+              _selectedJainSound1 = _jainSoundFiles[0];
+              _originalJainSound1 = _selectedJainSound1;
+            }
+            if (!_jainSoundFiles.contains(_selectedJainSound2)) {
+              _selectedJainSound2 = _jainSoundFiles[0];
+              _originalJainSound2 = _selectedJainSound2;
+            }
+            if (!_jainSoundFiles.contains(_selectedJainSound3)) {
+              _selectedJainSound3 = _jainSoundFiles[0];
+              _originalJainSound3 = _selectedJainSound3;
+            }
+            if (!_jainSoundFiles.contains(_selectedJainSound4)) {
+              _selectedJainSound4 = _jainSoundFiles[0];
+              _originalJainSound4 = _selectedJainSound4;
+            }
+            if (!_jainSoundFiles.contains(_selectedJainSound5)) {
+              _selectedJainSound5 = _jainSoundFiles[0];
+              _originalJainSound5 = _selectedJainSound5;
+            }
+          }
+        });
+
+        await _saveSettings();
+      } else {
+        print('Failed to fetch Jain sounds: ${response.statusCode}');
+      }
+    } catch (e) {
+      print('Error fetching Jain sounds: $e');
     }
   }
 
@@ -300,6 +369,70 @@ class _ReligiousAlarmsState extends State<ReligiousAlarms> {
     setState(() => _isSunriseLoading = false);
   }
 
+  // Send disable request for Jain
+  Future<void> _sendJainDisableRequest() async {
+    const String url = 'http://192.168.2.1/regctrl/';
+    final now = DateTime.now();
+    final int year = now.year;
+    final int month = now.month;
+    final int date = now.day;
+
+    final int buffMin = _jainOffset.round();
+    double lat = 18.476982;
+    double lng = 73.808417;
+    const double tz = 5.5;
+
+    final String body = '3,0,$lat,$lng,$tz,$year,$month,$date,$buffMin';
+
+    setState(() => _isJainLoading = true);
+
+    try {
+      final response = await http.post(
+        Uri.parse(url),
+        body: body,
+      );
+      if (response.statusCode == 200) {
+        print('Jain prayers disabled successfully: $body');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                'Jain prayers disabled',
+                style: AppTextStyles.body,
+              ),
+            ),
+          );
+        }
+      } else {
+        print('Failed to disable Jain prayers: ${response.statusCode}');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                'Failed to disable Jain prayers: ${response.statusCode}',
+                style: AppTextStyles.body,
+              ),
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      print('Error disabling Jain prayers: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Error disabling Jain prayers',
+              style: AppTextStyles.body,
+            ),
+          ),
+        );
+      }
+    }
+
+    setState(() => _isJainLoading = false);
+  }
+
   // Fetch Sunrise/Sunset sound files from IoT device
   Future<void> _fetchSunriseSounds() async {
     try {
@@ -341,6 +474,7 @@ class _ReligiousAlarmsState extends State<ReligiousAlarms> {
       _selectedReligions = prefs.getStringList('selectedReligions') ?? ['Hinduism', 'Islamic'];
       _namazEnabled = prefs.getBool('namazEnabled') ?? false;
       _sunriseEnabled = prefs.getBool('sunriseEnabled') ?? false;
+      _jainEnabled = prefs.getBool('jainEnabled') ?? false;
 
       // Load selected sounds for each namaz
       _selectedFajrSound = prefs.getString('fajrSound') ?? '';
@@ -354,6 +488,13 @@ class _ReligiousAlarmsState extends State<ReligiousAlarms> {
       _selectedSunriseSound = prefs.getString('sunriseSound') ?? '';
       _selectedSunsetSound = prefs.getString('sunsetSound') ?? '';
 
+      // Load selected sounds for Jain prayers
+      _selectedJainSound1 = prefs.getString('jainSound1') ?? '';
+      _selectedJainSound2 = prefs.getString('jainSound2') ?? '';
+      _selectedJainSound3 = prefs.getString('jainSound3') ?? '';
+      _selectedJainSound4 = prefs.getString('jainSound4') ?? '';
+      _selectedJainSound5 = prefs.getString('jainSound5') ?? '';
+
       // Store original values
       _originalFajrSound = _selectedFajrSound;
       _originalDhuhrSound = _selectedDhuhrSound;
@@ -363,14 +504,21 @@ class _ReligiousAlarmsState extends State<ReligiousAlarms> {
       _originalTahajjudSound = _selectedTahajjudSound;
       _originalSunriseSound = _selectedSunriseSound;
       _originalSunsetSound = _selectedSunsetSound;
+      _originalJainSound1 = _selectedJainSound1;
+      _originalJainSound2 = _selectedJainSound2;
+      _originalJainSound3 = _selectedJainSound3;
+      _originalJainSound4 = _selectedJainSound4;
+      _originalJainSound5 = _selectedJainSound5;
 
       // Load time adjustment values
       _namazOffset = prefs.getDouble('namazOffset') ?? 0.0;
       _sunriseOffset = prefs.getDouble('sunriseOffset') ?? 0.0;
+      _jainOffset = prefs.getDouble('jainOffset') ?? 0.0;
 
       // Store original values
       _originalNamazOffset = _namazOffset;
       _originalSunriseOffset = _sunriseOffset;
+      _originalJainOffset = _jainOffset;
     });
   }
 
@@ -380,6 +528,7 @@ class _ReligiousAlarmsState extends State<ReligiousAlarms> {
     await prefs.setStringList('selectedReligions', _selectedReligions);
     await prefs.setBool('namazEnabled', _namazEnabled);
     await prefs.setBool('sunriseEnabled', _sunriseEnabled);
+    await prefs.setBool('jainEnabled', _jainEnabled);
 
     // Save sound selections for each namaz
     await prefs.setString('fajrSound', _selectedFajrSound);
@@ -393,9 +542,17 @@ class _ReligiousAlarmsState extends State<ReligiousAlarms> {
     await prefs.setString('sunriseSound', _selectedSunriseSound);
     await prefs.setString('sunsetSound', _selectedSunsetSound);
 
+    // Save sound selections for Jain prayers
+    await prefs.setString('jainSound1', _selectedJainSound1);
+    await prefs.setString('jainSound2', _selectedJainSound2);
+    await prefs.setString('jainSound3', _selectedJainSound3);
+    await prefs.setString('jainSound4', _selectedJainSound4);
+    await prefs.setString('jainSound5', _selectedJainSound5);
+
     // Save time adjustment values
     await prefs.setDouble('namazOffset', _namazOffset);
     await prefs.setDouble('sunriseOffset', _sunriseOffset);
+    await prefs.setDouble('jainOffset', _jainOffset);
   }
 
   // Check if namaz settings have changed
@@ -406,7 +563,7 @@ class _ReligiousAlarmsState extends State<ReligiousAlarms> {
           (_selectedAsrSound != _originalAsrSound) ||
           (_selectedMaghribSound != _originalMaghribSound) ||
           (_selectedIshaSound != _originalIshaSound) ||
-          (_selectedTahajjudSound != _originalTahajjudSound) || // ADD THIS
+          (_selectedTahajjudSound != _originalTahajjudSound) ||
           (_namazOffset != _originalNamazOffset);
     });
   }
@@ -416,7 +573,19 @@ class _ReligiousAlarmsState extends State<ReligiousAlarms> {
     setState(() {
       _sunriseChanged = (_selectedSunriseSound != _originalSunriseSound) ||
           (_selectedSunsetSound != _originalSunsetSound) ||
-          (_sunriseOffset != _originalSunriseOffset); // This line checks offset changes
+          (_sunriseOffset != _originalSunriseOffset);
+    });
+  }
+
+  // Check if jain settings have changed
+  void _checkJainChanges() {
+    setState(() {
+      _jainChanged = (_selectedJainSound1 != _originalJainSound1) ||
+          (_selectedJainSound2 != _originalJainSound2) ||
+          (_selectedJainSound3 != _originalJainSound3) ||
+          (_selectedJainSound4 != _originalJainSound4) ||
+          (_selectedJainSound5 != _originalJainSound5) ||
+          (_jainOffset != _originalJainOffset);
     });
   }
 
@@ -700,11 +869,89 @@ class _ReligiousAlarmsState extends State<ReligiousAlarms> {
     setState(() => _isSunriseLoading = false);
   }
 
+  // Send POST request to the IoT device for Jain Prayers
+  Future<void> _sendJainRequest(bool enabled) async {
+    const String url = 'http://192.168.2.1/regctrl/';
+    final now = DateTime.now();
+    final int year = now.year;
+    final int month = now.month;
+    final int date = now.day;
+
+    final int buffMin = _jainOffset.round();
+    double lat = 18.476982;
+    double lng = 73.808417;
+    const double tz = 5.5;
+
+    if (enabled) {
+      final location = await _getDeviceLocation();
+      if (location != null) {
+        lat = location['latitude']!;
+        lng = location['longitude']!;
+      }
+    }
+
+    final String body = '3,${enabled ? 1 : 0},$lat,$lng,$tz,$year,$month,$date,$buffMin';
+
+    setState(() => _isJainLoading = true);
+
+    try {
+      final response = await http.post(
+        Uri.parse(url),
+        body: body,
+      );
+
+      if (response.statusCode == 200) {
+        print('Jain prayers request sent successfully: $body');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                'Jain prayers ${enabled ? 'enabled' : 'disabled'} | API: $body',
+                style: AppTextStyles.body,
+              ),
+              duration: const Duration(seconds: 3),
+            ),
+          );
+        }
+        // Send sound selection request only when enabling
+        if (enabled) {
+          await _sendJainSoundRequest();
+        }
+      } else {
+        print('Failed to send Jain prayers request: ${response.statusCode}');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                'Failed to send Jain prayers request: ${response.statusCode} | API: $body',
+                style: AppTextStyles.body,
+              ),
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      print('Error sending Jain prayers request: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Error sending Jain prayers request | API: $body',
+              style: AppTextStyles.body,
+            ),
+          ),
+        );
+      }
+    }
+
+    setState(() => _isJainLoading = false);
+  }
+
   // Send sound change request for Namaz with individual prayer sounds
   Future<void> _sendNamazSoundRequest() async {
     const String url = 'http://192.168.2.1/regselect/';
 
-    // Create the JSON body for all 5 prayers
+    // Create the JSON body for all 6 prayers
     final Map<String, dynamic> requestBody = {
       "1": {
         "1": _selectedFajrSound.isNotEmpty ? _selectedFajrSound : "",
@@ -832,45 +1079,72 @@ class _ReligiousAlarmsState extends State<ReligiousAlarms> {
     setState(() => _isSunriseLoading = false);
   }
 
-  // Upload audio file to IoT device using the new API endpoints
-  // Future<void> _uploadAudioFile(File file, String fileName, bool isNamaz) async {
-  //   setState(() => _isUploadingFile = true);
+  // Send sound change request for Jain Prayers with individual sounds
+  Future<void> _sendJainSoundRequest() async {
+    const String url = 'http://192.168.2.1/regselect/';
 
-  //   try {
-  //     // Create multipart request
-  //     var request = http.MultipartRequest(
-  //         'POST',
-  //         Uri.parse('http://192.168.2.1/upload/${isNamaz ? 'namaz' : 'pooja'}/$fileName')
-  //     );
+    // Create the JSON body for Jain prayers (5 songs)
+    final Map<String, dynamic> requestBody = {
+      "3": {
+        "1": _selectedJainSound1.isNotEmpty ? _selectedJainSound1 : "",
+        "2": _selectedJainSound2.isNotEmpty ? _selectedJainSound2 : "",
+        "3": _selectedJainSound3.isNotEmpty ? _selectedJainSound3 : "",
+        "4": _selectedJainSound4.isNotEmpty ? _selectedJainSound4 : "",
+        "5": _selectedJainSound5.isNotEmpty ? _selectedJainSound5 : "",
+      }
+    };
 
-  //     // Add file to request
-  //     request.files.add(await http.MultipartFile.fromPath(
-  //       'file',
-  //       file.path,
-  //       filename: fileName,
-  //     ));
+    setState(() => _isJainLoading = true);
 
-  //     // Send request
-  //     var response = await request.send();
+    try {
+      final response = await http.post(
+        Uri.parse(url),
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode(requestBody),
+      );
 
-  //     if (response.statusCode == 200) {
-  //       _showDialog("Success", "File uploaded successfully: $fileName");
+      if (response.statusCode == 200) {
+        print('Jain prayers sounds updated successfully');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                'Jain prayers sounds updated successfully',
+                style: AppTextStyles.body,
+              ),
+            ),
+          );
+        }
+        await _saveSettings();
+      } else {
+        print('Failed with status: ${response.statusCode}');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                'Failed to update Jain prayers sounds: ${response.statusCode}',
+                style: AppTextStyles.body,
+              ),
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      print('Connection Error: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              "Make sure you're connected to the speaker's Wi-Fi",
+              style: AppTextStyles.body,
+            ),
+          ),
+        );
+      }
+    }
 
-  //       // Update the sound lists and refresh
-  //       if (isNamaz) {
-  //         await _fetchNamazSounds();
-  //       } else {
-  //         await _fetchSunriseSounds();
-  //       }
-  //     } else {
-  //       _showDialog("Error", "Failed to upload file: ${response.statusCode}");
-  //     }
-  //   } catch (e) {
-  //     _showDialog("Connection Error", "Make sure you're connected to the speaker's Wi-Fi.\n\nError: $e");
-  //   }
-
-  //   setState(() => _isUploadingFile = false);
-  // }
+    setState(() => _isJainLoading = false);
+  }
 
   // Pick audio file from device storage and upload to IoT device
   Future<void> _pickAudioFile(bool isNamaz) async {
@@ -880,20 +1154,7 @@ class _ReligiousAlarmsState extends State<ReligiousAlarms> {
     );
 
     if (result != null && result.files.single.path != null) {
-      String filePath = result.files.single.path!;
-      String fileName = result.files.single.name;
-
-      // Check if the file has an audio extension
-      // if (fileName.toLowerCase().endsWith('.mp3') ||
-      //     fileName.toLowerCase().endsWith('.wav') ||
-      //     fileName.toLowerCase().endsWith('.ogg') ||
-      //     fileName.toLowerCase().endsWith('.m4a')) {
-
-      //   // Upload the file using the new API
-      //   await _uploadAudioFile(File(filePath), fileName, isNamaz);
-      // } else {
-      //   _showDialog("Invalid File", "Please select an audio file (MP3, WAV, OGG, M4A)");
-      // }
+      // Implementation for file upload can be added here if needed
     }
   }
 
@@ -979,6 +1240,49 @@ class _ReligiousAlarmsState extends State<ReligiousAlarms> {
     }
   }
 
+  // Save jain settings to device
+  Future<void> _saveJainSettings() async {
+    if (_jainChanged) {
+      setState(() => _isJainLoading = true);
+
+      // Update the toggle state first
+      await _sendJainRequest(_jainEnabled);
+
+      // Update sounds if changed
+      if (_selectedJainSound1 != _originalJainSound1 ||
+          _selectedJainSound2 != _originalJainSound2 ||
+          _selectedJainSound3 != _originalJainSound3 ||
+          _selectedJainSound4 != _originalJainSound4 ||
+          _selectedJainSound5 != _originalJainSound5) {
+        await _sendJainSoundRequest();
+      }
+
+      // Save settings locally
+      await _saveSettings();
+
+      // Update original values
+      setState(() {
+        _originalJainSound1 = _selectedJainSound1;
+        _originalJainSound2 = _selectedJainSound2;
+        _originalJainSound3 = _selectedJainSound3;
+        _originalJainSound4 = _selectedJainSound4;
+        _originalJainSound5 = _selectedJainSound5;
+        _originalJainOffset = _jainOffset;
+        _jainChanged = false;
+        _isJainLoading = false;
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Jain prayers settings saved to device',
+            style: AppTextStyles.body,
+          ),
+        ),
+      );
+    }
+  }
+
   void _showDialog(String title, String content) {
     showDialog(
       context: context,
@@ -1046,7 +1350,7 @@ class _ReligiousAlarmsState extends State<ReligiousAlarms> {
                       child: SingleChildScrollView(
                         child: ListBody(
                           children: _availableReligions.map((religion) {
-                            final bool isEnabled = religion == 'Hinduism' || religion == 'Islamic';
+                            final bool isEnabled = religion == 'Hinduism' || religion == 'Islamic' || religion == 'Jainism';
                             final bool isSelected = tempSelectedReligions.contains(religion);
 
                             return Container(
@@ -1169,6 +1473,41 @@ class _ReligiousAlarmsState extends State<ReligiousAlarms> {
     );
   }
 
+  // Widget for individual jain sound selection
+  Widget _buildJainSoundSelection(String songName, String currentSound, Function(String?) onChanged) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(
+            songName,
+            style: AppTextStyles.body,
+          ),
+          _jainSoundFiles.isEmpty
+              ? Text(
+            'No sounds available',
+            style: AppTextStyles.body.copyWith(color: Colors.grey),
+          )
+              : GestureDetector(
+            onTap: () => _showJainSoundSelection(songName, currentSound, onChanged),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  currentSound.isNotEmpty ? currentSound : 'Select sound',
+                  style: AppTextStyles.body.copyWith(color: Colors.grey[600]),
+                ),
+                const SizedBox(width: 4),
+                const Icon(Icons.chevron_right, color: Colors.grey, size: 20),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   void _showNamazSoundSelection(String namazName, String currentSound, Function(String?) onChanged) {
     if (_namazSoundFiles.isEmpty) return;
 
@@ -1179,6 +1518,26 @@ class _ReligiousAlarmsState extends State<ReligiousAlarms> {
         return _buildSoundSelectionSheet(
           title: 'Select Sound for $namazName',
           options: _namazSoundFiles,
+          selectedOption: currentSound,
+          onSelect: (value) {
+            onChanged(value);
+            Navigator.pop(context);
+          },
+        );
+      },
+    );
+  }
+
+  void _showJainSoundSelection(String songName, String currentSound, Function(String?) onChanged) {
+    if (_jainSoundFiles.isEmpty) return;
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      builder: (context) {
+        return _buildSoundSelectionSheet(
+          title: 'Select Sound for $songName',
+          options: _jainSoundFiles,
           selectedOption: currentSound,
           onSelect: (value) {
             onChanged(value);
@@ -1478,7 +1837,7 @@ class _ReligiousAlarmsState extends State<ReligiousAlarms> {
                         },
                       ),
 
-                      // Time Adjustment Slider for Namaz - UPDATED with -15 to +15 range
+                      // Time Adjustment Slider for Namaz - UPDATED with -30 to +30 range
                       Padding(
                         padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
                         child: Column(
@@ -1538,27 +1897,6 @@ class _ReligiousAlarmsState extends State<ReligiousAlarms> {
                           ],
                         ),
                       ),
-                      // Padding(
-                      //   padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
-                      //   child: Center(
-                      //     child: ElevatedButton.icon(
-                      //       onPressed: () => _pickAudioFile(true),
-                      //       icon: Icon(Icons.upload_file, color: themeProvider.selectedColor),
-                      //       label: Text(
-                      //         'New',
-                      //         style: AppTextStyles.link.copyWith(color: themeProvider.selectedColor),
-                      //       ),
-                      //       style: ElevatedButton.styleFrom(
-                      //         backgroundColor: Colors.grey[100],
-                      //         foregroundColor: Colors.black,
-                      //         elevation: 0,
-                      //         shape: RoundedRectangleBorder(
-                      //           borderRadius: BorderRadius.circular(10),
-                      //         ),
-                      //       ),
-                      //     ),
-                      //   ),
-                      // ),
                       // Save button for Namaz card
                       Padding(
                         padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
@@ -1662,7 +2000,7 @@ class _ReligiousAlarmsState extends State<ReligiousAlarms> {
                         },
                       ),
 
-                      // Time Adjustment Slider for Sunrise/Sunset - UPDATED with -15 to +15 range
+                      // Time Adjustment Slider for Sunrise/Sunset - UPDATED with -30 to +30 range
                       Padding(
                         padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
                         child: Column(
@@ -1722,27 +2060,6 @@ class _ReligiousAlarmsState extends State<ReligiousAlarms> {
                           ],
                         ),
                       ),
-                      // Padding(
-                      //   padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
-                      //   child: Center(
-                      //     child: ElevatedButton.icon(
-                      //       onPressed: () => _pickAudioFile(false),
-                      //       icon: Icon(Icons.upload_file, color: themeProvider.selectedColor),
-                      //       label: Text(
-                      //         'New',
-                      //         style: AppTextStyles.link.copyWith(color: themeProvider.selectedColor),
-                      //       ),
-                      //       style: ElevatedButton.styleFrom(
-                      //         backgroundColor: Colors.grey[100],
-                      //         foregroundColor: Colors.black,
-                      //         elevation: 0,
-                      //         shape: RoundedRectangleBorder(
-                      //           borderRadius: BorderRadius.circular(10),
-                      //         ),
-                      //       ),
-                      //     ),
-                      //   ),
-                      // ),
                       // Save button for Sunrise card
                       Padding(
                         padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
@@ -1771,6 +2088,199 @@ class _ReligiousAlarmsState extends State<ReligiousAlarms> {
                               'Save',
                               style: AppTextStyles.button.copyWith(
                                 color: _sunriseChanged ? Colors.white : Colors.grey[500],
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                    ],
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
+            ],
+
+            // Jain Prayers Card (only show if Jainism is selected)
+            if (_selectedReligions.contains('Jainism')) ...[
+              Card(
+                color: Colors.grey[50],
+                child: Column(
+                  children: [
+                    // Always visible header with toggle
+                    ListTile(
+                      leading: Container(
+                        padding: const EdgeInsets.all(15),
+                        decoration: BoxDecoration(
+                          color: themeProvider.selectedColor.withOpacity(0.3),
+                          shape: BoxShape.circle,
+                        ),
+                        child: Icon(
+                          Icons.self_improvement, // Using a meditation icon for Jain prayers
+                          color: themeProvider.selectedColor,
+                          size: 30,
+                        ),
+                      ),
+                      title: Text(
+                        'Jain Prayers',
+                        style: AppTextStyles.subheading,
+                      ),
+                      trailing: Switch(
+                        value: _jainEnabled,
+                        onChanged: (value) async {
+                          setState(() {
+                            _jainEnabled = value;
+                          });
+                          await _saveSettings();
+                          _checkJainChanges();
+                          await _sendJainRequest(value); // Use unified request function
+                        },
+                        activeColor: themeProvider.selectedColor,
+                      ),
+                    ),
+
+                    // Collapsible content - only show when enabled
+                    if (_jainEnabled) ...[
+                      // Individual sound selection for each Jain prayer
+                      _buildJainSoundSelection(
+                        'Song 1',
+                        _selectedJainSound1,
+                            (value) {
+                          if (value != null) {
+                            setState(() => _selectedJainSound1 = value);
+                            _checkJainChanges();
+                          }
+                        },
+                      ),
+                      _buildJainSoundSelection(
+                        'Song 2',
+                        _selectedJainSound2,
+                            (value) {
+                          if (value != null) {
+                            setState(() => _selectedJainSound2 = value);
+                            _checkJainChanges();
+                          }
+                        },
+                      ),
+                      _buildJainSoundSelection(
+                        'Song 3',
+                        _selectedJainSound3,
+                            (value) {
+                          if (value != null) {
+                            setState(() => _selectedJainSound3 = value);
+                            _checkJainChanges();
+                          }
+                        },
+                      ),
+                      _buildJainSoundSelection(
+                        'Song 4',
+                        _selectedJainSound4,
+                            (value) {
+                          if (value != null) {
+                            setState(() => _selectedJainSound4 = value);
+                            _checkJainChanges();
+                          }
+                        },
+                      ),
+                      _buildJainSoundSelection(
+                        'Song 5',
+                        _selectedJainSound5,
+                            (value) {
+                          if (value != null) {
+                            setState(() => _selectedJainSound5 = value);
+                            _checkJainChanges();
+                          }
+                        },
+                      ),
+
+                      // Time Adjustment Slider for Jain Prayers - UPDATED with -30 to +30 range
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Time Adjustment',
+                              style: AppTextStyles.body,
+                            ),
+                            const SizedBox(height: 8),
+                            Row(
+                              children: [
+                                Text(
+                                  '-30m',
+                                  style: AppTextStyles.body.copyWith(
+                                    color: _jainOffset == -30
+                                        ? themeProvider.selectedColor
+                                        : Colors.grey,
+                                  ),
+                                ),
+                                Expanded(
+                                  child: Slider(
+                                    value: _jainOffset,
+                                    min: -30,
+                                    max: 30,
+                                    divisions: 30,
+                                    label: '${_jainOffset.round()}m',
+                                    onChanged: (value) {
+                                      setState(() {
+                                        _jainOffset = value;
+                                      });
+                                      _checkJainChanges();
+                                    },
+                                    activeColor: themeProvider.selectedColor,
+                                    inactiveColor: Colors.grey[300],
+                                  ),
+                                ),
+                                Text(
+                                  '+30m',
+                                  style: AppTextStyles.body.copyWith(
+                                    color: _jainOffset == 30
+                                        ? themeProvider.selectedColor
+                                        : Colors.grey,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            Center(
+                              child: Text(
+                                '${_jainOffset.round()} minutes',
+                                style: AppTextStyles.body.copyWith(
+                                  color: themeProvider.selectedColor,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      // Save button for Jain card
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+                        child: Align(
+                          alignment: Alignment.bottomRight,
+                          child: ElevatedButton(
+                            onPressed: _jainChanged ? _saveJainSettings : null,
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: _jainChanged
+                                  ? themeProvider.selectedColor
+                                  : Colors.grey[300],
+                              foregroundColor: _jainChanged
+                                  ? Colors.white
+                                  : Colors.grey[500],
+                            ),
+                            child: _isJainLoading
+                                ? SizedBox(
+                              height: 16,
+                              width: 16,
+                              child: CircularProgressIndicator(
+                                color: Colors.white,
+                                strokeWidth: 2,
+                              ),
+                            )
+                                : Text(
+                              'Save',
+                              style: AppTextStyles.button.copyWith(
+                                color: _jainChanged ? Colors.white : Colors.grey[500],
                               ),
                             ),
                           ),
