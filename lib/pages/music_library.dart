@@ -1,9 +1,9 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:device_info_plus/device_info_plus.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:network_info_plus/network_info_plus.dart';
@@ -11,15 +11,13 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:http/http.dart' as http;
-import 'package:quickalert/quickalert.dart';
 
-import 'comingsoon.dart';
 import '../music_tabs/recordingpage.dart';
 import '../services/services.dart';
 import '../utils/theme_state.dart';
 import '../utils/app_text_styles.dart';
+import '../utils/quickalert.dart';
 import 'tablogic1.dart';
-import '../utils/quickalert.dart'; // Make sure to import QuickAlert
 
 class MusicLibrary extends StatefulWidget {
   final TabLogic1 tabLogic;
@@ -31,6 +29,8 @@ class MusicLibrary extends StatefulWidget {
 
 class _MusicLibraryState extends State<MusicLibrary> {
   bool _isFabMenuOpen = false;
+
+  // Wi-Fi
   bool isWifiConnected = false;
   String connectionStatus = "Checking Wi-Fi...";
   Timer? wifiCheckTimer;
@@ -40,11 +40,11 @@ class _MusicLibraryState extends State<MusicLibrary> {
   List<String> recordings = [];
   bool _isLoading = true;
 
-  // API songs
+  // Songs uploaded to device API
   List<String> apiSongs = [];
   String? currentlyPlayingApiSong;
 
-  // Audio player
+  // Audio Player
   AudioPlayer? _player;
   int? _currentlyPlayingIndex;
   StreamSubscription<PlayerState>? _playerStateSubscription;
@@ -66,74 +66,64 @@ class _MusicLibraryState extends State<MusicLibrary> {
     _playerStateSubscription?.cancel();
     _player?.stop();
     _player?.dispose();
-    _player = null;
     super.dispose();
   }
 
-  /// ----------------- AUDIO PLAYER -----------------
+  // AUDIO PLAYER INIT
   Future<void> _initPlayer() async {
     _playerStateSubscription = _player?.playerStateStream.listen((state) {
-      if (mounted) {
-        setState(() {
-          if (state.processingState == ProcessingState.completed) {
-            _currentlyPlayingIndex = null;
-            currentlyPlayingApiSong = null;
-          }
-        });
-      }
+      if (!mounted) return;
+      setState(() {
+        if (state.processingState == ProcessingState.completed) {
+          _currentlyPlayingIndex = null;
+          currentlyPlayingApiSong = null;
+        }
+      });
     });
   }
 
-  /// ----------------- RECORDINGS -----------------
+  // LOAD LOCAL + API SONGS
   Future<void> _loadUploadedFiles() async {
     setState(() => _isLoading = true);
 
     try {
-      // 1️⃣ Load local recordings from app directory
       final dir = await getApplicationDocumentsDirectory();
       final recDir = Directory('${dir.path}/recordings');
-      if (!await recDir.exists()) await recDir.create(recursive: true);
+
+      if (!await recDir.exists()) {
+        await recDir.create(recursive: true);
+      }
 
       final files = await recDir.list().toList();
-      final mp3Files = files
-          .whereType<File>()
-          .where((f) => f.path.toLowerCase().endsWith('.mp3'))
-          .toList();
+      final mp3Files = files.whereType<File>().where((f) {
+        return f.path.toLowerCase().endsWith('.mp3');
+      }).toList();
 
-      // Sort by modified date (latest first)
-      mp3Files.sort(
-              (a, b) => b.statSync().modified.compareTo(a.statSync().modified));
+      mp3Files.sort((a, b) {
+        return b.statSync().modified.compareTo(a.statSync().modified);
+      });
 
       final localRecordings = mp3Files.map((f) => f.path).toList();
 
-      // 2️⃣ Fetch uploaded files from IoT device using BellService
+      // FETCH API FILES
       final bellService = BellService();
       final uploadedFiles = await bellService.fetchSoundFiles(context);
 
-      // 3️⃣ Merge lists & remove duplicates
-      final allSongs = <String>{
-        ...uploadedFiles,
-        ...localRecordings.map((f) => f.split(Platform.pathSeparator).last),
-      }.toList();
-
-      // 4️⃣ Update UI
       if (!mounted) return;
+
       setState(() {
-        recordings = localRecordings; // local device recordings
-        apiSongs = uploadedFiles; // songs fetched from IoT
+        recordings = localRecordings;
+        apiSongs = uploadedFiles;
         _isLoading = false;
       });
     } catch (e) {
+      if (!mounted) return;
       setState(() => _isLoading = false);
-      if (mounted) {
-        AppAlert.error(
-          context,
-          text: 'Error loading uploaded files: $e',
-        );
-      }
+      AppAlert.error(context, text: "Error loading files: $e");
     }
   }
 
+  // PLAY LOCAL FILE
   Future<void> _playRecording(int index) async {
     try {
       final filePath = recordings[index];
@@ -141,445 +131,290 @@ class _MusicLibraryState extends State<MusicLibrary> {
 
       if (!await file.exists()) return;
 
-      if (_currentlyPlayingIndex == index && _player?.playing == true) {
-        await _player?.pause();
+      if (_currentlyPlayingIndex == index && _player!.playing) {
+        await _player!.pause();
         return;
       }
 
-      if (_currentlyPlayingIndex == index && _player?.playing == false) {
-        await _player?.play();
+      if (_currentlyPlayingIndex == index && !_player!.playing) {
+        await _player!.play();
         return;
       }
 
-      await _player?.stop();
+      await _player!.stop();
       setState(() => _currentlyPlayingIndex = index);
-      await _player?.setFilePath(filePath);
-      await _player?.play();
+
+      await _player!.setFilePath(filePath);
+      await _player!.play();
     } catch (e) {
-      if (mounted) {
-        AppAlert.error(
-          context,
-          text: 'Error playing audio: $e',
-        );
-      }
-      setState(() => _currentlyPlayingIndex = null);
+      if (!mounted) return;
+      AppAlert.error(context, text: "Error playing audio: $e");
     }
   }
 
+  // DELETE LOCAL FILE
   Future<void> _deleteRecording(int index, String filePath) async {
     try {
       final file = File(filePath);
       await file.delete();
+
       setState(() {
         recordings.removeAt(index);
-        if (_currentlyPlayingIndex != null &&
-            _currentlyPlayingIndex! >= index) {
-          if (_currentlyPlayingIndex == index) {
-            _currentlyPlayingIndex = null;
-            _player?.stop();
-          } else {
-            _currentlyPlayingIndex = _currentlyPlayingIndex! - 1;
-          }
+        if (_currentlyPlayingIndex == index) {
+          _player?.stop();
+          _currentlyPlayingIndex = null;
         }
       });
-      if (mounted) {
-        AppAlert.success(
-          context,
-          text: 'Recording deleted successfully',
-        );
-      }
+
+      AppAlert.success(context, text: "Recording deleted");
     } catch (e) {
-      if (mounted) {
-        AppAlert.error(
-          context,
-          text: 'Error deleting file: $e',
-        );
-      }
+      AppAlert.error(context, text: "Delete error: $e");
     }
   }
 
-  /// ----------------- API SONGS -----------------
+  // FETCH SONGS FROM IOT DEVICE
   Future<void> _fetchApiSongs() async {
     try {
       final response =
       await http.get(Uri.parse("http://192.168.2.1/alarmsong/"));
+
       if (response.statusCode == 200) {
         final jsonResponse = json.decode(response.body);
         final List<dynamic> files = jsonResponse["Data"][0]["files"];
+
+        if (!mounted) return;
+
         setState(() {
           apiSongs = files.map((e) => e[0].toString()).toList();
         });
       }
     } catch (e) {
-      debugPrint('Error fetching API songs: $e');
+      debugPrint("Fetch API songs error: $e");
     }
   }
 
-  Future<void> _playApiSong(String songName) async {
+  // PLAY SONG FROM DEVICE
+  Future<void> _playApiSong(String name) async {
     try {
-      // First, send stop API call
-      final stopResponse = await http.post(
-        Uri.parse("http://192.168.2.1/preview/"),
-        body: "0",
-      );
-
-      if (stopResponse.statusCode != 200) {
-        debugPrint(
-            'Warning: Stop API call failed with status: ${stopResponse.statusCode}');
-      }
-
-      // Add a small delay to ensure the stop command is processed
+      await http.post(Uri.parse("http://192.168.2.1/preview/"), body: "0");
       await Future.delayed(const Duration(milliseconds: 200));
 
-      // Then send the preview API call
       final response = await http.post(
         Uri.parse("http://192.168.2.1/preview/"),
-        body: "1,$songName",
+        body: "1,$name",
       );
 
-      if (response.statusCode == 200) {
+      if (response.statusCode == 200 && mounted) {
+        _player?.stop();
         setState(() {
-          currentlyPlayingApiSong = songName;
+          currentlyPlayingApiSong = name;
           _currentlyPlayingIndex = null;
-          _player?.stop();
         });
-      } else {
-        debugPrint(
-            'Error: Preview API call failed with status: ${response.statusCode}');
-        if (mounted) {
-          AppAlert.error(
-            context,
-            text: 'Failed to play song. Status: ${response.statusCode}',
-          );
-        }
       }
     } catch (e) {
-      debugPrint('Error playing API song: $e');
       if (mounted) {
-        AppAlert.error(
-          context,
-          text: 'Error playing API song: $e',
-        );
+        AppAlert.error(context, text: "Error playing: $e");
       }
     }
   }
 
+  // PAUSE API SONG
   Future<void> _pauseApiSong() async {
     try {
-      final response = await http.post(
-        Uri.parse("http://192.168.2.1/preview/"),
-        body: "0",
-      );
-      if (response.statusCode == 200) {
-        setState(() {
-          currentlyPlayingApiSong = null;
-        });
-      }
-    } catch (e) {
-      debugPrint('Error pausing API song: $e');
-    }
+      await http.post(Uri.parse("http://192.168.2.1/preview/"), body: "0");
+      if (mounted) setState(() => currentlyPlayingApiSong = null);
+    } catch (_) {}
   }
 
+  // DELETE API SONG
   Future<void> _deleteApiSong(String fileName) async {
-    if (mounted) {
-      showDialog(
-        context: context,
-        builder: (BuildContext context) {
-          return AlertDialog(
-            title: const Text('Confirm Delete'),
-            content: Text(
-                "Are you sure you want to delete '$fileName'? This action cannot be undone."),
-            actions: <Widget>[
-              TextButton(
-                child: const Text('Cancel'),
-                onPressed: () {
-                  Navigator.of(context).pop();
-                },
-              ),
-              TextButton(
-                child:
-                const Text('Delete', style: TextStyle(color: Colors.red)),
-                onPressed: () async {
-                  Navigator.of(context).pop(); // Close the dialog
-                  try {
-                    // Construct POST body in the new API format
-                    // filename,hour,min,s_epoch,e_epoch,weeks
-                    final body = "$fileName,0,0,0,0,0";
+    if (!mounted) return;
+    showDialog(
+      context: context,
+      builder: (_) {
+        return AlertDialog(
+          title: const Text("Delete"),
+          content: Text("Delete $fileName?"),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text("Cancel"),
+            ),
+            TextButton(
+              onPressed: () async {
+                Navigator.pop(context);
 
-                    final response = await http.post(
-                      Uri.parse("http://192.168.2.1/delete/"),
-                      body: body,
-                    );
+                try {
+                  final body = "$fileName,0,0,0,0,0";
+                  final response = await http.post(
+                    Uri.parse("http://192.168.2.1/delete/"),
+                    body: body,
+                  );
 
-                    if (response.statusCode == 200) {
-                      setState(() {
-                        apiSongs.remove(fileName);
-                      });
-                      if (mounted) {
-                        AppAlert.success(
-                          context,
-                          text: "Successfully deleted: $fileName",
-                        );
-                      }
-                    } else {
-                      debugPrint(
-                          'Failed to delete API song. Status: ${response.statusCode}');
-                      if (mounted) {
-                        AppAlert.error(
-                          context,
-                          text:
-                          'Failed to delete song. Status: ${response.statusCode}',
-                        );
-                      }
-                    }
-                  } catch (e) {
-                    debugPrint('Error deleting API song: $e');
-                    if (mounted) {
-                      AppAlert.error(
-                        context,
-                        text: 'Error deleting API song: $e',
-                      );
-                    }
+                  if (response.statusCode == 200 && mounted) {
+                    setState(() {
+                      apiSongs.remove(fileName);
+                    });
+                    AppAlert.success(context, text: "Deleted");
                   }
-                },
-              ),
-            ],
-          );
-        },
-      );
-    }
+                } catch (_) {}
+              },
+              child: const Text("Delete", style: TextStyle(color: Colors.red)),
+            )
+          ],
+        );
+      },
+    );
   }
 
-  /// ----------------- WIFI -----------------
+  // WIFI CHECK
   Future<void> _startWifiMonitoring() async {
     await _checkWifiConnection();
-    wifiCheckTimer = Timer.periodic(
-        const Duration(seconds: 5), (_) => _checkWifiConnection());
+    wifiCheckTimer =
+        Timer.periodic(const Duration(seconds: 5), (_) => _checkWifiConnection());
   }
 
   Future<void> _checkWifiConnection() async {
     try {
-      var connectivityResult = await Connectivity().checkConnectivity();
-      if (connectivityResult.contains(ConnectivityResult.wifi)) {
+      var result = await Connectivity().checkConnectivity();
+
+      if (result.contains(ConnectivityResult.wifi)) {
         String? wifiSSID = await NetworkInfo().getWifiName();
         setState(() {
-          isWifiConnected = true;
-          connectionStatus = wifiSSID != null &&
-              wifiSSID.toLowerCase() == targetSsid.toLowerCase()
-              ? "Connected to $targetSsid"
-              : "Connected to Wi-Fi: ${wifiSSID ?? 'Unknown'}";
+          isWifiConnected = wifiSSID?.toLowerCase() == targetSsid.toLowerCase();
+          connectionStatus = isWifiConnected
+              ? "Connected to IoGen_Speaker"
+              : "Connected to ${wifiSSID ?? 'Unknown'}";
         });
       } else {
         setState(() {
           isWifiConnected = false;
-          connectionStatus = "Not connected to Wi-Fi";
+          connectionStatus = "Not connected to WiFi";
         });
       }
     } catch (e) {
-      setState(() {
-        isWifiConnected = false;
-        connectionStatus = "Error checking Wi-Fi: $e";
-      });
+      setState(() => connectionStatus = "Error: $e");
     }
   }
 
-  /// ----------------- PERMISSIONS -----------------
+  // PERMISSIONS
   Future<bool> _requestPermissions() async {
-    Map<Permission, PermissionStatus> statuses;
-
     if (Platform.isAndroid) {
-      final sdk = await _getAndroidVersion();
-      if (sdk >= 33) {
-        statuses = await [
+      final androidVersion = await DeviceInfoPlugin().androidInfo;
+
+      if (androidVersion.version.sdkInt >= 33) {
+        final result = await [
           Permission.location,
-          Permission.audio,
           Permission.microphone,
           Permission.nearbyWifiDevices
         ].request();
+
+        return result.values.every((e) => e.isGranted);
       } else {
-        statuses = await [
+        final result = await [
           Permission.location,
-          Permission.storage,
           Permission.microphone,
+          Permission.storage,
           Permission.nearbyWifiDevices
         ].request();
+
+        return result.values.every((e) => e.isGranted);
       }
-    } else {
-      statuses = await [
-        Permission.location,
-        Permission.microphone,
-        Permission.nearbyWifiDevices
-      ].request();
     }
 
-    // Check if all required permissions are granted
-    bool allGranted = statuses.values.every((status) => status.isGranted);
-    return allGranted;
+    final result = await [
+      Permission.location,
+      Permission.microphone,
+    ].request();
+
+    return result.values.every((e) => e.isGranted);
   }
 
-  Future<int> _getAndroidVersion() async {
-    if (Platform.isAndroid)
-      return (await DeviceInfoPlugin().androidInfo).version.sdkInt;
-    return 0;
-  }
-
-  /// ----------------- UI -----------------
+  // ---------------- UI ------------------
   @override
   Widget build(BuildContext context) {
     final themeProvider = Provider.of<ThemeProvider>(context);
+
     return Scaffold(
       backgroundColor: Colors.grey[100],
-      body: Stack(
+      body: Column(
         children: [
-          GestureDetector(
-            onTap: () {
-              if (_isFabMenuOpen) {
-                setState(() {
-                  _isFabMenuOpen = false;
-                });
-              }
-            },
-            child: Column(
-              children: [
-                // Tabs & Wifi
-                Padding(
-                  padding: const EdgeInsets.all(16.0),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const SizedBox(height: 10),
-                      Text(connectionStatus, style: AppTextStyles.body, textAlign: TextAlign.center),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 10),
-                Expanded(
-                  child: SingleChildScrollView(
-                    padding: const EdgeInsets.only(bottom: 80),
-                    child: widget.tabLogic.selectedTabIndex == 0
-                        ? _buildLibraryList()
-                        : _buildMyMusicList(),
-                  ),
-                ),
-              ],
+          const SizedBox(height: 20),
+          Text(connectionStatus, style: AppTextStyles.body),
+          const SizedBox(height: 10),
+          Expanded(
+            child: SingleChildScrollView(
+              child: widget.tabLogic.selectedTabIndex == 0
+                  ? _buildLibraryList()
+                  : _buildMyMusicList(),
             ),
           ),
-
-          if (_isFabMenuOpen)
-            Positioned(
-              bottom: 80,
-              right: 16,
-              child: GestureDetector(
-                onTap: () {
-                  // This prevents the menu from closing when clicking inside it
-                },
-                child: Container(
-                  width: 180,
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(12),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.grey.withOpacity(0.3),
-                        spreadRadius: 2,
-                        blurRadius: 5,
-                      ),
-                    ],
-                  ),
-                  child: Column(
-                    children: [
-                      _buildFabOption('Add Music'),
-                      _buildFabOption('Record Music'),
-                    ],
-                  ),
-                ),
-              ),
-            ),
         ],
       ),
+
+      // FAB
       floatingActionButton: FloatingActionButton(
-        onPressed: () {
-          setState(() {
-            _isFabMenuOpen = !_isFabMenuOpen;
-          });
-        },
         backgroundColor: themeProvider.selectedColor,
-        shape: const CircleBorder(), // Changed back to circle for consistency
+        shape: const CircleBorder(),
         child: Icon(
           _isFabMenuOpen ? Icons.close : Icons.music_note,
-          color: Colors.white, // Changed to white for better contrast
-          size: 28,
+          color: Colors.white,
         ),
+        onPressed: () {
+          setState(() => _isFabMenuOpen = !_isFabMenuOpen);
+        },
       ),
+
+      // FAB MENU
+      floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
     );
   }
 
+  // FAB menu options
   Widget _buildFabOption(String title) {
     final themeProvider = Provider.of<ThemeProvider>(context);
     return ListTile(
-      leading: Icon(title == 'Add Music' ? Icons.add : Icons.mic,
-          color: themeProvider.selectedColor),
-      title: Text(title, style: AppTextStyles.body),
+      leading: Icon(
+        title == "Add Music" ? Icons.add : Icons.mic,
+        color: themeProvider.selectedColor,
+      ),
+      title: Text(title),
       onTap: () async {
         setState(() => _isFabMenuOpen = false);
 
-        if (title == 'Add Music') {
-          // Request permissions first
-          final permissionsGranted = await _requestPermissions();
-          if (permissionsGranted) {
-            // Add a small delay to ensure the FAB menu closes completely
-            await Future.delayed(const Duration(milliseconds: 300));
+        if (title == "Add Music") {
+          final granted = await _requestPermissions();
+          if (!granted) {
+            AppAlert.error(context, text: "Permission denied!");
+            return;
+          }
 
-            // Call uploadMp3 with proper parameters
-            final newFile = await BellService().uploadMp3(
-                context,
-                null, // filePath is null, so it will open file picker
-                isWifiConnected);
+          await Future.delayed(const Duration(milliseconds: 250));
 
-            if (newFile != null && mounted) {
-              // Refresh both local recordings and API songs
-              await _loadUploadedFiles();
-              await _fetchApiSongs();
-              AppAlert.success(
-                context,
-                text: 'Music added successfully!',
-              );
-            }
-          } else {
-            if (mounted) {
-              AppAlert.error(
-                context,
-                text: 'Permissions denied. Cannot add music.',
-              );
-            }
+          final uploadedFile = await BellService().uploadMp3(
+            context,
+            null,
+            isWifiConnected,
+          );
+
+          if (uploadedFile != null) {
+            await _loadUploadedFiles();
+            await _fetchApiSongs();
+            AppAlert.success(context, text: "Music uploaded!");
           }
         } else {
-          // Record Music functionality
           final micStatus = await Permission.microphone.status;
-          if (!micStatus.isGranted) {
-            await Permission.microphone.request();
-          }
+          if (!micStatus.isGranted) await Permission.microphone.request();
 
           if (await Permission.microphone.isGranted) {
-            await Future.delayed(const Duration(milliseconds: 300));
-            final newRecordingPath = await Navigator.push<String>(
+            final newRecording = await Navigator.push<String>(
               context,
-              MaterialPageRoute(
-                  builder: (context) => const AudioRecorderPage()),
+              MaterialPageRoute(builder: (_) => const AudioRecorderPage()),
             );
-            if (newRecordingPath != null && mounted) {
+
+            if (newRecording != null) {
               await _loadUploadedFiles();
-              AppAlert.success(
-                context,
-                text: 'Recording saved successfully!',
-              );
-            }
-          } else {
-            if (mounted) {
-              AppAlert.error(
-                context,
-                text: 'Microphone permission denied',
-              );
+              AppAlert.success(context, text: "Recording saved!");
             }
           }
         }
@@ -587,128 +422,93 @@ class _MusicLibraryState extends State<MusicLibrary> {
     );
   }
 
+  // API songs list
   Widget _buildLibraryList() {
-    if (apiSongs.isEmpty)
-      return const Center(child: CircularProgressIndicator());
+    if (apiSongs.isEmpty) {
+      return const Center(
+        child: CircularProgressIndicator(),
+      );
+    }
 
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16.0),
-      child: Container(
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(12),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.grey.withOpacity(0.2),
-              spreadRadius: 2,
-              blurRadius: 5,
-              offset: const Offset(0, 3),
-            ),
-          ],
-        ),
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(12),
-          child: ListView.builder(
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            itemCount: apiSongs.length,
-            itemBuilder: (context, index) {
-              final song = apiSongs[index];
-              final isPlaying = currentlyPlayingApiSong == song;
-              return ListTile(
-                leading: Icon(Icons.music_note, color: Colors.grey[600]),
-                title: Text(
-                  song,
-                  style: AppTextStyles.body.copyWith(color: Colors.black87),
+    return ListView.builder(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      itemCount: apiSongs.length,
+      itemBuilder: (context, index) {
+        final song = apiSongs[index];
+        final isPlaying = currentlyPlayingApiSong == song;
+
+        return ListTile(
+          leading: const Icon(Icons.music_note),
+          title: Text(song),
+          trailing: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              IconButton(
+                icon: Icon(
+                  isPlaying ? Icons.pause_circle : Icons.play_circle,
+                  color: Colors.orange,
                 ),
-                trailing: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    IconButton(
-                      icon: Icon(
-                          isPlaying
-                              ? Icons.pause_circle_filled
-                              : Icons.play_circle_fill,
-                          color: Colors.orange,
-                          size: 28),
-                      onPressed: () =>
-                      isPlaying ? _pauseApiSong() : _playApiSong(song),
-                    ),
-                    IconButton(
-                      icon:
-                      const Icon(Icons.delete, color: Colors.red, size: 20),
-                      onPressed: () => _deleteApiSong(song),
-                    ),
-                  ],
-                ),
-              );
-            },
+                onPressed: () {
+                  isPlaying ? _pauseApiSong() : _playApiSong(song);
+                },
+              ),
+              IconButton(
+                icon: const Icon(Icons.delete, color: Colors.red),
+                onPressed: () => _deleteApiSong(song),
+              ),
+            ],
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 
+  // LOCAL recordings list
   Widget _buildMyMusicList() {
     if (_isLoading) return const Center(child: CircularProgressIndicator());
+
     if (recordings.isEmpty) {
-      return Center(
-          child: Text(
-              'No recordings yet.\nTap the + button to record something!',
-              textAlign: TextAlign.center,
-              style: AppTextStyles.body));
+      return const Center(child: Text("No recordings found."));
     }
 
-    final themeProvider = Provider.of<ThemeProvider>(context);
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16.0),
-      child: ListView.builder(
-        shrinkWrap: true,
-        physics: const NeverScrollableScrollPhysics(),
-        itemCount: recordings.length,
-        itemBuilder: (context, index) {
-          final filePath = recordings[index];
-          final fileName = filePath.split('/').last;
-          return Dismissible(
-            key: Key(filePath),
-            background: Container(
-                color: Colors.red,
-                alignment: Alignment.centerRight,
-                padding: const EdgeInsets.only(right: 20),
-                child: const Icon(Icons.delete, color: Colors.white)),
-            onDismissed: (_) => _deleteRecording(index, filePath),
-            child: Container(
-              margin: const EdgeInsets.only(bottom: 12),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(12),
-                boxShadow: [
-                  BoxShadow(
-                      color: Colors.grey.shade300,
-                      blurRadius: 4,
-                      offset: const Offset(0, 2))
-                ],
-              ),
-              child: ListTile(
-                leading: ClipRRect(
-                  borderRadius: BorderRadius.circular(12),
-                  child: Image.asset('assets/Music.jpg',
-                      width: 50, height: 50, fit: BoxFit.cover),
-                ),
-                title: Text(fileName, style: AppTextStyles.body),
-                subtitle: Text('00:00', style: AppTextStyles.small),
-                trailing: Icon(
-                    _currentlyPlayingIndex == index && _player?.playing == true
-                        ? Icons.pause_circle_filled
-                        : Icons.play_circle_fill,
-                    color: themeProvider.selectedColor,
-                    size: 30),
-                onTap: () => _playRecording(index),
-              ),
+    return ListView.builder(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      itemCount: recordings.length,
+      itemBuilder: (context, index) {
+        final filePath = recordings[index];
+        final fileName = filePath.split('/').last;
+
+        final isPlaying =
+            _currentlyPlayingIndex == index && _player?.playing == true;
+
+        return Dismissible(
+          key: Key(filePath),
+          onDismissed: (_) => _deleteRecording(index, filePath),
+          background: Container(
+            color: Colors.red,
+            alignment: Alignment.centerRight,
+            padding: const EdgeInsets.only(right: 20),
+            child: const Icon(Icons.delete, color: Colors.white),
+          ),
+          child: ListTile(
+            title: Text(fileName),
+            subtitle: const Text("00:00"),
+            leading: Image.asset(
+              "assets/Music.jpg",
+              width: 50,
+              height: 50,
+              fit: BoxFit.cover,
             ),
-          );
-        },
-      ),
+            trailing: Icon(
+              isPlaying ? Icons.pause_circle : Icons.play_circle,
+              color: Colors.blue,
+            ),
+            onTap: () => _playRecording(index),
+          ),
+        );
+      },
     );
   }
 }

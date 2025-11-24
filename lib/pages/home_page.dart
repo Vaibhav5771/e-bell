@@ -120,8 +120,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   bool _loadingPrayerStatus = false;
   bool _errorLoadingStatus = false;
   final GlobalKey _calendarKey = GlobalKey();
-
-  // Debounce SnackBar
+  bool _isScrolling = false;
+  final ScrollController _scrollController = ScrollController();
   String? _lastShownSnackBarMessage;
 
   @override
@@ -133,13 +133,24 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     _musicTabLogic = TabLogic1();
     _calendarLogic = CalendarLogic();
 
+    _scrollController.addListener(() {
+      final ScrollPosition position = _scrollController.position;
+      setState(() {
+        _isScrolling = position.isScrollingNotifier.value;
+      });
+    });
+
     _initializeApp();
     _requestPermissions();
     _startWifiMonitoring();
 
     _timer = Timer.periodic(const Duration(minutes: 1), (timer) {
       if (mounted && isWifiConnected && connectionStatus.contains(targetSsid)) {
-        _loadPrayerTimesStatus();
+        // Only refresh if not currently scrolling and app is active
+        if (!_isScrolling && WidgetsBinding.instance.lifecycleState ==
+            AppLifecycleState.resumed) {
+          _loadPrayerTimesStatus();
+        }
       }
     });
   }
@@ -149,6 +160,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     WidgetsBinding.instance.removeObserver(this);
     _timer?.cancel();
     wifiCheckTimer?.cancel();
+    _scrollController.dispose(); // Add this
     super.dispose();
   }
 
@@ -263,7 +275,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     }
   }
 
+  DateTime _lastWifiCheck = DateTime.now();
+
   Future<void> _checkWifiConnection() async {
+    // Prevent too frequent Wi-Fi checks
+    if (DateTime.now().difference(_lastWifiCheck) < Duration(seconds: 10)) {
+      return;
+    }
+
     try {
       var connectivityResult = await Connectivity().checkConnectivity();
       if (connectivityResult.contains(ConnectivityResult.wifi)) {
@@ -301,9 +320,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         _previousWifiSSID = "";
         _previousConnectionStatus = "";
       }
+
+      _lastWifiCheck = DateTime.now();
     } catch (e) {
       _updateConnectionStatus("Error checking Wi-Fi: $e");
       debugPrint("Wi-Fi check error: $e");
+      _lastWifiCheck = DateTime.now();
     }
   }
 
@@ -364,7 +386,15 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     }
   }
 
+  DateTime _lastRefreshTime = DateTime.now();
+  final Duration _refreshCooldown = Duration(seconds: 30);
+
   Future<void> _loadPrayerTimesStatus() async {
+    // Prevent rapid consecutive refreshes
+    if (DateTime.now().difference(_lastRefreshTime) < _refreshCooldown) {
+      return;
+    }
+
     if (!mounted) return;
 
     if (!isWifiConnected || !connectionStatus.contains(targetSsid)) {
@@ -416,6 +446,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         _poojaTimes = regtimeData['poojaTimes'];
         _loadingPrayerStatus = false;
         _loadingAlarmSongs = false;
+        _lastRefreshTime = DateTime.now(); // Update last refresh time
       });
     } catch (e) {
       if (!mounted) return;
@@ -424,6 +455,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         _errorLoadingStatus = true;
         _loadingAlarmSongs = false;
         _errorLoadingAlarmSongs = true;
+        _lastRefreshTime = DateTime.now(); // Update even on error
       });
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) {
@@ -689,12 +721,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   @override
   Widget build(BuildContext context) {
     final themeProvider = Provider.of<ThemeProvider>(context);
+    final ScrollController _scrollController = ScrollController();
     final today = DateTime.now();
     final selectedDay = _calendarLogic.selectedDay;
 
     final List<Widget> screens = [
       // === PLANNER SCREEN ===
       SingleChildScrollView(
+        controller: _scrollController,
         child: Padding(
           padding: const EdgeInsets.all(16.0),
           child: Column(
@@ -1028,7 +1062,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           : null,
       floatingActionButtonLocation: FloatingActionButtonLocation.miniEndFloat,
       bottomNavigationBar: SizedBox(
-        height: 75,
+        height: 90,
         child: BottomNavigationBar(
           currentIndex: _selectedIndex,
           onTap: _onNavBarTapped,

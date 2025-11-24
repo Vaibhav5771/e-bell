@@ -20,7 +20,7 @@ class ReligiousAlarms extends StatefulWidget {
 
 class _ReligiousAlarmsState extends State<ReligiousAlarms> {
   // Religion selection
-  List<String> _availableReligions = ['Hinduism', 'Islamic', 'Sikhism', 'Christianity', 'Buddhism', 'Jainism'];
+  List<String> _availableReligions = ['Hinduism', 'Islamic', 'Jainism', 'Sikhism', 'Christianity', 'Buddhism'];
   List<String> _selectedReligions = ['Hinduism', 'Islamic']; // Default selections
 
   bool _namazEnabled = false;
@@ -114,16 +114,57 @@ class _ReligiousAlarmsState extends State<ReligiousAlarms> {
   // Fetch sound files from IoT device
   Future<void> _fetchSoundFiles() async {
     setState(() => _isFetchingSounds = true);
+    final themeProvider = Provider.of<ThemeProvider>(context, listen: false);
 
     try {
-      if (_selectedReligions.contains('Islamic')) {
-        await _fetchNamazSounds();
+      if (_selectedReligions.isEmpty) {
+        SizedBox(height: MediaQuery.of(context).size.height * 0.2);
+        Column(
+          children: [
+            Icon(
+              Icons.wb_sunny,
+              size: 64,
+              color: Colors.grey[400],
+            ),
+            SizedBox(height: 16),
+            Text(
+              'No Religion found',
+              style: AppTextStyles.subheading.copyWith(
+                color: Colors.grey[600],
+              ),
+            ),
+            SizedBox(height: 8),
+            Text(
+              'Please select your religion!',
+              style: AppTextStyles.body.copyWith(
+                color: Colors.grey[500],
+              ),
+            ),
+            SizedBox(height: 24),
+            ElevatedButton(
+              onPressed: _showReligionSelectionDialog,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: themeProvider.selectedColor,
+                foregroundColor: Colors.white,
+              ),
+              child: Text(
+                'Select Religion',
+                style: AppTextStyles.button,
+              ),
+            ),
+          ],
+        );
       }
-      if (_selectedReligions.contains('Hinduism')) {
-        await _fetchSunriseSounds();
-      }
-      if (_selectedReligions.contains('Jainism')) {
-        await _fetchJainSounds();
+      else{
+        if (_selectedReligions.contains('Islamic')) {
+          await _fetchNamazSounds();
+        }
+        if (_selectedReligions.contains('Hinduism')) {
+          await _fetchSunriseSounds();
+        }
+        if (_selectedReligions.contains('Jainism')) {
+          await _fetchJainSounds();
+        }
       }
     } catch (e) {
       print('Error fetching sound files: $e');
@@ -1726,6 +1767,46 @@ class _ReligiousAlarmsState extends State<ReligiousAlarms> {
       ),
       body: _isFetchingSounds || _isUploadingFile
           ? Center(child: CircularProgressIndicator(color: themeProvider.selectedColor))
+          : _selectedReligions.isEmpty
+      // check if list is empty HERE
+          ? Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              Icons.wb_sunny,
+              size: 64,
+              color: Colors.grey[400],
+            ),
+            SizedBox(height: 16),
+            Text(
+              'No Religion found',
+              style: AppTextStyles.subheading.copyWith(
+                color: Colors.grey[600],
+              ),
+            ),
+            SizedBox(height: 8),
+            Text(
+              'Please select your religion!',
+              style: AppTextStyles.body.copyWith(
+                color: Colors.grey[500],
+              ),
+            ),
+            SizedBox(height: 24),
+            ElevatedButton(
+              onPressed: _showReligionSelectionDialog,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.amber,
+                foregroundColor: Colors.white,
+              ),
+              child: Text(
+                'Select Religions',
+                style: AppTextStyles.button,
+              ),
+            ),
+          ],
+        ),
+      )
           : Container(
         color: Colors.white,
         child: ListView(
