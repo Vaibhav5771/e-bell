@@ -38,13 +38,22 @@ class _ReminderPageState extends State<ReminderPage> {
   @override
   void initState() {
     super.initState();
-    _selectedFromDay = _focusedDay;
-    _selectedToDay = _focusedDay;
+    // Initialize selectedFromDay and selectedToDay to today by default
+    final now = DateTime.now();
+    _selectedFromDay = DateTime(now.year, now.month, now.day);
+    _selectedToDay = DateTime(now.year, now.month, now.day);
+    _focusedDay = DateTime(now.year, now.month, now.day);
 
-    final int hour = _selectedTime.hourOfPeriod == 0 ? 11 : _selectedTime.hourOfPeriod - 1;
+    final int hour = _selectedTime.hourOfPeriod == 0
+        ? 11
+        : _selectedTime.hourOfPeriod - 1;
     _hourController = FixedExtentScrollController(initialItem: hour);
-    _minuteController = FixedExtentScrollController(initialItem: _selectedTime.minute);
-    _periodController = FixedExtentScrollController(initialItem: _period == 'AM' ? 0 : 1);
+    _minuteController = FixedExtentScrollController(
+      initialItem: _selectedTime.minute,
+    );
+    _periodController = FixedExtentScrollController(
+      initialItem: _period == 'AM' ? 0 : 1,
+    );
 
     _loadUploadedFiles();
   }
@@ -60,35 +69,148 @@ class _ReminderPageState extends State<ReminderPage> {
   }
 
   void _onFromDaySelected(DateTime selectedDay, DateTime focusedDay) {
+    // Prevent selecting past dates: enforce minimum = today
+    final today = DateTime.now();
+    final minSelectable = DateTime(today.year, today.month, today.day);
+    DateTime normalized = DateTime(
+      selectedDay.year,
+      selectedDay.month,
+      selectedDay.day,
+    );
+    if (normalized.isBefore(minSelectable)) {
+      normalized = minSelectable;
+    }
+
     setState(() {
-      _selectedFromDay = selectedDay;
+      _selectedFromDay = normalized;
+      // ensure to-date is not before from-date
+      if (_selectedToDay != null &&
+          _selectedToDay!.isBefore(_selectedFromDay!)) {
+        _selectedToDay = _selectedFromDay;
+      }
       _focusedDay = focusedDay;
       _showFromCalendar = false; // Close calendar after selection
+
+      // If repeat is enabled, unselect any days outside new allowed range
+      if (_isRepeatEnabled) {
+        _enforceAllowedRepeatDays();
+      }
     });
   }
 
   void _onToDaySelected(DateTime selectedDay, DateTime focusedDay) {
+    // Prevent selecting past dates: enforce minimum = today
+    final today = DateTime.now();
+    final minSelectable = DateTime(today.year, today.month, today.day);
+    DateTime normalized = DateTime(
+      selectedDay.year,
+      selectedDay.month,
+      selectedDay.day,
+    );
+    if (normalized.isBefore(minSelectable)) {
+      normalized = minSelectable;
+    }
+
     setState(() {
-      _selectedToDay = selectedDay;
+      _selectedToDay = normalized;
+      // if from-date is after to-date, move from-date to to-date
+      if (_selectedFromDay != null &&
+          _selectedFromDay!.isAfter(_selectedToDay!)) {
+        _selectedFromDay = _selectedToDay;
+      }
       _focusedDay = focusedDay;
       _showToCalendar = false; // Close calendar after selection
+
+      // If repeat is enabled, unselect any days outside new allowed range
+      if (_isRepeatEnabled) {
+        _enforceAllowedRepeatDays();
+      }
     });
   }
 
-  int _calculateWeekBitmask() {
-    const List<int> dayBitmasks = [128, 2, 4, 8, 16, 32, 64]; // [Sun, Mon, Tue, Wed, Thu, Fri, Sat]
-    int week = 0;
+  // Convert selectedDays indices [0..6] where 0=Sun..6=Sat
+  // Returns allowed weekday indices using same mapping 0..6
+  List<int> _getAllowedWeekdays() {
+    if (_selectedFromDay == null || _selectedToDay == null)
+      return List.generate(7, (i) => i);
+
+    DateTime start = DateTime(
+      _selectedFromDay!.year,
+      _selectedFromDay!.month,
+      _selectedFromDay!.day,
+    );
+    DateTime end = DateTime(
+      _selectedToDay!.year,
+      _selectedToDay!.month,
+      _selectedToDay!.day,
+    );
+
+    // Ensure start <= end
+    if (start.isAfter(end)) {
+      final tmp = start;
+      start = end;
+      end = tmp;
+    }
+
+    final allowed = <int>{};
+    DateTime cursor = start;
+    while (!cursor.isAfter(end)) {
+      // DateTime.weekday: 1=Mon .. 7=Sun. Convert to mapping 0=Sun..6=Sat
+      final mappingIndex = cursor.weekday % 7; // Sun -> 0, Mon ->1, ..., Sat->6
+      allowed.add(mappingIndex);
+      cursor = cursor.add(const Duration(days: 1));
+    }
+    final allowedList = allowed.toList()..sort();
+    return allowedList;
+  }
+
+  void _enforceAllowedRepeatDays() {
+    final allowed = _getAllowedWeekdays();
+    bool changed = false;
     for (int i = 0; i < _selectedDays.length; i++) {
-      if (_selectedDays[i]) {
+      if (_selectedDays[i] && !allowed.contains(i)) {
+        _selectedDays[i] = false;
+        changed = true;
+      }
+    }
+    if (changed) setState(() {});
+  }
+
+  int _calculateWeekBitmask() {
+    const List<int> dayBitmasks = [
+      128,
+      2,
+      4,
+      8,
+      16,
+      32,
+      64,
+    ]; // [Sun, Mon, Tue, Wed, Thu, Fri, Sat]
+    int week = 0;
+    final allowed = _getAllowedWeekdays();
+    for (int i = 0; i < _selectedDays.length; i++) {
+      if (_selectedDays[i] && allowed.contains(i)) {
         week |= dayBitmasks[i];
       }
     }
-    return week == 0 ? 254 : week;
+    return week == 0
+        ? 254
+        : week; // keep existing behavior: 254 means "no specific week bitmask"
   }
 
-  Future<bool> _verifyReminder(String soundOption, int hr, int mn, int sEpoch, int eEpoch, int week, int alarmType) async {
+  Future<bool> _verifyReminder(
+      String soundOption,
+      int hr,
+      int mn,
+      int sEpoch,
+      int eEpoch,
+      int week,
+      int alarmType,
+      ) async {
     try {
-      final response = await http.get(Uri.parse('http://192.168.2.1/songs')).timeout(
+      final response = await http
+          .get(Uri.parse('http://192.168.2.1/songs'))
+          .timeout(
         const Duration(seconds: 10),
         onTimeout: () {
           throw Exception('Verification request timed out');
@@ -102,7 +224,9 @@ class _ReminderPageState extends State<ReminderPage> {
         if (data != null && data.isNotEmpty) {
           final filesData = data[0]['files'] as List<dynamic>?;
           if (filesData != null) {
-            final filenames = filesData.map((file) => (file as List<dynamic>)[0] as String).toList();
+            final filenames = filesData
+                .map((file) => (file as List<dynamic>)[0] as String)
+                .toList();
             return filenames.contains(soundOption);
           }
         }
@@ -119,12 +243,7 @@ class _ReminderPageState extends State<ReminderPage> {
   Future<void> _saveReminder() async {
     if (_title.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'Title is required',
-            style: AppTextStyles.body,
-          ),
-        ),
+        SnackBar(content: Text('Title is required', style: AppTextStyles.body)),
       );
       return;
     }
@@ -156,7 +275,7 @@ class _ReminderPageState extends State<ReminderPage> {
     // IST offset (5 hours 30 minutes in seconds)
     const int IST_OFFSET = 5 * 3600 + 30 * 60;
 
-    // Create reminder time for POST request
+    // Start epoch uses selected FROM date + selected time (Option B)
     final reminderFromDateTime = DateTime(
       _selectedFromDay!.year,
       _selectedFromDay!.month,
@@ -179,8 +298,13 @@ class _ReminderPageState extends State<ReminderPage> {
     int mn = _selectedTime.minute;
 
     // Convert to IST epoch timestamps
-    int sEpoch = (reminderFromDateTime.millisecondsSinceEpoch / 1000).floor() - IST_OFFSET;
-    int eEpoch = (reminderToDateTime.millisecondsSinceEpoch / 1000).floor() - IST_OFFSET + 86399; // Add 23:59:59
+    int sEpoch =
+        (reminderFromDateTime.millisecondsSinceEpoch / 1000).floor() -
+            IST_OFFSET;
+    int eEpoch =
+        (reminderToDateTime.millisecondsSinceEpoch / 1000).floor() -
+            IST_OFFSET +
+            86399; // Add 23:59:59
 
     int active = 1;
     int week = _isRepeatEnabled ? _calculateWeekBitmask() : 254;
@@ -206,12 +330,20 @@ class _ReminderPageState extends State<ReminderPage> {
       scheduled = response.statusCode == 200;
 
       if (scheduled) {
-        bool verified = await _verifyReminder(_soundOption, hr, mn, sEpoch, eEpoch, week, alarmType);
+        bool verified = await _verifyReminder(
+          _soundOption,
+          hr,
+          mn,
+          sEpoch,
+          eEpoch,
+          week,
+          alarmType,
+        );
         if (verified) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text(
-                '✅ Reminder set for ${reminderFromDateTime} with $_soundOption (Verified)\n\$curlCommand',
+                '✅ Reminder set for ${reminderFromDateTime} with $_soundOption (Verified)\n$curlCommand',
                 style: AppTextStyles.body,
               ),
               duration: const Duration(seconds: 5),
@@ -222,7 +354,7 @@ class _ReminderPageState extends State<ReminderPage> {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text(
-                '⚠️ Reminder set but verification failed for $_soundOption\n\$curlCommand',
+                '⚠️ Reminder set but verification failed for $_soundOption\n$curlCommand',
                 style: AppTextStyles.body,
               ),
               duration: const Duration(seconds: 5),
@@ -271,8 +403,18 @@ class _ReminderPageState extends State<ReminderPage> {
 
   String _getMonthName(int month) {
     const months = [
-      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
     ];
     return months[month - 1];
   }
@@ -280,38 +422,47 @@ class _ReminderPageState extends State<ReminderPage> {
   Widget _buildDaysSelector() {
     final themeProvider = Provider.of<ThemeProvider>(context);
     final dayAbbreviations = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
+    final allowedDays = _getAllowedWeekdays();
 
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 16.0),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceEvenly,
         children: List.generate(7, (index) {
+          final isAllowed = allowedDays.contains(index);
           return GestureDetector(
-            onTap: () {
+            onTap: isAllowed
+                ? () {
               setState(() {
                 _selectedDays[index] = !_selectedDays[index];
               });
-            },
-            child: Container(
-              width: 40,
-              height: 40,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: _selectedDays[index]
-                    ? themeProvider.selectedColor
-                    : Colors.transparent,
-                border: Border.all(
-                  color: _selectedDays[index]
+            }
+                : null,
+            child: Opacity(
+              opacity: isAllowed ? 1.0 : 0.35,
+              child: Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: _selectedDays[index] && isAllowed
                       ? themeProvider.selectedColor
-                      : Colors.grey,
+                      : Colors.transparent,
+                  border: Border.all(
+                    color: _selectedDays[index] && isAllowed
+                        ? themeProvider.selectedColor
+                        : (isAllowed ? Colors.grey : Colors.grey.shade300),
+                  ),
                 ),
-              ),
-              child: Center(
-                child: Text(
-                  dayAbbreviations[index],
-                  style: AppTextStyles.body.copyWith(
-                    fontWeight: FontWeight.bold,
-                    color: _selectedDays[index] ? Colors.white : Colors.black,
+                child: Center(
+                  child: Text(
+                    dayAbbreviations[index],
+                    style: AppTextStyles.body.copyWith(
+                      fontWeight: FontWeight.bold,
+                      color: _selectedDays[index] && isAllowed
+                          ? Colors.white
+                          : (isAllowed ? Colors.black : Colors.grey),
+                    ),
                   ),
                 ),
               ),
@@ -322,7 +473,10 @@ class _ReminderPageState extends State<ReminderPage> {
     );
   }
 
-  Widget _buildSectionContainer({required String title, required List<Widget> children}) {
+  Widget _buildSectionContainer({
+    required String title,
+    required List<Widget> children,
+  }) {
     return Container(
       width: double.infinity,
       margin: const EdgeInsets.only(bottom: 16),
@@ -371,16 +525,15 @@ class _ReminderPageState extends State<ReminderPage> {
           onPressed: () => Navigator.pop(context),
         ),
         title: Center(
-          child: Text(
-            'Add Reminder',
-            style: AppTextStyles.heading,
-          ),
+          child: Text('Add Reminder', style: AppTextStyles.heading),
         ),
         actions: [
           IconButton(
             icon: Icon(
               Icons.check,
-              color: _soundOptions.isEmpty ? Colors.grey : themeProvider.selectedColor,
+              color: _soundOptions.isEmpty
+                  ? Colors.grey
+                  : themeProvider.selectedColor,
             ),
             onPressed: _soundOptions.isEmpty ? null : _saveReminder,
           ),
@@ -407,19 +560,26 @@ class _ReminderPageState extends State<ReminderPage> {
                     border: InputBorder.none,
                     enabledBorder: InputBorder.none,
                     focusedBorder: InputBorder.none,
-                    contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 1),
+                    contentPadding: EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 1,
+                    ),
                   ),
                 ),
                 _buildDivider(),
                 TextField(
-                  onChanged: (value) => setState(() => _description = value),
+                  onChanged: (value) =>
+                      setState(() => _description = value),
                   decoration: InputDecoration(
                     labelText: 'Description',
                     labelStyle: AppTextStyles.body,
                     border: InputBorder.none,
                     enabledBorder: InputBorder.none,
                     focusedBorder: InputBorder.none,
-                    contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    contentPadding: EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 8,
+                    ),
                   ),
                   maxLines: 1,
                 ),
@@ -432,12 +592,16 @@ class _ReminderPageState extends State<ReminderPage> {
               children: [
                 // Date Selection - Right aligned layout
                 Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16.0,
+                    vertical: 8.0,
+                  ),
                   child: Column(
                     children: [
                       // From Date Row
                       Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween, // This pushes items to edges
+                        mainAxisAlignment: MainAxisAlignment
+                            .spaceBetween, // This pushes items to edges
                         children: [
                           SizedBox(
                             width: 60, // Fixed width for "From" label
@@ -450,7 +614,8 @@ class _ReminderPageState extends State<ReminderPage> {
                             ),
                           ),
                           Container(
-                            width: 180, // Fixed width for the date selection box
+                            width:
+                            180, // Fixed width for the date selection box
                             child: GestureDetector(
                               onTap: () {
                                 setState(() {
@@ -459,20 +624,30 @@ class _ReminderPageState extends State<ReminderPage> {
                                 });
                               },
                               child: Container(
-                                padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 12),
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 12,
+                                  horizontal: 12,
+                                ),
                                 decoration: BoxDecoration(
-                                  border: Border.all(color: Colors.grey.shade300),
+                                  border: Border.all(
+                                    color: Colors.grey.shade300,
+                                  ),
                                   borderRadius: BorderRadius.circular(8),
                                 ),
                                 child: Row(
-                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                  mainAxisAlignment:
+                                  MainAxisAlignment.spaceBetween,
                                   children: [
                                     Text(
                                       _formatDate(_selectedFromDay),
-                                      style: AppTextStyles.body.copyWith(fontSize: 14),
+                                      style: AppTextStyles.body.copyWith(
+                                        fontSize: 14,
+                                      ),
                                     ),
                                     Icon(
-                                      _showFromCalendar ? Icons.keyboard_arrow_up : Icons.keyboard_arrow_down,
+                                      _showFromCalendar
+                                          ? Icons.keyboard_arrow_up
+                                          : Icons.keyboard_arrow_down,
                                       color: Colors.grey,
                                       size: 20,
                                     ),
@@ -488,14 +663,18 @@ class _ReminderPageState extends State<ReminderPage> {
                       if (_showFromCalendar)
                         Padding(
                           padding: const EdgeInsets.only(top: 8.0),
-                          child: _buildCalendarPicker(themeProvider, true),
+                          child: _buildCalendarPicker(
+                            themeProvider,
+                            true,
+                          ),
                         ),
 
                       const SizedBox(height: 12),
 
                       // To Date Row
                       Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween, // This pushes items to edges
+                        mainAxisAlignment: MainAxisAlignment
+                            .spaceBetween, // This pushes items to edges
                         children: [
                           SizedBox(
                             width: 60, // Fixed width for "To" label
@@ -508,7 +687,8 @@ class _ReminderPageState extends State<ReminderPage> {
                             ),
                           ),
                           Container(
-                            width: 180, // Fixed width for the date selection box
+                            width:
+                            180, // Fixed width for the date selection box
                             child: GestureDetector(
                               onTap: () {
                                 setState(() {
@@ -517,20 +697,30 @@ class _ReminderPageState extends State<ReminderPage> {
                                 });
                               },
                               child: Container(
-                                padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 12),
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 12,
+                                  horizontal: 12,
+                                ),
                                 decoration: BoxDecoration(
-                                  border: Border.all(color: Colors.grey.shade300),
+                                  border: Border.all(
+                                    color: Colors.grey.shade300,
+                                  ),
                                   borderRadius: BorderRadius.circular(8),
                                 ),
                                 child: Row(
-                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                  mainAxisAlignment:
+                                  MainAxisAlignment.spaceBetween,
                                   children: [
                                     Text(
                                       _formatDate(_selectedToDay),
-                                      style: AppTextStyles.body.copyWith(fontSize: 14),
+                                      style: AppTextStyles.body.copyWith(
+                                        fontSize: 14,
+                                      ),
                                     ),
                                     Icon(
-                                      _showToCalendar ? Icons.keyboard_arrow_up : Icons.keyboard_arrow_down,
+                                      _showToCalendar
+                                          ? Icons.keyboard_arrow_up
+                                          : Icons.keyboard_arrow_down,
                                       color: Colors.grey,
                                       size: 20,
                                     ),
@@ -546,7 +736,10 @@ class _ReminderPageState extends State<ReminderPage> {
                       if (_showToCalendar)
                         Padding(
                           padding: const EdgeInsets.only(top: 8.0),
-                          child: _buildCalendarPicker(themeProvider, false),
+                          child: _buildCalendarPicker(
+                            themeProvider,
+                            false,
+                          ),
                         ),
                     ],
                   ),
@@ -554,9 +747,13 @@ class _ReminderPageState extends State<ReminderPage> {
 
                 // Time Selection - Right aligned layout
                 Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16.0,
+                    vertical: 8.0,
+                  ),
                   child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween, // This pushes items to edges
+                    mainAxisAlignment: MainAxisAlignment
+                        .spaceBetween, // This pushes items to edges
                     children: [
                       SizedBox(
                         width: 60, // Fixed width for "Time" label
@@ -569,7 +766,8 @@ class _ReminderPageState extends State<ReminderPage> {
                         ),
                       ),
                       Container(
-                        width: 180, // Fixed width for the time selection box
+                        width:
+                        180, // Fixed width for the time selection box
                         child: GestureDetector(
                           onTap: () {
                             setState(() {
@@ -577,20 +775,30 @@ class _ReminderPageState extends State<ReminderPage> {
                             });
                           },
                           child: Container(
-                            padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 12),
+                            padding: const EdgeInsets.symmetric(
+                              vertical: 12,
+                              horizontal: 12,
+                            ),
                             decoration: BoxDecoration(
-                              border: Border.all(color: Colors.grey.shade300),
+                              border: Border.all(
+                                color: Colors.grey.shade300,
+                              ),
                               borderRadius: BorderRadius.circular(8),
                             ),
                             child: Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              mainAxisAlignment:
+                              MainAxisAlignment.spaceBetween,
                               children: [
                                 Text(
                                   '${_selectedTime.hourOfPeriod == 0 ? 12 : _selectedTime.hourOfPeriod}:${_selectedTime.minute.toString().padLeft(2, '0')} $_period',
-                                  style: AppTextStyles.body.copyWith(fontSize: 14),
+                                  style: AppTextStyles.body.copyWith(
+                                    fontSize: 14,
+                                  ),
                                 ),
                                 Icon(
-                                  _showTimePicker ? Icons.keyboard_arrow_up : Icons.keyboard_arrow_down,
+                                  _showTimePicker
+                                      ? Icons.keyboard_arrow_up
+                                      : Icons.keyboard_arrow_down,
                                   color: Colors.grey,
                                   size: 20,
                                 ),
@@ -644,6 +852,9 @@ class _ReminderPageState extends State<ReminderPage> {
                         _isRepeatEnabled = value;
                         if (!value) {
                           _selectedDays = List.filled(7, false);
+                        } else {
+                          // When enabling repeat, ensure currently selected days are within allowed range
+                          _enforceAllowedRepeatDays();
                         }
                       });
                     },
@@ -653,17 +864,14 @@ class _ReminderPageState extends State<ReminderPage> {
                   _buildOptionTile(
                     context,
                     title: 'Sound',
-                    value: _soundOption.isEmpty ? 'Select a sound' : _soundOption,
-                    onTap: _soundOptions.isEmpty ? null : _selectSoundOption,
+                    value: _soundOption.isEmpty
+                        ? 'Select a sound'
+                        : _soundOption,
+                    onTap: _soundOptions.isEmpty
+                        ? null
+                        : _selectSoundOption,
                   ),
                   _buildDivider(),
-                  // _buildOptionTile(
-                  //   context,
-                  //   title: 'Important',
-                  //   isSwitch: true,
-                  //   switchValue: _isImportant,
-                  //   onSwitchChanged: (value) => setState(() => _isImportant = value),
-                  // ),
                 ],
               ),
             ),
@@ -673,7 +881,13 @@ class _ReminderPageState extends State<ReminderPage> {
     );
   }
 
-  Widget _buildCalendarPicker(ThemeProvider themeProvider, bool isFromCalendar) {
+  Widget _buildCalendarPicker(
+      ThemeProvider themeProvider,
+      bool isFromCalendar,
+      ) {
+    final today = DateTime.now();
+    final firstDay = DateTime(today.year, today.month, today.day);
+
     return Container(
       margin: const EdgeInsets.only(bottom: 16),
       decoration: BoxDecoration(
@@ -688,20 +902,20 @@ class _ReminderPageState extends State<ReminderPage> {
         ],
       ),
       child: TableCalendar(
-        firstDay: DateTime.utc(2020, 1, 1),
+        firstDay: firstDay,
         lastDay: DateTime.utc(2030, 12, 31),
         focusedDay: _focusedDay,
-        selectedDayPredicate: (day) => isSameDay(
-            isFromCalendar ? _selectedFromDay : _selectedToDay,
-            day
-        ),
+        selectedDayPredicate: (day) =>
+            isSameDay(isFromCalendar ? _selectedFromDay : _selectedToDay, day),
         onDaySelected: isFromCalendar ? _onFromDaySelected : _onToDaySelected,
         calendarFormat: CalendarFormat.month,
         availableGestures: AvailableGestures.none,
         headerStyle: HeaderStyle(
           formatButtonVisible: false,
           titleCentered: true,
-          titleTextStyle: AppTextStyles.subheading.copyWith(fontWeight: FontWeight.bold),
+          titleTextStyle: AppTextStyles.subheading.copyWith(
+            fontWeight: FontWeight.bold,
+          ),
         ),
         calendarStyle: CalendarStyle(
           selectedDecoration: BoxDecoration(
@@ -712,6 +926,7 @@ class _ReminderPageState extends State<ReminderPage> {
             color: themeProvider.selectedColor.withOpacity(0.3),
             shape: BoxShape.circle,
           ),
+          outsideDaysVisible: false,
         ),
       ),
     );
@@ -752,8 +967,11 @@ class _ReminderPageState extends State<ReminderPage> {
                       displayHour.toString().padLeft(2, '0'),
                       style: AppTextStyles.heading.copyWith(
                         fontSize: 32,
-                        color: displayHour ==
-                            (_selectedTime.hourOfPeriod == 0 ? 12 : _selectedTime.hourOfPeriod)
+                        color:
+                        displayHour ==
+                            (_selectedTime.hourOfPeriod == 0
+                                ? 12
+                                : _selectedTime.hourOfPeriod)
                             ? themeProvider.selectedColor
                             : Colors.black,
                       ),
@@ -806,9 +1024,13 @@ class _ReminderPageState extends State<ReminderPage> {
                   _period = index == 0 ? 'AM' : 'PM';
                   int currentHour = _selectedTime.hour;
                   if (_period == 'AM' && currentHour >= 12) {
-                    _selectedTime = _selectedTime.replacing(hour: currentHour - 12);
+                    _selectedTime = _selectedTime.replacing(
+                      hour: currentHour - 12,
+                    );
                   } else if (_period == 'PM' && currentHour < 12) {
-                    _selectedTime = _selectedTime.replacing(hour: currentHour + 12);
+                    _selectedTime = _selectedTime.replacing(
+                      hour: currentHour + 12,
+                    );
                   }
                 });
               },
@@ -818,7 +1040,9 @@ class _ReminderPageState extends State<ReminderPage> {
                     period,
                     style: AppTextStyles.heading.copyWith(
                       fontSize: 32,
-                      color: period == _period ? themeProvider.selectedColor : Colors.black,
+                      color: period == _period
+                          ? themeProvider.selectedColor
+                          : Colors.black,
                     ),
                   ),
                 );
@@ -876,7 +1100,9 @@ class _ReminderPageState extends State<ReminderPage> {
             padding: const EdgeInsets.all(16),
             child: Text(
               title,
-              style: AppTextStyles.subheading.copyWith(fontWeight: FontWeight.bold),
+              style: AppTextStyles.subheading.copyWith(
+                fontWeight: FontWeight.bold,
+              ),
             ),
           ),
           Expanded(
@@ -886,10 +1112,7 @@ class _ReminderPageState extends State<ReminderPage> {
               itemBuilder: (context, index) {
                 final option = options[index];
                 return ListTile(
-                  title: Text(
-                    option,
-                    style: AppTextStyles.body,
-                  ),
+                  title: Text(option, style: AppTextStyles.body),
                   trailing: option == selectedOption
                       ? Icon(Icons.check, color: themeProvider.selectedColor)
                       : null,

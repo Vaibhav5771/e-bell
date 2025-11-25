@@ -123,6 +123,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   bool _isScrolling = false;
   final ScrollController _scrollController = ScrollController();
   String? _lastShownSnackBarMessage;
+  bool _autoRefreshEnabled = false;
+  bool _wasPreviouslyOffscreen = true;
+  OverlayEntry? _fabMenuOverlayEntry;// Track if we came from another screen
 
   @override
   void initState() {
@@ -133,30 +136,25 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     _musicTabLogic = TabLogic1();
     _calendarLogic = CalendarLogic();
 
+    _wasPreviouslyOffscreen = true;
+
     _scrollController.addListener(() {
-      final ScrollPosition position = _scrollController.position;
+      final position = _scrollController.position;
       setState(() {
         _isScrolling = position.isScrollingNotifier.value;
       });
     });
 
-    _initializeApp();
+    _initializeApp(); // Keeps permission + Wi-Fi check
     _requestPermissions();
-    _startWifiMonitoring();
 
-    _timer = Timer.periodic(const Duration(minutes: 1), (timer) {
-      if (mounted && isWifiConnected && connectionStatus.contains(targetSsid)) {
-        // Only refresh if not currently scrolling and app is active
-        if (!_isScrolling && WidgetsBinding.instance.lifecycleState ==
-            AppLifecycleState.resumed) {
-          _loadPrayerTimesStatus();
-        }
-      }
-    });
+    // Only monitor Wi-Fi for connection status, NOT for auto-refresh
+    _startWifiMonitoring();
   }
 
   @override
   void dispose() {
+    _hideFabMenuOverlay();
     WidgetsBinding.instance.removeObserver(this);
     _timer?.cancel();
     wifiCheckTimer?.cancel();
@@ -165,10 +163,32 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+
+    // This runs every time the widget is inserted into the tree (including navigation back)
+    final ModalRoute? route = ModalRoute.of(context);
+    if (route is PageRoute) {
+      // Check if the route is now focused (i.e., HomeScreen is visible)
+      if (route.isCurrent && _wasPreviouslyOffscreen) {
+        _wasPreviouslyOffscreen = false;
+
+        // Only fetch if connected to target Wi-Fi
+        if (isWifiConnected && connectionStatus.contains(targetSsid)) {
+          _loadPrayerTimesStatus();
+        }
+      } else if (!route.isCurrent) {
+        _wasPreviouslyOffscreen = true; // We're leaving the screen
+      }
+    }
+  }
+
+  @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     super.didChangeAppLifecycleState(state);
 
-    if (state == AppLifecycleState.paused || state == AppLifecycleState.detached) {
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.detached) {
       wifiCheckTimer?.cancel();
       _timer?.cancel();
       debugPrint("Timers paused (app in background)");
@@ -216,25 +236,82 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: Text("Cancel", style: AppTextStyles.button.copyWith(color: Colors.black)),
+            child: Text("Cancel",
+                style: AppTextStyles.button.copyWith(color: Colors.black)),
           ),
           TextButton(
             onPressed: () async {
               Navigator.pop(context);
               await openAppSettings();
             },
-            child: Text("Open Settings", style: AppTextStyles.button.copyWith(color: Colors.black)),
+            child: Text("Open Settings",
+                style: AppTextStyles.button.copyWith(color: Colors.black)),
           ),
         ],
       ),
     );
   }
 
+  void _showFabMenuOverlay() {
+    if (_fabMenuOverlayEntry != null) return;
+
+    final themeProvider = Provider.of<ThemeProvider>(context, listen: false);
+
+    _fabMenuOverlayEntry = OverlayEntry(
+      builder: (context) => Stack(
+        children: [
+          // Full-screen tap to dismiss
+          Positioned.fill(
+            child: GestureDetector(
+              onTap: _hideFabMenuOverlay,
+              child: Container(color: Colors.transparent),
+            ),
+          ),
+          // The actual FAB menu (always top-most)
+          Positioned(
+            bottom: 165,  // Distance from bottom (above FAB)
+            right: 16,
+            child: Material(
+              elevation: 8,
+              borderRadius: BorderRadius.circular(12),
+              child: Container(
+                width: 180,
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    _buildFabOption('Reminder', true),
+                    _buildFabOption('Alarm', false),
+                    _buildFabOption('Astro', false),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+
+    Overlay.of(context).insert(_fabMenuOverlayEntry!);
+  }
+
+  void _hideFabMenuOverlay() {
+    _fabMenuOverlayEntry?.remove();
+    _fabMenuOverlayEntry = null;
+    if (mounted) {
+      setState(() => _isFabMenuOpen = false);
+    }
+  }
+
   void _showPermissionDialog() {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: Text("Location Permission Required", style: AppTextStyles.heading),
+        title:
+        Text("Location Permission Required", style: AppTextStyles.heading),
         content: Text(
           "E-Bell needs location permission to sync with the bell. "
               "Please grant this permission in app settings.",
@@ -243,14 +320,16 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: Text("Cancel", style: AppTextStyles.button.copyWith(color: Colors.black)),
+            child: Text("Cancel",
+                style: AppTextStyles.button.copyWith(color: Colors.black)),
           ),
           TextButton(
             onPressed: () async {
               Navigator.pop(context);
               await openAppSettings();
             },
-            child: Text("Open Settings", style: AppTextStyles.button.copyWith(color: Colors.black)),
+            child: Text("Open Settings",
+                style: AppTextStyles.button.copyWith(color: Colors.black)),
           ),
         ],
       ),
@@ -333,10 +412,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     http.Client? client;
     try {
       client = http.Client();
-      final response = await client.get(Uri.parse('http://192.168.2.1/regtime'))
-          .timeout(const Duration(seconds: 5), onTimeout: () => throw Exception('regtime timeout'));
+      final response = await client
+          .get(Uri.parse('http://192.168.2.1/regtime'))
+          .timeout(const Duration(seconds: 5),
+          onTimeout: () => throw Exception('regtime timeout'));
 
-      if (response.statusCode != 200) throw Exception('regtime HTTP ${response.statusCode}');
+      if (response.statusCode != 200)
+        throw Exception('regtime HTTP ${response.statusCode}');
       final jsonData = jsonDecode(response.body);
 
       return {
@@ -352,28 +434,69 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     http.Client? client;
     try {
       client = http.Client();
-      final response = await client.get(Uri.parse('http://192.168.2.1/'))
-          .timeout(const Duration(seconds: 5), onTimeout: () => throw Exception('root timeout'));
+      final response = await client
+          .get(Uri.parse('http://192.168.2.1/'))
+          .timeout(const Duration(seconds: 5), onTimeout: () {
+        throw Exception('Root endpoint timeout');
+      });
 
-      if (response.statusCode != 200) throw Exception('root HTTP ${response.statusCode}');
+      if (response.statusCode != 200) {
+        throw Exception('HTTP ${response.statusCode}');
+      }
+
       final jsonData = jsonDecode(response.body);
 
-      int namazFlag = 0, poojaFlag = 0;
-      for (var item in (jsonData['region'] as List?) ?? []) {
-        if (item is Map) {
-          namazFlag = item['NAMAZ'] ?? namazFlag;
-          poojaFlag = item['POOJA'] ?? poojaFlag;
+      // === Parse region flags (NAMAZ, POOJA, etc.) ===
+      int namazFlag = 0;
+      int poojaFlag = 0;
+
+      final regionList = jsonData['region'] as List?;
+      if (regionList != null) {
+        for (var item in regionList) {
+          if (item is Map<String, dynamic>) {
+            namazFlag = item['NAMAZ'] ?? namazFlag;
+            poojaFlag = item['POOJA'] ?? poojaFlag;
+            // You can add JAIN, etc. later if needed
+          }
         }
       }
 
+      // === Parse alarm songs (new format with leading ID) ===
       List<AlarmSong> alarmSongs = [];
-      final alarmDataList = jsonData['alarmData'] as List? ?? [];
-      if (alarmDataList.isNotEmpty) {
-        final files = alarmDataList[0]['Filenames'] as List? ?? [];
-        alarmSongs = files
-            .where((f) => f is List && f.length >= 7 && f[1] is int && f[2] is int)
-            .map((f) => AlarmSong.fromJson(f))
-            .toList();
+
+      final alarmDataList = jsonData['alarmData'] as List?;
+      if (alarmDataList != null && alarmDataList.isNotEmpty) {
+        final filenamesList = alarmDataList[0]['Filenames'] as List?;
+
+        if (filenamesList != null) {
+          for (var item in filenamesList) {
+            if (item is List && item.length >= 8) {
+              try {
+                // New format: [id, filename, hour, minute, startTs, endTs, status, days]
+                final String fileName = item[1] as String;
+                final int hour = item[2] as int;
+                final int minute = item[3] as int;
+                final int startTimestamp = item[4] as int;
+                final int endTimestamp = item[5] as int;
+                final int status = item[6] as int;
+                final int days = item[7] as int;
+
+                alarmSongs.add(AlarmSong(
+                  fileName: fileName,
+                  hour: hour,
+                  minute: minute,
+                  startTimestamp: startTimestamp,
+                  endTimestamp: endTimestamp,
+                  status: status,
+                  days: days,
+                ));
+              } catch (e) {
+                debugPrint("Failed to parse alarm item: $item, error: $e");
+                // Skip malformed entries
+              }
+            }
+          }
+        }
       }
 
       return {
@@ -381,13 +504,16 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         'sunriseEnabled': poojaFlag == 1,
         'alarmSongs': alarmSongs,
       };
+    } catch (e) {
+      debugPrint('Error fetching region status: $e');
+      rethrow;
     } finally {
       client?.close();
     }
   }
 
   DateTime _lastRefreshTime = DateTime.now();
-  final Duration _refreshCooldown = Duration(seconds: 30);
+  final Duration _refreshCooldown = Duration(seconds: 5);
 
   Future<void> _loadPrayerTimesStatus() async {
     // Prevent rapid consecutive refreshes
@@ -441,7 +567,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         _namazEnabled = regionStatus['namazEnabled'] ?? false;
         _sunriseEnabled = regionStatus['sunriseEnabled'] ?? false;
         _alarmSongs = (regionStatus['alarmSongs'] as List<AlarmSong>)
-          ..sort((a, b) => (a.hour * 60 + a.minute).compareTo(b.hour * 60 + b.minute));
+          ..sort((a, b) =>
+              (a.hour * 60 + a.minute).compareTo(b.hour * 60 + b.minute));
         _namazTimes = regtimeData['namazTimes'];
         _poojaTimes = regtimeData['poojaTimes'];
         _loadingPrayerStatus = false;
@@ -470,19 +597,24 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   Future<void> _deleteAlarm(AlarmSong alarm) async {
     if (!isWifiConnected || !connectionStatus.contains(targetSsid)) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("Please connect to IoGen_Speaker Wi-Fi to delete alarm")),
+        SnackBar(
+            content:
+            Text("Please connect to IoGen_Speaker Wi-Fi to delete alarm")),
       );
       return;
     }
 
     try {
       final client = http.Client();
-      final requestData = "${alarm.fileName},${alarm.hour},${alarm.minute},${alarm.startTimestamp},${alarm.endTimestamp},${alarm.days}";
-      final response = await client.post(
+      final requestData =
+          "${alarm.fileName},${alarm.hour},${alarm.minute},${alarm.startTimestamp},${alarm.endTimestamp},${alarm.days}";
+      final response = await client
+          .post(
         Uri.parse('http://192.168.2.1/delete/'),
         headers: {'Content-Type': 'text/plain'},
         body: requestData,
-      ).timeout(const Duration(seconds: 5));
+      )
+          .timeout(const Duration(seconds: 5));
 
       if (response.statusCode == 200) {
         setState(() => _alarmSongs.remove(alarm));
@@ -501,8 +633,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   void _showAlarmDetailsDialog(AlarmSong alarm) {
-    final selectedColor = Provider.of<ThemeProvider>(context, listen: false).selectedColor;
-    String rawTime = "${alarm.hour % 12 == 0 ? 12 : alarm.hour % 12}:${alarm.minute.toString().padLeft(2, '0')}";
+    final selectedColor =
+        Provider.of<ThemeProvider>(context, listen: false).selectedColor;
+    String rawTime =
+        "${alarm.hour % 12 == 0 ? 12 : alarm.hour % 12}:${alarm.minute.toString().padLeft(2, '0')}";
     String period = alarm.hour >= 12 ? "PM" : "AM";
 
     showDialog(
@@ -517,7 +651,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             children: [
               Text(rawTime, style: AppTextStyles.headingheading),
               const SizedBox(width: 4),
-              Text(period, style: AppTextStyles.heading.copyWith(color: selectedColor, fontSize: 20)),
+              Text(period,
+                  style: AppTextStyles.heading
+                      .copyWith(color: selectedColor, fontSize: 20)),
             ],
           ),
         ),
@@ -528,7 +664,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             const SizedBox(height: 8),
             _buildDaysRow(alarm.days, selectedColor),
             const SizedBox(height: 16),
-            Text(alarm.fileName, style: AppTextStyles.body, textAlign: TextAlign.center),
+            Text(alarm.fileName,
+                style: AppTextStyles.body, textAlign: TextAlign.center),
           ],
         ),
         actions: [
@@ -541,10 +678,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               style: ElevatedButton.styleFrom(
                 foregroundColor: Colors.red,
                 backgroundColor: Colors.red,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(50)),
-                padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 12),
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(50)),
+                padding:
+                const EdgeInsets.symmetric(horizontal: 32, vertical: 12),
               ),
-              child: Text("Delete", style: AppTextStyles.button.copyWith(color: Colors.white)),
+              child: Text("Delete",
+                  style: AppTextStyles.button.copyWith(color: Colors.white)),
             ),
           ),
         ],
@@ -552,33 +692,48 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     );
   }
 
-  Widget _buildPrayerTimeIndicator(BuildContext context, {
-    required String label,
-    required bool enabled,
-    List<String> times = const [],
-  }) {
+  Widget _buildPrayerTimeIndicator(
+      BuildContext context, {
+        required String label,
+        required bool enabled,
+        List<String> times = const [],
+      }) {
     final themeProvider = Provider.of<ThemeProvider>(context, listen: false);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       margin: const EdgeInsets.only(right: 8),
       constraints: const BoxConstraints(minWidth: 80),
       decoration: BoxDecoration(
-        color: enabled ? themeProvider.selectedColor.withOpacity(0.1) : Colors.grey.withOpacity(0.1),
+        color: enabled
+            ? themeProvider.selectedColor.withOpacity(0.1)
+            : Colors.grey.withOpacity(0.1),
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: enabled ? themeProvider.selectedColor : Colors.grey, width: 1),
+        border: Border.all(
+            color: enabled ? themeProvider.selectedColor : Colors.grey,
+            width: 1),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(enabled ? Icons.check_circle : Icons.circle, color: enabled ? themeProvider.selectedColor : Colors.grey, size: 14),
+          Icon(enabled ? Icons.check_circle : Icons.circle,
+              color: enabled ? themeProvider.selectedColor : Colors.grey,
+              size: 14),
           const SizedBox(width: 6),
           Flexible(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(label, style: AppTextStyles.small.copyWith(color: enabled ? themeProvider.selectedColor : Colors.grey, fontSize: 12)),
+                Text(label,
+                    style: AppTextStyles.small.copyWith(
+                        color:
+                        enabled ? themeProvider.selectedColor : Colors.grey,
+                        fontSize: 12)),
                 if (enabled && times.isNotEmpty)
-                  ...times.map((t) => Text(t, style: AppTextStyles.small.copyWith(color: Colors.black87, fontSize: 11, fontWeight: FontWeight.w500))),
+                  ...times.map((t) => Text(t,
+                      style: AppTextStyles.small.copyWith(
+                          color: Colors.black87,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w500))),
               ],
             ),
           ),
@@ -591,7 +746,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     if (_loadingPrayerStatus) {
       return const Padding(
         padding: EdgeInsets.symmetric(vertical: 8),
-        child: Center(child: SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2))),
+        child: Center(
+            child: SizedBox(
+                height: 20,
+                width: 20,
+                child: CircularProgressIndicator(strokeWidth: 2))),
       );
     }
     if (_errorLoadingStatus) {
@@ -600,8 +759,15 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         child: Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Flexible(child: Text('Failed to load status', style: AppTextStyles.body.copyWith(fontSize: 14, color: Colors.red))),
-            IconButton(padding: EdgeInsets.zero, constraints: const BoxConstraints(), icon: const Icon(Icons.refresh, size: 20), onPressed: _loadPrayerTimesStatus),
+            Flexible(
+                child: Text('Failed to load status',
+                    style: AppTextStyles.body
+                        .copyWith(fontSize: 14, color: Colors.red))),
+            IconButton(
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(),
+                icon: const Icon(Icons.refresh, size: 20),
+                onPressed: _loadPrayerTimesStatus),
           ],
         ),
       );
@@ -613,10 +779,17 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         child: Row(
           children: [
             _buildPrayerTimeIndicator(context, label: 'Alarms', enabled: true),
-            _buildPrayerTimeIndicator(context, label: 'Reminders', enabled: true),
-            _buildPrayerTimeIndicator(context, label: 'Namaz', enabled: _namazEnabled),
-            _buildPrayerTimeIndicator(context, label: 'Sunrise/Sunset', enabled: _sunriseEnabled),
-            IconButton(padding: EdgeInsets.zero, constraints: const BoxConstraints(), icon: const Icon(Icons.refresh, size: 20), onPressed: _loadPrayerTimesStatus),
+            _buildPrayerTimeIndicator(context,
+                label: 'Reminders', enabled: true),
+            _buildPrayerTimeIndicator(context,
+                label: 'Namaz', enabled: _namazEnabled),
+            _buildPrayerTimeIndicator(context,
+                label: 'Sunrise/Sunset', enabled: _sunriseEnabled),
+            IconButton(
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(),
+                icon: const Icon(Icons.refresh, size: 20),
+                onPressed: _loadPrayerTimesStatus),
           ],
         ),
       ),
@@ -627,25 +800,34 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     TimeOfDay? selectedTime = await showTimePicker(
       context: context,
       initialTime: TimeOfDay.now(),
-      builder: (context, child) => MediaQuery(data: MediaQuery.of(context).copyWith(alwaysUse24HourFormat: false), child: child!),
+      builder: (context, child) => MediaQuery(
+          data: MediaQuery.of(context).copyWith(alwaysUse24HourFormat: false),
+          child: child!),
     );
 
     if (selectedTime != null) {
       if (!isWifiConnected || !connectionStatus.contains(targetSsid)) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Please connect to IoGen_Speaker Wi-Fi to sync time")));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content:
+            Text("Please connect to IoGen_Speaker Wi-Fi to sync time")));
         return;
       }
       final now = DateTime.now();
-      DateTime selectedDateTime = DateTime(now.year, now.month, now.day, selectedTime.hour, selectedTime.minute);
+      DateTime selectedDateTime = DateTime(
+          now.year, now.month, now.day, selectedTime.hour, selectedTime.minute);
       if (selectedDateTime.isBefore(now)) {
         selectedDateTime = selectedDateTime.add(const Duration(days: 1));
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Set for tomorrow: ${selectedTime.format(context)}")));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content:
+            Text("Set for tomorrow: ${selectedTime.format(context)}")));
       }
       try {
         await BellService().syncTime(context, selectedTime: selectedDateTime);
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Time synced: ${selectedTime.format(context)}")));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text("Time synced: ${selectedTime.format(context)}")));
       } catch (e) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Sync failed: $e")));
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text("Sync failed: $e")));
       }
     }
   }
@@ -671,30 +853,68 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       if (index == 1) _musicTabLogic.setSelectedTab(0);
       _isFabMenuOpen = false;
     });
+
+    // If navigating TO HomeScreen (index 0), trigger refresh
+    if (index == 0) {
+      Future.delayed(const Duration(milliseconds: 300), () {
+        if (mounted && isWifiConnected && connectionStatus.contains(targetSsid)) {
+          _loadPrayerTimesStatus();
+        }
+      });
+    }
   }
 
   Widget _buildFabOption(String title, bool isChecked) {
-    final themeProvider = Provider.of<ThemeProvider>(context);
+    final themeProvider = Provider.of<ThemeProvider>(context, listen: false);
+
     return Material(
       color: Colors.transparent,
       child: InkWell(
+        borderRadius: BorderRadius.circular(12),
         onTap: () async {
-          setState(() => _isFabMenuOpen = false);
+          // 1. Close the menu FIRST (very important!)
+          _hideFabMenuOverlay();
+
+          // 2. Small delay to ensure overlay is removed before navigation
+          //    (prevents visual glitch + potential context issues)
+          await Future.delayed(const Duration(milliseconds: 100));
+
+          // 3. Now navigate safely
+          if (!mounted) return;
+
           switch (title) {
-            case 'Alarm': await Navigator.push(context, MaterialPageRoute(builder: (_) => const AlarmPage())); break;
-            case 'Reminder': await Navigator.push(context, MaterialPageRoute(builder: (_) => const ReminderPage())); break;
-            case 'Regional Planner': await Navigator.push(context, MaterialPageRoute(builder: (_) => const ReligiousAlarms())); break;
+            case 'Alarm':
+              Navigator.push(context, MaterialPageRoute(builder: (_) => const AlarmPage()));
+              break;
+            case 'Reminder':
+              Navigator.push(context, MaterialPageRoute(builder: (_) => const ReminderPage()));
+              break;
+            case 'Astro':
+              Navigator.push(context, MaterialPageRoute(builder: (_) => const ReligiousAlarms()));
+              break;
           }
         },
         child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+          padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 16),
           child: Row(
             children: [
-              Container(width: 24, height: 24, decoration: BoxDecoration(color: themeProvider.selectedColor, shape: BoxShape.circle), child: const Icon(Icons.add, color: Colors.white, size: 16)),
+              Container(
+                width: 28,
+                height: 28,
+                decoration: BoxDecoration(
+                  color: themeProvider.selectedColor,
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(Icons.add, color: Colors.white, size: 18),
+              ),
               const SizedBox(width: 16),
-              title == 'Regional Planner'
-                  ? Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [Text('Regional', style: AppTextStyles.body.copyWith(color: Colors.black87)), Text('Planner', style: AppTextStyles.body.copyWith(color: Colors.black87))])
-                  : Text(title, style: AppTextStyles.body),
+              Text(
+                title,
+                style: AppTextStyles.body.copyWith(
+                  fontWeight: FontWeight.w500,
+                  color: Colors.black87,
+                ),
+              ),
             ],
           ),
         ),
@@ -702,7 +922,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     );
   }
 
-  String _formatTime(int hour, int minute) => DateFormat.jm().format(DateTime(2000, 1, 1, hour, minute));
+  String _formatTime(int hour, int minute) =>
+      DateFormat.jm().format(DateTime(2000, 1, 1, hour, minute));
 
   Widget _buildDaysRow(int days, Color selectedColor) {
     final List<String> abbr = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
@@ -712,7 +933,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         final active = (days & (1 << (i + 1 == 7 ? 7 : i + 1))) != 0;
         return Padding(
           padding: const EdgeInsets.only(right: 4.0),
-          child: Text(abbr[i], style: AppTextStyles.subheading.copyWith(color: active ? selectedColor : Colors.grey, fontWeight: active ? FontWeight.bold : FontWeight.normal)),
+          child: Text(abbr[i],
+              style: AppTextStyles.subheading.copyWith(
+                  color: active ? selectedColor : Colors.grey,
+                  fontWeight: active ? FontWeight.bold : FontWeight.normal)),
         );
       }),
     );
@@ -772,7 +996,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 ),
               ),
               const SizedBox(height: 16),
-              Text(connectionStatus, style: AppTextStyles.body, textAlign: TextAlign.center),
+              Text(connectionStatus,
+                  style: AppTextStyles.body, textAlign: TextAlign.center),
               const SizedBox(height: 16),
               _tabLogic.selectedTabIndex == 0
                   ? Column(
@@ -784,19 +1009,26 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                     decoration: BoxDecoration(
                       color: Colors.white,
                       borderRadius: BorderRadius.circular(12),
-                      boxShadow: [BoxShadow(color: Colors.grey.withOpacity(0.2), spreadRadius: 2, blurRadius: 5)],
+                      boxShadow: [
+                        BoxShadow(
+                            color: Colors.grey.withOpacity(0.2),
+                            spreadRadius: 2,
+                            blurRadius: 5)
+                      ],
                     ),
                     child: TableCalendar(
                       firstDay: _calendarLogic.firstDay,
                       lastDay: _calendarLogic.lastDay,
                       focusedDay: _calendarLogic.focusedDay,
-                      selectedDayPredicate: (day) => isSameDay(day, selectedDay),
+                      selectedDayPredicate: (day) =>
+                          isSameDay(day, selectedDay),
                       onDaySelected: _onDaySelected,
                       onPageChanged: _onPageChanged,
                       calendarFormat: CalendarFormat.week,
                       headerStyle: HeaderStyle(
                         formatButtonVisible: false,
-                        titleTextStyle: AppTextStyles.subheading.copyWith(fontWeight: FontWeight.bold),
+                        titleTextStyle: AppTextStyles.subheading
+                            .copyWith(fontWeight: FontWeight.bold),
                         titleCentered: false,
                         leftChevronVisible: true,
                         rightChevronVisible: true,
@@ -804,13 +1036,23 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                       daysOfWeekStyle: DaysOfWeekStyle(
                         weekdayStyle: AppTextStyles.small,
                         weekendStyle: AppTextStyles.small,
-                        dowTextFormatter: (date, locale) => DateFormat.E(locale).format(date).toUpperCase(),
+                        dowTextFormatter: (date, locale) =>
+                            DateFormat.E(locale)
+                                .format(date)
+                                .toUpperCase(),
                       ),
                       calendarStyle: CalendarStyle(
-                        todayDecoration: BoxDecoration(color: Colors.grey[300], shape: BoxShape.circle),
-                        todayTextStyle: AppTextStyles.body.copyWith(fontWeight: FontWeight.bold),
-                        selectedDecoration: BoxDecoration(color: themeProvider.selectedColor, shape: BoxShape.circle),
-                        selectedTextStyle: AppTextStyles.body.copyWith(fontWeight: FontWeight.bold, color: Colors.white),
+                        todayDecoration: BoxDecoration(
+                            color: Colors.grey[300],
+                            shape: BoxShape.circle),
+                        todayTextStyle: AppTextStyles.body
+                            .copyWith(fontWeight: FontWeight.bold),
+                        selectedDecoration: BoxDecoration(
+                            color: themeProvider.selectedColor,
+                            shape: BoxShape.circle),
+                        selectedTextStyle: AppTextStyles.body.copyWith(
+                            fontWeight: FontWeight.bold,
+                            color: Colors.white),
                         defaultTextStyle: AppTextStyles.body,
                         weekendTextStyle: AppTextStyles.body,
                       ),
@@ -821,7 +1063,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                     decoration: BoxDecoration(
                       color: Colors.white,
                       borderRadius: BorderRadius.circular(12),
-                      boxShadow: [BoxShadow(color: Colors.grey.withOpacity(0.3), spreadRadius: 2, blurRadius: 10, offset: const Offset(0, -2))],
+                      boxShadow: [
+                        BoxShadow(
+                            color: Colors.grey.withOpacity(0.3),
+                            spreadRadius: 2,
+                            blurRadius: 10,
+                            offset: const Offset(0, -2))
+                      ],
                     ),
                     child: Padding(
                       padding: const EdgeInsets.all(16.0),
@@ -830,50 +1078,96 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                         children: [
                           _buildStatusIndicators(),
                           Text(
-                            isSameDay(selectedDay, today) ? "Today's Schedule" : DateFormat('MMMM d, y').format(selectedDay),
+                            isSameDay(selectedDay, today)
+                                ? "Today's Schedule"
+                                : DateFormat('MMMM d, y')
+                                .format(selectedDay),
                             style: AppTextStyles.subheading,
                           ),
                           const SizedBox(height: 12),
                           if (_loadingAlarmSongs) ...[
                             const Padding(
                               padding: EdgeInsets.symmetric(vertical: 8),
-                              child: Center(child: SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2))),
+                              child: Center(
+                                  child: SizedBox(
+                                      height: 20,
+                                      width: 20,
+                                      child: CircularProgressIndicator(
+                                          strokeWidth: 2))),
                             ),
                           ],
                           if (_errorLoadingAlarmSongs) ...[
                             Padding(
-                              padding: const EdgeInsets.symmetric(vertical: 8),
+                              padding:
+                              const EdgeInsets.symmetric(vertical: 8),
                               child: Row(
-                                mainAxisAlignment: MainAxisAlignment.center,
+                                mainAxisAlignment:
+                                MainAxisAlignment.center,
                                 children: [
-                                  Flexible(child: Text('Failed to load alarm songs', style: AppTextStyles.body.copyWith(fontSize: 14, color: Colors.red))),
-                                  IconButton(padding: EdgeInsets.zero, constraints: const BoxConstraints(), icon: const Icon(Icons.refresh, size: 20), onPressed: _loadPrayerTimesStatus),
+                                  Flexible(
+                                      child: Text(
+                                          'Failed to load alarm songs',
+                                          style: AppTextStyles.body
+                                              .copyWith(
+                                              fontSize: 14,
+                                              color: Colors.red))),
+                                  IconButton(
+                                      padding: EdgeInsets.zero,
+                                      constraints: const BoxConstraints(),
+                                      icon: const Icon(Icons.refresh,
+                                          size: 20),
+                                      onPressed: _loadPrayerTimesStatus),
                                 ],
                               ),
                             ),
                           ],
-                          if (!_loadingAlarmSongs && !_errorLoadingAlarmSongs) ...[
+                          if (!_loadingAlarmSongs &&
+                              !_errorLoadingAlarmSongs) ...[
                             Builder(builder: (context) {
-                              final alarmList = _alarmSongs.where((s) => s.isScheduledForDay(selectedDay) && s.startTimestamp == 0).toList();
-                              final reminderList = _alarmSongs.where((s) => s.isScheduledForDay(selectedDay) && s.startTimestamp != 0).toList();
+                              final alarmList = _alarmSongs
+                                  .where((s) =>
+                              s.isScheduledForDay(selectedDay) &&
+                                  s.startTimestamp == 0)
+                                  .toList();
+                              final reminderList = _alarmSongs
+                                  .where((s) =>
+                              s.isScheduledForDay(selectedDay) &&
+                                  s.startTimestamp != 0)
+                                  .toList();
 
                               return Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
+                                crossAxisAlignment:
+                                CrossAxisAlignment.start,
                                 children: [
                                   if (alarmList.isNotEmpty) ...[
                                     Padding(
-                                      padding: const EdgeInsets.only(left: 8, top: 8, bottom: 8),
-                                      child: Text('Alarms', style: AppTextStyles.subheading.copyWith(fontWeight: FontWeight.w600, color: Colors.black87)),
+                                      padding: const EdgeInsets.only(
+                                          left: 8, top: 8, bottom: 8),
+                                      child: Text('Alarms',
+                                          style: AppTextStyles.subheading
+                                              .copyWith(
+                                              fontWeight:
+                                              FontWeight.w600,
+                                              color: Colors.black87)),
                                     ),
-                                    ...alarmList.asMap().entries.map((entry) {
+                                    ...alarmList
+                                        .asMap()
+                                        .entries
+                                        .map((entry) {
                                       final index = entry.key;
                                       final song = entry.value;
-                                      final timeString = _formatTime(song.hour, song.minute);
-                                      final isChecked = song.status == 1 && song.isPast(selectedDay, DateTime.now());
-                                      final isLast = index == alarmList.length - 1;
+                                      final timeString = _formatTime(
+                                          song.hour, song.minute);
+                                      final isChecked =
+                                          song.status == 1 &&
+                                              song.isPast(selectedDay,
+                                                  DateTime.now());
+                                      final isLast =
+                                          index == alarmList.length - 1;
 
                                       return GestureDetector(
-                                        onLongPress: () => _showAlarmDetailsDialog(song),
+                                        onLongPress: () =>
+                                            _showAlarmDetailsDialog(song),
                                         child: ScheduleItem(
                                           time: timeString,
                                           title: '',
@@ -881,40 +1175,84 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                                           isLast: isLast,
                                           icon: Icons.alarm,
                                           days: song.days,
-                                          selectedColor: themeProvider.selectedColor,
+                                          selectedColor:
+                                          themeProvider.selectedColor,
                                         ),
                                       );
                                     }),
                                   ],
                                   if (reminderList.isNotEmpty) ...[
                                     Padding(
-                                      padding: const EdgeInsets.only(left: 8, top: 8, bottom: 8),
-                                      child: Text('Reminders', style: AppTextStyles.subheading.copyWith(fontWeight: FontWeight.w600, color: Colors.black87)),
+                                      padding: const EdgeInsets.only(
+                                          left: 8, top: 8, bottom: 8),
+                                      child: Text('Reminders',
+                                          style: AppTextStyles.subheading
+                                              .copyWith(
+                                              fontWeight:
+                                              FontWeight.w600,
+                                              color: Colors.black87)),
                                     ),
-                                    ...reminderList.asMap().entries.map((entry) {
+                                    ...reminderList
+                                        .asMap()
+                                        .entries
+                                        .map((entry) {
                                       final index = entry.key;
                                       final song = entry.value;
-                                      final timeString = _formatTime(song.hour, song.minute);
-                                      final isChecked = song.status == 1 && song.isPast(selectedDay, DateTime.now());
-                                      final isLast = index == reminderList.length - 1;
+                                      final timeString = _formatTime(
+                                          song.hour, song.minute);
+                                      final isChecked =
+                                          song.status == 1 &&
+                                              song.isPast(selectedDay,
+                                                  DateTime.now());
+                                      final isLast = index ==
+                                          reminderList.length - 1;
+
+                                      return GestureDetector(
+                                        // 1. Trigger the existing dialog on long press, passing the reminder 'song'
+                                        onLongPress: () =>
+                                            _showAlarmDetailsDialog(song),
+                                        child: ScheduleItem(
+                                          time: timeString,
+                                          title: '',
+                                          isChecked: isChecked,
+                                          isLast: isLast,
+                                          icon: Icons
+                                              .notifications_outlined,
+                                          days: song.days,
+                                          selectedColor:
+                                          themeProvider.selectedColor,
+                                        ),
+                                      );
 
                                       return ScheduleItem(
                                         time: timeString,
                                         title: '',
                                         isChecked: isChecked,
                                         isLast: isLast,
-                                        icon: Icons.notifications_outlined,
+                                        icon:
+                                        Icons.notifications_outlined,
                                         days: song.days,
-                                        selectedColor: themeProvider.selectedColor,
+                                        selectedColor:
+                                        themeProvider.selectedColor,
                                       );
                                     }),
                                   ],
-                                  if (_namazEnabled && _namazTimes.isNotEmpty) ...[
+                                  if (_namazEnabled &&
+                                      _namazTimes.isNotEmpty) ...[
                                     Padding(
-                                      padding: const EdgeInsets.only(left: 8, top: 8, bottom: 8),
-                                      child: Text('Namaz', style: AppTextStyles.subheading.copyWith(fontWeight: FontWeight.w600, color: Colors.black87)),
+                                      padding: const EdgeInsets.only(
+                                          left: 8, top: 8, bottom: 8),
+                                      child: Text('Namaz',
+                                          style: AppTextStyles.subheading
+                                              .copyWith(
+                                              fontWeight:
+                                              FontWeight.w600,
+                                              color: Colors.black87)),
                                     ),
-                                    ..._namazTimes.asMap().entries.map((entry) {
+                                    ..._namazTimes
+                                        .asMap()
+                                        .entries
+                                        .map((entry) {
                                       final index = entry.key;
                                       final t = entry.value;
                                       String fileName = 'Namaz';
@@ -928,33 +1266,53 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                                       }
                                       int hour = 0, minute = 0;
                                       try {
-                                        final timeParts = timeStr.split(':');
+                                        final timeParts =
+                                        timeStr.split(':');
                                         hour = int.parse(timeParts[0]);
                                         minute = int.parse(timeParts[1]);
                                       } catch (e) {
                                         return const SizedBox.shrink();
                                       }
-                                      final timeString = _formatTime(hour, minute);
-                                      final songDateTime = DateTime(selectedDay.year, selectedDay.month, selectedDay.day, hour, minute);
-                                      final isChecked = songDateTime.isBefore(DateTime.now());
+                                      final timeString =
+                                      _formatTime(hour, minute);
+                                      final songDateTime = DateTime(
+                                          selectedDay.year,
+                                          selectedDay.month,
+                                          selectedDay.day,
+                                          hour,
+                                          minute);
+                                      final isChecked = songDateTime
+                                          .isBefore(DateTime.now());
                                       return Padding(
-                                        padding: const EdgeInsets.only(bottom: 8),
+                                        padding: const EdgeInsets.only(
+                                            bottom: 8),
                                         child: ScheduleItem(
                                           time: timeString,
                                           title: fileName,
                                           isChecked: isChecked,
-                                          isLast: index == _namazTimes.length - 1,
+                                          isLast: index ==
+                                              _namazTimes.length - 1,
                                           icon: Icons.mosque_outlined,
                                         ),
                                       );
                                     }),
                                   ],
-                                  if (_sunriseEnabled && _poojaTimes.isNotEmpty) ...[
+                                  if (_sunriseEnabled &&
+                                      _poojaTimes.isNotEmpty) ...[
                                     Padding(
-                                      padding: const EdgeInsets.only(left: 8, top: 8, bottom: 8),
-                                      child: Text('Sunrise/Sunset', style: AppTextStyles.subheading.copyWith(fontWeight: FontWeight.w600, color: Colors.black87)),
+                                      padding: const EdgeInsets.only(
+                                          left: 8, top: 8, bottom: 8),
+                                      child: Text('Sunrise/Sunset',
+                                          style: AppTextStyles.subheading
+                                              .copyWith(
+                                              fontWeight:
+                                              FontWeight.w600,
+                                              color: Colors.black87)),
                                     ),
-                                    ..._poojaTimes.asMap().entries.map((entry) {
+                                    ..._poojaTimes
+                                        .asMap()
+                                        .entries
+                                        .map((entry) {
                                       final index = entry.key;
                                       final t = entry.value;
                                       String fileName = 'Pooja';
@@ -968,31 +1326,50 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                                       }
                                       int hour = 0, minute = 0;
                                       try {
-                                        final timeParts = timeStr.split(':');
+                                        final timeParts =
+                                        timeStr.split(':');
                                         hour = int.parse(timeParts[0]);
                                         minute = int.parse(timeParts[1]);
                                       } catch (e) {
                                         return const SizedBox.shrink();
                                       }
-                                      final timeString = _formatTime(hour, minute);
-                                      final songDateTime = DateTime(selectedDay.year, selectedDay.month, selectedDay.day, hour, minute);
-                                      final isChecked = songDateTime.isBefore(DateTime.now());
+                                      final timeString =
+                                      _formatTime(hour, minute);
+                                      final songDateTime = DateTime(
+                                          selectedDay.year,
+                                          selectedDay.month,
+                                          selectedDay.day,
+                                          hour,
+                                          minute);
+                                      final isChecked = songDateTime
+                                          .isBefore(DateTime.now());
                                       return Padding(
-                                        padding: const EdgeInsets.only(bottom: 8),
+                                        padding: const EdgeInsets.only(
+                                            bottom: 8),
                                         child: ScheduleItem(
                                           time: timeString,
                                           title: fileName,
                                           isChecked: isChecked,
-                                          isLast: index == _poojaTimes.length - 1,
+                                          isLast: index ==
+                                              _poojaTimes.length - 1,
                                           icon: Icons.wb_sunny,
                                         ),
                                       );
                                     }),
                                   ],
-                                  if (alarmList.isEmpty && reminderList.isEmpty && (!_namazEnabled || _namazTimes.isEmpty) && (!_sunriseEnabled || _poojaTimes.isEmpty))
+                                  if (alarmList.isEmpty &&
+                                      reminderList.isEmpty &&
+                                      (!_namazEnabled ||
+                                          _namazTimes.isEmpty) &&
+                                      (!_sunriseEnabled ||
+                                          _poojaTimes.isEmpty))
                                     Padding(
                                       padding: const EdgeInsets.all(8),
-                                      child: Text('No alarms or reminders scheduled for this day', style: AppTextStyles.body.copyWith(color: Colors.grey)),
+                                      child: Text(
+                                          'No alarms or reminders scheduled for this day',
+                                          style: AppTextStyles.body
+                                              .copyWith(
+                                              color: Colors.grey)),
                                     ),
                                 ],
                               );
@@ -1022,42 +1399,30 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         surfaceTintColor: Colors.white,
         elevation: 0,
         automaticallyImplyLeading: false,
-        title: Image.asset('assets/appbar_icon.png', height: 40, fit: BoxFit.contain),
+        title: Image.asset('assets/appbar_icon.png',
+            height: 40, fit: BoxFit.contain),
       ),
-      body: Stack(
-        children: [
-          GestureDetector(
-            onTap: () => setState(() => _isFabMenuOpen = false),
-            child: screens[_selectedIndex],
-          ),
-          if (_isFabMenuOpen && _selectedIndex == 0)
-            Positioned(
-              bottom: 80,
-              right: 16,
-              child: Container(
-                width: 180,
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(12),
-                  boxShadow: [BoxShadow(color: Colors.grey.withOpacity(0.3), spreadRadius: 2, blurRadius: 5)],
-                ),
-                child: Column(
-                  children: [
-                    _buildFabOption('Reminder', true),
-                    _buildFabOption('Alarm', false),
-                    _buildFabOption('Regional Planner', false),
-                  ],
-                ),
-              ),
-            ),
-        ],
-      ),
+      body: screens[_selectedIndex],
       floatingActionButton: _selectedIndex == 0
           ? FloatingActionButton(
-        onPressed: () => setState(() => _isFabMenuOpen = !_isFabMenuOpen),
+        onPressed: () {
+          if (_fabMenuOverlayEntry != null) {
+            _hideFabMenuOverlay();
+          } else {
+            _showFabMenuOverlay();
+          }
+        },
         backgroundColor: themeProvider.selectedColor,
         shape: const CircleBorder(),
-        child: Icon(_isFabMenuOpen ? Icons.close : Icons.edit_calendar_outlined, color: Colors.white, size: 28),
+        child: AnimatedRotation(
+          turns: _fabMenuOverlayEntry != null ? 0.125 : 0, // 45° → X
+          duration: const Duration(milliseconds: 200),
+          child: Icon(
+            _fabMenuOverlayEntry != null ? Icons.close : Icons.edit_calendar_outlined,
+            color: Colors.white,
+            size: 28,
+          ),
+        ),
       )
           : null,
       floatingActionButtonLocation: FloatingActionButtonLocation.miniEndFloat,
@@ -1072,9 +1437,30 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           selectedFontSize: 0,
           unselectedFontSize: 0,
           items: [
-            BottomNavigationBarItem(icon: _buildNavItem(isSelected: _selectedIndex == 0, selectedIcon: Icons.calendar_month, unselectedIcon: Icons.calendar_month_outlined, label: "Planner", color: themeProvider.selectedColor), label: ""),
-            BottomNavigationBarItem(icon: _buildNavItem(isSelected: _selectedIndex == 1, selectedIcon: Icons.music_note, unselectedIcon: Icons.music_note_outlined, label: "Library", color: themeProvider.selectedColor), label: ""),
-            BottomNavigationBarItem(icon: _buildNavItem(isSelected: _selectedIndex == 2, selectedIcon: Icons.person, unselectedIcon: Icons.person_outline, label: "Profile", color: themeProvider.selectedColor), label: ""),
+            BottomNavigationBarItem(
+                icon: _buildNavItem(
+                    isSelected: _selectedIndex == 0,
+                    selectedIcon: Icons.calendar_month,
+                    unselectedIcon: Icons.calendar_month_outlined,
+                    label: "Planner",
+                    color: themeProvider.selectedColor),
+                label: ""),
+            BottomNavigationBarItem(
+                icon: _buildNavItem(
+                    isSelected: _selectedIndex == 1,
+                    selectedIcon: Icons.music_note,
+                    unselectedIcon: Icons.music_note_outlined,
+                    label: "Library",
+                    color: themeProvider.selectedColor),
+                label: ""),
+            BottomNavigationBarItem(
+                icon: _buildNavItem(
+                    isSelected: _selectedIndex == 2,
+                    selectedIcon: Icons.person,
+                    unselectedIcon: Icons.person_outline,
+                    label: "Profile",
+                    color: themeProvider.selectedColor),
+                label: ""),
           ],
         ),
       ),
@@ -1094,12 +1480,23 @@ Widget _buildNavItem({
     child: Column(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
-        Icon(isSelected ? selectedIcon : unselectedIcon, color: isSelected ? color : Colors.grey),
+        Icon(isSelected ? selectedIcon : unselectedIcon,
+            color: isSelected ? color : Colors.grey),
         const SizedBox(height: 4),
-        Text(label, style: AppTextStyles.small.copyWith(fontSize: 12, fontWeight: isSelected ? FontWeight.w600 : FontWeight.w400, color: isSelected ? color : Colors.grey)),
+        Text(label,
+            style: AppTextStyles.small.copyWith(
+                fontSize: 12,
+                fontWeight: isSelected ? FontWeight.w600 : FontWeight.w400,
+                color: isSelected ? color : Colors.grey)),
         const Spacer(),
-        Container(height: 4, width: double.infinity, decoration: BoxDecoration(color: isSelected ? color : Colors.transparent, borderRadius: BorderRadius.circular(50))),
+        Container(
+            height: 4,
+            width: double.infinity,
+            decoration: BoxDecoration(
+                color: isSelected ? color : Colors.transparent,
+                borderRadius: BorderRadius.circular(50))),
       ],
     ),
   );
 }
+

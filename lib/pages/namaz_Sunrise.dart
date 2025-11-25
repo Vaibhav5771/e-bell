@@ -67,6 +67,8 @@ class _ReligiousAlarmsState extends State<ReligiousAlarms> {
   bool _sunriseChanged = false;
   bool _jainChanged = false;
 
+  bool get _isAnyLoading => _isNamazLoading || _isSunriseLoading || _isJainLoading;
+
   // Store original values to compare changes
   String _originalFajrSound = '';
   String _originalDhuhrSound = '';
@@ -1749,14 +1751,28 @@ class _ReligiousAlarmsState extends State<ReligiousAlarms> {
         centerTitle: true, // Added to center the title
         actions: [
           TextButton(
-            onPressed: () async {
-              await _saveSettings();
+            onPressed: _isAnyLoading ? null : () async {
+              // Optional: Show loading state
+              // You can show a snackbar or just let individual cards handle feedback
+
+              await _saveSettings();  // Save selected religions & toggles locally
               Navigator.pop(context);
             },
-            child: Text(
+            child: _isAnyLoading
+                ? SizedBox(
+              height: 20,
+              width: 20,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                valueColor: AlwaysStoppedAnimation<Color>(Colors.grey[600]!),
+              ),
+            )
+                : Text(
               'Save',
               style: AppTextStyles.link.copyWith(
-                color: themeProvider.selectedColor,
+                color: _isAnyLoading
+                    ? Colors.grey[400]
+                    : themeProvider.selectedColor,
                 fontWeight: FontWeight.bold,
               ),
             ),
