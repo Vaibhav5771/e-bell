@@ -1352,6 +1352,7 @@ class _ReligiousAlarmsState extends State<ReligiousAlarms> {
   }
 
   // Show religion selection dialog with immediate updates
+  // Show religion selection dialog with immediate updates
   void _showReligionSelectionDialog() {
     // Create a local copy for the dialog state
     List<String> tempSelectedReligions = List.from(_selectedReligions);
@@ -1360,15 +1361,16 @@ class _ReligiousAlarmsState extends State<ReligiousAlarms> {
     showDialog(
       context: context,
       builder: (BuildContext context) {
+        // Changed 'setState' to 'setDialogState' to avoid shadowing the main widget's setState
         return StatefulBuilder(
-          builder: (context, setState) {
+          builder: (context, setDialogState) {
             return Dialog(
               backgroundColor: Colors.white, // Dialog background color
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(16.0), // Rounded corners
               ),
               child: Container(
-                padding: EdgeInsets.all(20),
+                padding: const EdgeInsets.all(20),
                 decoration: BoxDecoration(
                   color: Colors.white,
                   borderRadius: BorderRadius.circular(16.0),
@@ -1385,22 +1387,26 @@ class _ReligiousAlarmsState extends State<ReligiousAlarms> {
                         fontWeight: FontWeight.bold,
                       ),
                     ),
-                    SizedBox(height: 16),
+                    const SizedBox(height: 16),
 
                     // Religion checkboxes
                     Container(
-                      constraints: BoxConstraints(maxHeight: 300),
+                      constraints: const BoxConstraints(maxHeight: 300),
                       child: SingleChildScrollView(
                         child: ListBody(
                           children: _availableReligions.map((religion) {
-                            final bool isEnabled = religion == 'Hinduism' || religion == 'Islamic' || religion == 'Jainism';
-                            final bool isSelected = tempSelectedReligions.contains(religion);
+                            final bool isEnabled = religion == 'Hinduism' ||
+                                religion == 'Islamic' ||
+                                religion == 'Jainism';
+                            final bool isSelected =
+                            tempSelectedReligions.contains(religion);
 
                             return Container(
-                              margin: EdgeInsets.symmetric(vertical: 4),
+                              margin: const EdgeInsets.symmetric(vertical: 4),
                               decoration: BoxDecoration(
                                 color: isSelected
-                                    ? themeProvider.selectedColor.withOpacity(0.1)
+                                    ? themeProvider.selectedColor
+                                    .withOpacity(0.1)
                                     : Colors.transparent,
                                 borderRadius: BorderRadius.circular(8),
                               ),
@@ -1408,24 +1414,27 @@ class _ReligiousAlarmsState extends State<ReligiousAlarms> {
                                 title: Text(
                                   religion,
                                   style: AppTextStyles.body.copyWith(
-                                    color: isEnabled ? Colors.black : Colors.grey,
+                                    color:
+                                    isEnabled ? Colors.black : Colors.grey,
                                   ),
                                 ),
                                 value: isSelected,
                                 onChanged: isEnabled
                                     ? (bool? value) {
-                                  setState(() {
+                                  setDialogState(() {
                                     if (value != null && value) {
                                       tempSelectedReligions.add(religion);
                                     } else {
-                                      tempSelectedReligions.remove(religion);
+                                      tempSelectedReligions
+                                          .remove(religion);
                                     }
                                   });
                                 }
                                     : null,
                                 activeColor: themeProvider.selectedColor,
                                 checkColor: Colors.white,
-                                contentPadding: EdgeInsets.symmetric(horizontal: 8),
+                                contentPadding:
+                                const EdgeInsets.symmetric(horizontal: 8),
                                 dense: true,
                               ),
                             );
@@ -1433,7 +1442,7 @@ class _ReligiousAlarmsState extends State<ReligiousAlarms> {
                         ),
                       ),
                     ),
-                    SizedBox(height: 16),
+                    const SizedBox(height: 16),
 
                     // Buttons
                     Row(
@@ -1450,7 +1459,7 @@ class _ReligiousAlarmsState extends State<ReligiousAlarms> {
                             Navigator.of(context).pop();
                           },
                         ),
-                        SizedBox(width: 8),
+                        const SizedBox(width: 8),
                         TextButton(
                           child: Text(
                             'OK',
@@ -1459,13 +1468,47 @@ class _ReligiousAlarmsState extends State<ReligiousAlarms> {
                               fontWeight: FontWeight.bold,
                             ),
                           ),
-                          onPressed: () {
-                            setState(() {
-                              _selectedReligions = List.from(tempSelectedReligions);
-                            });
+                          onPressed: () async {
+                            // 1. Identify which religions were removed
+                            // We compare the confirmed list (_selectedReligions) with the new temp list
+                            List<String> removedReligions = [];
+                            for (String religion in _selectedReligions) {
+                              if (!tempSelectedReligions.contains(religion)) {
+                                removedReligions.add(religion);
+                              }
+                            }
+
+                            // 2. Close Dialog first so SnackBars appear on the main screen
                             Navigator.of(context).pop();
-                            _saveSettings();
-                            // Refresh sound files based on selected religions
+
+                            // 3. Check for removed religions and Disable API if they were enabled
+                            // We wait for these requests to ensure hardware is updated
+                            if (removedReligions.contains('Islamic') &&
+                                _namazEnabled) {
+                              await _sendNamazRequest(false);
+                              _namazEnabled = false;
+                            }
+
+                            if (removedReligions.contains('Hinduism') &&
+                                _sunriseEnabled) {
+                              await _sendSunriseSunsetRequest(false);
+                              _sunriseEnabled = false;
+                            }
+
+                            if (removedReligions.contains('Jainism') &&
+                                _jainEnabled) {
+                              await _sendJainRequest(false);
+                              _jainEnabled = false;
+                            }
+
+                            // 4. Update the Main UI
+                            setState(() {
+                              _selectedReligions =
+                                  List.from(tempSelectedReligions);
+                            });
+
+                            // 5. Save settings and refresh sounds
+                            await _saveSettings();
                             _fetchSoundFiles();
                           },
                         ),

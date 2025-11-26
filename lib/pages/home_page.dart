@@ -1,3 +1,4 @@
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:table_calendar/table_calendar.dart';
 import 'package:intl/intl.dart';
@@ -32,6 +33,7 @@ class AlarmSong {
   final int endTimestamp;
   final int status;
   final int days;
+  final int uniqueId;
 
   AlarmSong({
     required this.fileName,
@@ -41,17 +43,19 @@ class AlarmSong {
     required this.endTimestamp,
     required this.status,
     required this.days,
+    required this.uniqueId,
   });
 
   factory AlarmSong.fromJson(List<dynamic> json) {
     return AlarmSong(
-      fileName: json[0] as String,
-      hour: json[1] as int,
-      minute: json[2] as int,
-      startTimestamp: json[3] as int,
-      endTimestamp: json[4] as int,
-      status: json[5] as int,
-      days: json[6] as int,
+      uniqueId:      json[0] as int,        // ← THIS IS THE REAL UNIQUE CODE FROM ESP32
+      fileName:      json[1] as String,
+      hour:          json[2] as int,
+      minute:        json[3] as int,
+      startTimestamp:json[4] as int,
+      endTimestamp:  json[5] as int,
+      status:        json[6] as int,
+      days:          json[7] as int,
     );
   }
 
@@ -102,6 +106,7 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   List<String> _namazTimes = [];
   List<String> _poojaTimes = [];
+  List<String> _jainTimes = []; // Added for Jain
   late TabLogic _tabLogic;
   late TabLogic1 _musicTabLogic;
   late CalendarLogic _calendarLogic;
@@ -117,6 +122,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   final String targetSsid = "IoGen_Speaker";
   bool _namazEnabled = false;
   bool _sunriseEnabled = false;
+  bool _jainEnabled = false; // Added for Jain
   bool _loadingPrayerStatus = false;
   bool _errorLoadingStatus = false;
   final GlobalKey _calendarKey = GlobalKey();
@@ -125,7 +131,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   String? _lastShownSnackBarMessage;
   bool _autoRefreshEnabled = false;
   bool _wasPreviouslyOffscreen = true;
-  OverlayEntry? _fabMenuOverlayEntry;// Track if we came from another screen
+  OverlayEntry? _fabMenuOverlayEntry;
 
   @override
   void initState() {
@@ -145,10 +151,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       });
     });
 
-    _initializeApp(); // Keeps permission + Wi-Fi check
+    _initializeApp();
     _requestPermissions();
 
-    // Only monitor Wi-Fi for connection status, NOT for auto-refresh
     _startWifiMonitoring();
   }
 
@@ -158,27 +163,22 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     WidgetsBinding.instance.removeObserver(this);
     _timer?.cancel();
     wifiCheckTimer?.cancel();
-    _scrollController.dispose(); // Add this
+    _scrollController.dispose();
     super.dispose();
   }
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-
-    // This runs every time the widget is inserted into the tree (including navigation back)
     final ModalRoute? route = ModalRoute.of(context);
     if (route is PageRoute) {
-      // Check if the route is now focused (i.e., HomeScreen is visible)
       if (route.isCurrent && _wasPreviouslyOffscreen) {
         _wasPreviouslyOffscreen = false;
-
-        // Only fetch if connected to target Wi-Fi
         if (isWifiConnected && connectionStatus.contains(targetSsid)) {
           _loadPrayerTimesStatus();
         }
       } else if (!route.isCurrent) {
-        _wasPreviouslyOffscreen = true; // We're leaving the screen
+        _wasPreviouslyOffscreen = true;
       }
     }
   }
@@ -260,16 +260,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     _fabMenuOverlayEntry = OverlayEntry(
       builder: (context) => Stack(
         children: [
-          // Full-screen tap to dismiss
           Positioned.fill(
             child: GestureDetector(
               onTap: _hideFabMenuOverlay,
               child: Container(color: Colors.transparent),
             ),
           ),
-          // The actual FAB menu (always top-most)
           Positioned(
-            bottom: 165,  // Distance from bottom (above FAB)
+            bottom: 165,
             right: 16,
             child: Material(
               elevation: 8,
@@ -357,7 +355,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   DateTime _lastWifiCheck = DateTime.now();
 
   Future<void> _checkWifiConnection() async {
-    // Prevent too frequent Wi-Fi checks
     if (DateTime.now().difference(_lastWifiCheck) < Duration(seconds: 10)) {
       return;
     }
@@ -424,6 +421,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       return {
         'namazTimes': (jsonData['NAMAZ'] as List?)?.cast<String>() ?? [],
         'poojaTimes': (jsonData['POOJA'] as List?)?.cast<String>() ?? [],
+        'jainTimes': (jsonData['JAIN'] as List?)?.cast<String>() ?? [], // Fetch Jain times
       };
     } finally {
       client?.close();
@@ -446,9 +444,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
       final jsonData = jsonDecode(response.body);
 
-      // === Parse region flags (NAMAZ, POOJA, etc.) ===
+      // === Parse region flags (NAMAZ, POOJA, JAIN, etc.) ===
       int namazFlag = 0;
       int poojaFlag = 0;
+      int jainFlag = 0; // Added Jain Flag
 
       final regionList = jsonData['region'] as List?;
       if (regionList != null) {
@@ -456,7 +455,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           if (item is Map<String, dynamic>) {
             namazFlag = item['NAMAZ'] ?? namazFlag;
             poojaFlag = item['POOJA'] ?? poojaFlag;
-            // You can add JAIN, etc. later if needed
+            jainFlag = item['JAIN'] ?? jainFlag; // Check Jain status
           }
         }
       }
@@ -481,18 +480,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 final int status = item[6] as int;
                 final int days = item[7] as int;
 
-                alarmSongs.add(AlarmSong(
-                  fileName: fileName,
-                  hour: hour,
-                  minute: minute,
-                  startTimestamp: startTimestamp,
-                  endTimestamp: endTimestamp,
-                  status: status,
-                  days: days,
-                ));
+                alarmSongs.add(AlarmSong.fromJson(item));
               } catch (e) {
                 debugPrint("Failed to parse alarm item: $item, error: $e");
-                // Skip malformed entries
               }
             }
           }
@@ -502,6 +492,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       return {
         'namazEnabled': namazFlag == 1,
         'sunriseEnabled': poojaFlag == 1,
+        'jainEnabled': jainFlag == 1, // Return Jain status
         'alarmSongs': alarmSongs,
       };
     } catch (e) {
@@ -516,7 +507,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   final Duration _refreshCooldown = Duration(seconds: 5);
 
   Future<void> _loadPrayerTimesStatus() async {
-    // Prevent rapid consecutive refreshes
     if (DateTime.now().difference(_lastRefreshTime) < _refreshCooldown) {
       return;
     }
@@ -566,14 +556,16 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       setState(() {
         _namazEnabled = regionStatus['namazEnabled'] ?? false;
         _sunriseEnabled = regionStatus['sunriseEnabled'] ?? false;
+        _jainEnabled = regionStatus['jainEnabled'] ?? false; // Update Jain state
         _alarmSongs = (regionStatus['alarmSongs'] as List<AlarmSong>)
           ..sort((a, b) =>
               (a.hour * 60 + a.minute).compareTo(b.hour * 60 + b.minute));
         _namazTimes = regtimeData['namazTimes'];
         _poojaTimes = regtimeData['poojaTimes'];
+        _jainTimes = regtimeData['jainTimes']; // Update Jain times
         _loadingPrayerStatus = false;
         _loadingAlarmSongs = false;
-        _lastRefreshTime = DateTime.now(); // Update last refresh time
+        _lastRefreshTime = DateTime.now();
       });
     } catch (e) {
       if (!mounted) return;
@@ -582,7 +574,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         _errorLoadingStatus = true;
         _loadingAlarmSongs = false;
         _errorLoadingAlarmSongs = true;
-        _lastRefreshTime = DateTime.now(); // Update even on error
+        _lastRefreshTime = DateTime.now();
       });
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) {
@@ -597,17 +589,16 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   Future<void> _deleteAlarm(AlarmSong alarm) async {
     if (!isWifiConnected || !connectionStatus.contains(targetSsid)) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-            content:
-            Text("Please connect to IoGen_Speaker Wi-Fi to delete alarm")),
+        const SnackBar(
+            content: Text("Please connect to IoGen_Speaker Wi-Fi to delete alarm")),
       );
       return;
     }
 
     try {
       final client = http.Client();
-      final requestData =
-          "${alarm.fileName},${alarm.hour},${alarm.minute},${alarm.startTimestamp},${alarm.endTimestamp},${alarm.days}";
+      final String requestData = ",${alarm.uniqueId}";  // Example: ",1"
+
       final response = await client
           .post(
         Uri.parse('http://192.168.2.1/delete/'),
@@ -617,13 +608,15 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           .timeout(const Duration(seconds: 5));
 
       if (response.statusCode == 200) {
-        setState(() => _alarmSongs.remove(alarm));
+        setState(() {
+          _alarmSongs.remove(alarm);
+        });
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("Alarm deleted successfully")),
+          const SnackBar(content: Text("Alarm deleted successfully")),
         );
         _loadPrayerTimesStatus();
       } else {
-        throw Exception('HTTP ${response.statusCode}');
+        throw Exception('Server responded with ${response.statusCode}');
       }
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -632,9 +625,388 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     }
   }
 
+  void _showEditAlarmDialog(AlarmSong alarm) {
+    final selectedColor = Provider.of<ThemeProvider>(context, listen: false).selectedColor;
+
+    int selectedHour = alarm.hour;
+    int selectedMinute = alarm.minute;
+
+    String period = selectedHour < 12 ? "AM" : "PM";
+
+    int hourOfPeriod = selectedHour % 12;
+    if (hourOfPeriod == 0) hourOfPeriod = 12;
+
+    final hourController = FixedExtentScrollController(initialItem: hourOfPeriod - 1);
+    final minuteController = FixedExtentScrollController(initialItem: selectedMinute);
+    final periodController =
+    FixedExtentScrollController(initialItem: period == "AM" ? 0 : 1);
+
+    Set<int> selectedDays = {};
+    for (int i = 0; i < 7; i++) {
+      if ((alarm.days & (1 << i)) != 0) selectedDays.add(i);
+    }
+
+    showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setStateDialog) {
+          int getWeekMask() {
+            int mask = 0;
+            for (int d in selectedDays) mask |= (1 << d);
+            return mask == 0 ? 255 : mask;
+          }
+
+          // SMALL COMPACT WHEEL
+          Widget buildWheel({
+            required FixedExtentScrollController controller,
+            required int count,
+            required int selectedValue,
+            required Function(int) onChanged,
+            required String Function(int) format,
+          }) {
+            return SizedBox(
+              width: 70,
+              child: Stack(
+                alignment: Alignment.center,
+                children: [
+                  // highlight
+                  Positioned.fill(
+                    child: Center(
+                      child: Container(
+                        height: 40,
+                        decoration: BoxDecoration(
+                          color: Colors.black.withOpacity(0.05),
+                          borderRadius: BorderRadius.circular(0),
+                        ),
+                      ),
+                    ),
+                  ),
+
+                  ListWheelScrollView.useDelegate(
+                    controller: controller,
+                    itemExtent: 40,
+                    perspective: 0.001,
+                    diameterRatio: 1.4,
+                    physics: const FixedExtentScrollPhysics(),
+                    onSelectedItemChanged: (index) {
+                      onChanged(index);
+                      setStateDialog(() {});
+                    },
+                    childDelegate: ListWheelChildBuilderDelegate(
+                      childCount: count,
+                      builder: (context, index) {
+                        int value = index % count;
+                        bool isSelected = value == selectedValue;
+
+                        return Center(
+                          child: Text(
+                            format(value),
+                            style: TextStyle(
+                              fontSize: isSelected ? 26 : 16,
+                              fontWeight: FontWeight.w600,
+                              color: isSelected
+                                  ? selectedColor
+                                  : Colors.black.withOpacity(0.35),
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            );
+          }
+
+          // SMALL COMPACT AM/PM wheel
+          Widget buildPeriodWheel() {
+            return SizedBox(
+              width: 60,
+              child: Stack(
+                alignment: Alignment.center,
+                children: [
+                  Positioned.fill(
+                    child: Center(
+                      child: Container(
+                        height: 40,
+                        decoration: BoxDecoration(
+                          color: Colors.black.withOpacity(0.05),
+                          borderRadius: BorderRadius.circular(0),
+                        ),
+                      ),
+                    ),
+                  ),
+
+                  ListWheelScrollView.useDelegate(
+                    controller: periodController,
+                    itemExtent: 40,
+                    physics: const FixedExtentScrollPhysics(),
+                    onSelectedItemChanged: (index) {
+                      period = index == 0 ? "AM" : "PM";
+
+                      if (period == "AM" && selectedHour >= 12) {
+                        selectedHour -= 12;
+                      } else if (period == "PM" && selectedHour < 12) {
+                        selectedHour += 12;
+                      }
+
+                      setStateDialog(() {});
+                    },
+                    childDelegate: ListWheelChildListDelegate(
+                      children: ["AM", "PM"].map((p) {
+                        final isSel = p == period;
+                        return Center(
+                          child: Text(
+                            p,
+                            style: TextStyle(
+                              fontSize: isSel ? 26 : 16,
+                              fontWeight: FontWeight.w600,
+                              color: isSel
+                                  ? selectedColor
+                                  : Colors.black.withOpacity(0.35),
+                            ),
+                          ),
+                        );
+                      }).toList(),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          }
+
+          return AlertDialog(
+            backgroundColor: Colors.white,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+            insetPadding: const EdgeInsets.symmetric(horizontal: 32, vertical: 24),
+
+            title: const Center(
+              child: Text(
+                "Edit Alarm",
+                style: TextStyle(
+                  fontSize: 26,
+                  fontWeight: FontWeight.w700,
+                  color: Colors.black87,
+                ),
+              ),
+            ),
+
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                SizedBox(
+                  height: 180,
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      // HOUR wheel
+                      buildWheel(
+                        controller: hourController,
+                        count: 12,
+                        selectedValue: hourOfPeriod - 1, // FIXED alignment
+                        format: (v) => (v + 1).toString().padLeft(2, '0'),
+                        onChanged: (index) {
+                          int hour12 = index + 1;
+                          hourOfPeriod = hour12;
+
+                          selectedHour = period == "AM"
+                              ? (hour12 == 12 ? 0 : hour12)
+                              : (hour12 == 12 ? 12 : hour12 + 12);
+                        },
+                      ),
+
+                      // MINUTE wheel
+                      buildWheel(
+                        controller: minuteController,
+                        count: 60,
+                        selectedValue: selectedMinute,
+                        format: (v) => v.toString().padLeft(2, '0'),
+                        onChanged: (index) => selectedMinute = index % 60,
+                      ),
+
+                      // AM / PM
+                      buildPeriodWheel(),
+                    ],
+                  ),
+                ),
+
+                const SizedBox(height: 18),
+
+                if (selectedDays.isEmpty)
+                  const Text(
+                    "Select at least one day",
+                    style: TextStyle(
+                      fontWeight: FontWeight.w600,
+                      fontSize: 15,
+                      color: Colors.redAccent,
+                    ),
+                  ),
+
+                const SizedBox(height: 12),
+
+                Wrap(
+                  alignment: WrapAlignment.center,
+                  spacing: 10,
+                  runSpacing: 10,
+                  children: List.generate(7, (i) {
+                    final labels = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
+                    final sel = selectedDays.contains(i);
+
+                    return GestureDetector(
+                      onTap: () {
+                        setStateDialog(() {
+                          sel ? selectedDays.remove(i) : selectedDays.add(i);
+                        });
+                      },
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 200),
+                        width: 42,
+                        height: 42,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: sel ? selectedColor : Colors.white,
+                          border: Border.all(
+                            color: sel ? selectedColor : Colors.grey.shade300,
+                            width: 2,
+                          ),
+                        ),
+                        child: Center(
+                          child: Text(
+                            labels[i],
+                            style: TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w600,
+                              color: sel ? Colors.white : Colors.grey.shade700,
+                            ),
+                          ),
+                        ),
+                      ),
+                    );
+                  }),
+                ),
+              ],
+            ),
+
+            actionsAlignment: MainAxisAlignment.center,
+            actionsPadding: const EdgeInsets.only(top: 6, bottom: 20),
+
+            actions: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: [
+                  SizedBox(
+                    width: 120,
+                    height: 46,
+                    child: OutlinedButton(
+                      onPressed: () => Navigator.pop(context),
+                      style: OutlinedButton.styleFrom(
+                        side: BorderSide(color: Colors.grey.shade400, width: 1.3),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(100),
+                        ),
+                      ),
+                      child: const Text(
+                        "Cancel",
+                        style: TextStyle(
+                        color: Colors.black,fontSize: 16, fontWeight: FontWeight.w500),
+                      ),
+                    ),
+                  ),
+
+                  SizedBox(
+                    width: 120,
+                    height: 46,
+                    child: ElevatedButton(
+                      onPressed: selectedDays.isEmpty
+                          ? null
+                          : () async {
+                        if (!isWifiConnected ||
+                            !connectionStatus.contains(targetSsid)) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text("Connect to IoGen_Speaker Wi-Fi")),
+                          );
+                          return;
+                        }
+
+                        final weekMask = getWeekMask();
+
+                        final body =
+                            "$selectedHour,$selectedMinute,0,0,1,$weekMask,1,${alarm.uniqueId}";
+
+                        try {
+                          final res = await http
+                              .post(
+                            Uri.parse('http://192.168.2.1/update/${alarm.fileName}'),
+                            headers: {'Content-Type': 'text/plain'},
+                            body: body,
+                          )
+                              .timeout(const Duration(seconds: 5));
+
+                          if (res.statusCode == 200 && mounted) {
+                            setState(() {
+                              final updated = AlarmSong(
+                                fileName: alarm.fileName,
+                                hour: selectedHour,
+                                minute: selectedMinute,
+                                startTimestamp: alarm.startTimestamp,
+                                endTimestamp: alarm.endTimestamp,
+                                status: alarm.status,
+                                days: weekMask,
+                                uniqueId: alarm.uniqueId,
+                              );
+
+                              final idx = _alarmSongs.indexWhere(
+                                      (a) => a.uniqueId == alarm.uniqueId);
+
+                              if (idx != -1) {
+                                _alarmSongs[idx] = updated;
+                              }
+                            });
+
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(content: Text("Alarm updated successfully")),
+                            );
+
+                            Navigator.pop(context);
+                          }
+                        } catch (e) {
+                          ScaffoldMessenger.of(context)
+                              .showSnackBar(SnackBar(content: Text("Update failed: $e")));
+                        }
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.black,
+                        disabledBackgroundColor: Colors.grey.shade300,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(100),
+                        ),
+                      ),
+                      child: const Text(
+                        "Save",
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+
+
+
   void _showAlarmDetailsDialog(AlarmSong alarm) {
     final selectedColor =
         Provider.of<ThemeProvider>(context, listen: false).selectedColor;
+
     String rawTime =
         "${alarm.hour % 12 == 0 ? 12 : alarm.hour % 12}:${alarm.minute.toString().padLeft(2, '0')}";
     String period = alarm.hour >= 12 ? "PM" : "AM";
@@ -669,24 +1041,45 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           ],
         ),
         actions: [
-          Center(
-            child: ElevatedButton(
-              onPressed: () async {
-                Navigator.pop(context);
-                await _deleteAlarm(alarm);
-              },
-              style: ElevatedButton.styleFrom(
-                foregroundColor: Colors.red,
-                backgroundColor: Colors.red,
-                shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(50)),
-                padding:
-                const EdgeInsets.symmetric(horizontal: 32, vertical: 12),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              // Edit Button (Black)
+              ElevatedButton(
+                onPressed: () {
+                  Navigator.pop(context); // Close details dialog
+                  _showEditAlarmDialog(alarm); // Open edit dialog
+                },
+                style: ElevatedButton.styleFrom(
+                  foregroundColor: Colors.white,
+                  backgroundColor: Colors.black,
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(50)),
+                  padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 12),
+                ),
+                child: Text("Edit",
+                    style: AppTextStyles.button.copyWith(color: Colors.white)),
               ),
-              child: Text("Delete",
-                  style: AppTextStyles.button.copyWith(color: Colors.white)),
-            ),
+              const SizedBox(width: 16),
+              // Delete Button (Red)
+              ElevatedButton(
+                onPressed: () async {
+                  Navigator.pop(context);
+                  await _deleteAlarm(alarm);
+                },
+                style: ElevatedButton.styleFrom(
+                  foregroundColor: Colors.white,
+                  backgroundColor: Colors.red,
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(50)),
+                  padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 12),
+                ),
+                child: Text("Delete",
+                    style: AppTextStyles.button.copyWith(color: Colors.white)),
+              ),
+            ],
           ),
+          const SizedBox(height: 8),
         ],
       ),
     );
@@ -697,12 +1090,17 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         required String label,
         required bool enabled,
         List<String> times = const [],
+        // Add these optional parameters for custom sizing
+        EdgeInsetsGeometry? padding,
+        double? minWidth,
       }) {
     final themeProvider = Provider.of<ThemeProvider>(context, listen: false);
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      // Use the passed padding or fallback to the default (horizontal: 10, vertical: 6)
+      padding: padding ?? const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       margin: const EdgeInsets.only(right: 8),
-      constraints: const BoxConstraints(minWidth: 80),
+      // Use the passed minWidth or fallback to the default (80)
+      constraints: BoxConstraints(minWidth: minWidth ?? 80),
       decoration: BoxDecoration(
         color: enabled
             ? themeProvider.selectedColor.withOpacity(0.1)
@@ -785,6 +1183,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 label: 'Namaz', enabled: _namazEnabled),
             _buildPrayerTimeIndicator(context,
                 label: 'Sunrise/Sunset', enabled: _sunriseEnabled),
+            _buildPrayerTimeIndicator(
+              context,
+              label: 'Jain',
+              enabled: _jainEnabled,
+              // Example: Make it larger (Wider with more vertical padding)
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              minWidth: 70,
+            ), // Added Jain Indicator
             IconButton(
                 padding: EdgeInsets.zero,
                 constraints: const BoxConstraints(),
@@ -854,7 +1260,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       _isFabMenuOpen = false;
     });
 
-    // If navigating TO HomeScreen (index 0), trigger refresh
     if (index == 0) {
       Future.delayed(const Duration(milliseconds: 300), () {
         if (mounted && isWifiConnected && connectionStatus.contains(targetSsid)) {
@@ -872,14 +1277,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       child: InkWell(
         borderRadius: BorderRadius.circular(12),
         onTap: () async {
-          // 1. Close the menu FIRST (very important!)
           _hideFabMenuOverlay();
-
-          // 2. Small delay to ensure overlay is removed before navigation
-          //    (prevents visual glitch + potential context issues)
           await Future.delayed(const Duration(milliseconds: 100));
 
-          // 3. Now navigate safely
           if (!mounted) return;
 
           switch (title) {
@@ -1357,12 +1757,77 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                                       );
                                     }),
                                   ],
+                                  // === JAIN PRAYERS SECTION START ===
+                                  if (_jainEnabled &&
+                                      _jainTimes.isNotEmpty) ...[
+                                    Padding(
+                                      padding: const EdgeInsets.only(
+                                          left: 8, top: 8, bottom: 8),
+                                      child: Text('Jain Prayers',
+                                          style: AppTextStyles.subheading
+                                              .copyWith(
+                                              fontWeight:
+                                              FontWeight.w600,
+                                              color: Colors.black87)),
+                                    ),
+                                    ..._jainTimes
+                                        .asMap()
+                                        .entries
+                                        .map((entry) {
+                                      final index = entry.key;
+                                      final t = entry.value;
+                                      String fileName = 'Jain Prayer';
+                                      String timeStr = t;
+                                      // Same parsing logic as Namaz/Pooja
+                                      if (t.contains(': ')) {
+                                        final parts = t.split(': ');
+                                        if (parts.length >= 2) {
+                                          fileName = parts[0];
+                                          timeStr = parts[1];
+                                        }
+                                      }
+                                      int hour = 0, minute = 0;
+                                      try {
+                                        final timeParts =
+                                        timeStr.split(':');
+                                        hour = int.parse(timeParts[0]);
+                                        minute = int.parse(timeParts[1]);
+                                      } catch (e) {
+                                        return const SizedBox.shrink();
+                                      }
+                                      final timeString =
+                                      _formatTime(hour, minute);
+                                      final songDateTime = DateTime(
+                                          selectedDay.year,
+                                          selectedDay.month,
+                                          selectedDay.day,
+                                          hour,
+                                          minute);
+                                      final isChecked = songDateTime
+                                          .isBefore(DateTime.now());
+                                      return Padding(
+                                        padding: const EdgeInsets.only(
+                                            bottom: 8),
+                                        child: ScheduleItem(
+                                          time: timeString,
+                                          title: fileName,
+                                          isChecked: isChecked,
+                                          isLast: index ==
+                                              _jainTimes.length - 1,
+                                          icon: Icons.spa, // Specific Icon for Jain
+                                        ),
+                                      );
+                                    }),
+                                  ],
+                                  // === JAIN PRAYERS SECTION END ===
                                   if (alarmList.isEmpty &&
                                       reminderList.isEmpty &&
                                       (!_namazEnabled ||
                                           _namazTimes.isEmpty) &&
                                       (!_sunriseEnabled ||
-                                          _poojaTimes.isEmpty))
+                                          _poojaTimes.isEmpty) &&
+                                      (!_jainEnabled ||
+                                          _jainTimes.isEmpty))
                                     Padding(
                                       padding: const EdgeInsets.all(8),
                                       child: Text(
@@ -1499,4 +1964,3 @@ Widget _buildNavItem({
     ),
   );
 }
-
