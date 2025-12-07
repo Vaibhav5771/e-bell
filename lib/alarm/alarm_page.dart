@@ -32,12 +32,18 @@ class _AlarmPageState extends State<AlarmPage> {
     super.initState();
     _loadUploadedFiles();
 
+    // Mapping TimeOfDay (1-12) to Index (0-11)
     int hourIndex = _selectedTime.hourOfPeriod - 1;
-    hourIndex = hourIndex == -1 ? 11 : hourIndex;
+    if (hourIndex == -1) hourIndex = 11; // Handle 12 AM/PM
 
-    _hourController = FixedExtentScrollController(initialItem: hourIndex);
-    _minuteController =
-        FixedExtentScrollController(initialItem: _selectedTime.minute);
+    // Multiply count by a large number (e.g., 100) to start in the middle of the loop
+    // This allows the user to scroll "up" immediately for previous numbers.
+    _hourController =
+        FixedExtentScrollController(initialItem: hourIndex + (12 * 100));
+    _minuteController = FixedExtentScrollController(
+        initialItem: _selectedTime.minute + (60 * 100));
+
+    // Period doesn't usually loop infinitely, keep as is
     _periodController = FixedExtentScrollController(
         initialItem: _selectedTime.period == DayPeriod.am ? 0 : 1);
   }
@@ -71,9 +77,13 @@ class _AlarmPageState extends State<AlarmPage> {
     );
   }
 
-  Widget _buildDaysSelector() {
+  Widget _buildDaysSelector(double screenWidth) {
     final themeProvider = Provider.of<ThemeProvider>(context);
     final dayAbbreviations = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
+
+    final double itemSize = (screenWidth - 64) / 7;
+    // Cap the size so it doesn't get too huge on tablets
+    final double actualSize = itemSize > 45 ? 45 : itemSize;
 
     return Padding(
       padding: const EdgeInsets.only(top: 40, bottom: 20),
@@ -89,7 +99,7 @@ class _AlarmPageState extends State<AlarmPage> {
             },
             child: Container(
               width: 38,
-              height: 90,
+              height: actualSize * 1.5,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
                 color: _selectedDays[index]
@@ -106,6 +116,7 @@ class _AlarmPageState extends State<AlarmPage> {
                   dayAbbreviations[index],
                   style: AppTextStyles.body.copyWith(
                     fontWeight: FontWeight.bold,
+                    fontSize: actualSize * 0.35,
                     color: _selectedDays[index] ? Colors.white : Colors.black,
                   ),
                 ),
@@ -127,6 +138,8 @@ class _AlarmPageState extends State<AlarmPage> {
     int active = 1;
     int alarmType = 1;
 
+    const List<int> dayBitmasks = [128, 2, 4, 8, 16, 32, 64];
+
     if (_isRepeatEnabled) {
       const List<int> dayBitmasks = [128, 2, 4, 8, 16, 32, 64];
       week = 0;
@@ -135,14 +148,25 @@ class _AlarmPageState extends State<AlarmPage> {
       }
       week = week == 0 ? 254 : week;
     } else {
-      week = 254;
+      // 1. Calculate the exact Date and Time first
       final now = DateTime.now();
       DateTime alarmDateTime = DateTime(now.year, now.month, now.day, hr, mn);
+
+      // If time has passed, set for tomorrow
       if (alarmDateTime.isBefore(now)) {
         alarmDateTime = alarmDateTime.add(const Duration(days: 1));
       }
+
       hr = alarmDateTime.hour;
       mn = alarmDateTime.minute;
+
+      // 2. Calculate the bitmask for the specific day
+      // DateTime.weekday gives 1 for Monday ... 7 for Sunday.
+      // Your array expects: 0 for Sunday, 1 for Monday ... 6 for Saturday.
+      // Using % 7 converts Sunday (7) to 0, and keeps others aligned (1->1).
+      int dayIndex = alarmDateTime.weekday % 7;
+
+      week = dayBitmasks[dayIndex];
     }
 
     String data = '$hr,$mn,$sEpoch,$eEpoch,$active,$week,$alarmType';
@@ -245,7 +269,12 @@ class _AlarmPageState extends State<AlarmPage> {
   @override
   Widget build(BuildContext context) {
     final themeProvider = Provider.of<ThemeProvider>(context);
-    final isSmallScreen = MediaQuery.of(context).size.width < 360;
+
+    // 1. Get Screen Dimensions & Scale Factor
+    final size = MediaQuery.of(context).size;
+    final double sw = size.width;
+    final double sh = size.height;
+    final double textScale = sw < 360 ? 0.85 : 1.0;
 
     return Scaffold(
       backgroundColor: const Color(0xFFF5F5F7),
@@ -275,48 +304,59 @@ class _AlarmPageState extends State<AlarmPage> {
           : SafeArea(
         child: SingleChildScrollView(
           physics: const BouncingScrollPhysics(),
-          padding: const EdgeInsets.only(bottom: 24),
+          padding: EdgeInsets.only(bottom: sh * 0.05),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
               // Time Selector
               _buildCard(
                 child: SizedBox(
-                  height: 220,
+                  height: sh * 0.28, // Responsive height
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
+                      // Hour Wheel
                       _buildWheel(
-                          controller: _hourController,
-                          count: 12,
-                          onChanged: (index) {
-                            int hour = (index % 12) + 1;
-                            setState(() {
-                              _selectedTime = _selectedTime.replacing(
-                                hour: _period == 'AM'
-                                    ? (hour == 12 ? 0 : hour)
-                                    : (hour == 12 ? 12 : hour + 12),
-                              );
-                            });
-                          },
-                          selectedValue: _selectedTime.hourOfPeriod == 0
-                              ? 12
-                              : _selectedTime.hourOfPeriod,
-                          displayFormat: (i) =>
-                              (i + 1).toString().padLeft(2, '0')),
+                        controller: _hourController,
+                        count: 12,
+                        width: sw * 0.22, // Pass Width
+                        textScale: textScale, // Pass textScale
+                        onChanged: (index) {
+                          int hour = (index % 12) + 1;
+                          setState(() {
+                            _selectedTime = _selectedTime.replacing(
+                              hour: _period == 'AM'
+                                  ? (hour == 12 ? 0 : hour)
+                                  : (hour == 12 ? 12 : hour + 12),
+                            );
+                          });
+                        },
+                        selectedValue: _selectedTime.hourOfPeriod == 0
+                            ? 12
+                            : _selectedTime.hourOfPeriod - 1,
+                        displayFormat: (i) =>
+                            (i + 1).toString().padLeft(2, '0'),
+                      ),
+                      // Minute Wheel
                       _buildWheel(
-                          controller: _minuteController,
-                          count: 60,
-                          onChanged: (index) {
-                            setState(() {
-                              _selectedTime = _selectedTime.replacing(
-                                  minute: index % 60);
-                            });
-                          },
-                          selectedValue: _selectedTime.minute,
-                          displayFormat: (i) =>
-                              i.toString().padLeft(2, '0')),
-                      _buildPeriodWheel(),
+                        controller: _minuteController,
+                        count: 60,
+                        width: sw * 0.22, // Pass Width
+                        textScale: textScale, // Pass textScale
+                        onChanged: (index) {
+                          setState(() {
+                            _selectedTime =
+                                _selectedTime.replacing(minute: index % 60);
+                          });
+                        },
+                        selectedValue: _selectedTime.minute,
+                        displayFormat: (i) => i.toString().padLeft(2, '0'),
+                      ),
+                      // Period Wheel (This was causing Error #1)
+                      _buildPeriodWheel(
+                          width: sw * 0.2,
+                          textScale: textScale
+                      ),
                     ],
                   ),
                 ),
@@ -339,7 +379,8 @@ class _AlarmPageState extends State<AlarmPage> {
                         });
                       },
                     ),
-                    if (_isRepeatEnabled) _buildDaysSelector(),
+                    // Days Selector (This was causing Error #3)
+                    if (_isRepeatEnabled) _buildDaysSelector(sw),
                     _buildDivider(),
                     _buildOptionTile(
                       title: 'Label',
@@ -370,51 +411,49 @@ class _AlarmPageState extends State<AlarmPage> {
   Widget _buildWheel({
     required FixedExtentScrollController controller,
     required int count,
+    required double width, // New parameter
+    required double textScale, // New parameter
     required Function(int) onChanged,
     required int selectedValue,
     required String Function(int) displayFormat,
   }) {
     final themeProvider = Provider.of<ThemeProvider>(context);
+
     return SizedBox(
-      width: 90,
+      width: width, // Use dynamic width
       child: ListWheelScrollView.useDelegate(
         controller: controller,
-        itemExtent: 50,
+        itemExtent: 50, // Keep touch target fixed size for usability
         perspective: 0.005,
         physics: const FixedExtentScrollPhysics(),
         onSelectedItemChanged: (index) {
-          onChanged(index);
-          setState(() {}); // force rebuild to update color
+          onChanged(index % count);
+          setState(() {});
         },
-        childDelegate: ListWheelChildBuilderDelegate(
-          builder: (context, i) {
-            final displayText = displayFormat(i % count);
-
-            final isSelected = count == 12
-                ? ((i % count + 1) ==
-                (_selectedTime.hourOfPeriod == 0
-                    ? 12
-                    : _selectedTime.hourOfPeriod))
-                : i % count == _selectedTime.minute;
+        childDelegate: ListWheelChildLoopingListDelegate(
+          children: List.generate(count, (i) {
+            final displayText = displayFormat(i);
+            final isSelected = i == selectedValue;
 
             return Center(
               child: Text(
                 displayText,
                 style: AppTextStyles.heading.copyWith(
-                  fontSize: 32,
+                  // Dynamic Font Size
+                  fontSize: 32 * textScale,
+                  fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
                   color:
                   isSelected ? themeProvider.selectedColor : Colors.black,
                 ),
               ),
             );
-          },
-          childCount: count,
+          }),
         ),
       ),
     );
   }
 
-  Widget _buildPeriodWheel() {
+  Widget _buildPeriodWheel({required double width, required double textScale}) {
     final themeProvider = Provider.of<ThemeProvider>(context);
     return SizedBox(
       width: 80,
@@ -439,7 +478,7 @@ class _AlarmPageState extends State<AlarmPage> {
             child: Text(
               period,
               style: AppTextStyles.heading.copyWith(
-                fontSize: 32,
+                fontSize: 32 * textScale,
                 color: isSelected ? themeProvider.selectedColor : Colors.black,
               ),
             ),

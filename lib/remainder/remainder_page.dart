@@ -44,9 +44,8 @@ class _ReminderPageState extends State<ReminderPage> {
     _selectedToDay = DateTime(now.year, now.month, now.day);
     _focusedDay = DateTime(now.year, now.month, now.day);
 
-    final int hour = _selectedTime.hourOfPeriod == 0
-        ? 11
-        : _selectedTime.hourOfPeriod - 1;
+    final int hour =
+    _selectedTime.hourOfPeriod == 0 ? 11 : _selectedTime.hourOfPeriod - 1;
     _hourController = FixedExtentScrollController(initialItem: hour);
     _minuteController = FixedExtentScrollController(
       initialItem: _selectedTime.minute,
@@ -198,6 +197,26 @@ class _ReminderPageState extends State<ReminderPage> {
         : week; // keep existing behavior: 254 means "no specific week bitmask"
   }
 
+  int _calculateSingleDayBitmask() {
+    if (_selectedFromDay == null) return 0;
+
+    // DateTime.weekday → 1=Mon ... 7=Sun
+    // Convert to your mapping → 0=Sun ... 6=Sat
+    int weekdayIndex = _selectedFromDay!.weekday % 7; // Sunday = 0
+
+    const List<int> dayBitmasks = [
+      128, // Sun
+      2, // Mon
+      4, // Tue
+      8, // Wed
+      16, // Thu
+      32, // Fri
+      64, // Sat
+    ];
+
+    return dayBitmasks[weekdayIndex];
+  }
+
   Future<bool> _verifyReminder(
       String soundOption,
       int hr,
@@ -208,9 +227,8 @@ class _ReminderPageState extends State<ReminderPage> {
       int alarmType,
       ) async {
     try {
-      final response = await http
-          .get(Uri.parse('http://192.168.2.1/songs'))
-          .timeout(
+      final response =
+      await http.get(Uri.parse('http://192.168.2.1/songs')).timeout(
         const Duration(seconds: 10),
         onTimeout: () {
           throw Exception('Verification request timed out');
@@ -298,16 +316,17 @@ class _ReminderPageState extends State<ReminderPage> {
     int mn = _selectedTime.minute;
 
     // Convert to IST epoch timestamps
-    int sEpoch =
-        (reminderFromDateTime.millisecondsSinceEpoch / 1000).floor() -
-            IST_OFFSET;
-    int eEpoch =
-        (reminderToDateTime.millisecondsSinceEpoch / 1000).floor() -
-            IST_OFFSET +
-            86399; // Add 23:59:59
+    int sEpoch = (reminderFromDateTime.millisecondsSinceEpoch / 1000).floor() -
+        IST_OFFSET;
+    int eEpoch = (reminderToDateTime.millisecondsSinceEpoch / 1000).floor() -
+        IST_OFFSET +
+        86399; // Add 23:59:59
 
     int active = 1;
-    int week = _isRepeatEnabled ? _calculateWeekBitmask() : 254;
+    int week = _isRepeatEnabled
+        ? _calculateWeekBitmask()
+        : _calculateSingleDayBitmask();
+
     int alarmType = 2;
 
     final data = '$hr,$mn,$sEpoch,$eEpoch,$active,$week,$alarmType';
@@ -867,9 +886,8 @@ class _ReminderPageState extends State<ReminderPage> {
                     value: _soundOption.isEmpty
                         ? 'Select a sound'
                         : _soundOption,
-                    onTap: _soundOptions.isEmpty
-                        ? null
-                        : _selectSoundOption,
+                    onTap:
+                    _soundOptions.isEmpty ? null : _selectSoundOption,
                   ),
                   _buildDivider(),
                 ],
@@ -942,7 +960,7 @@ class _ReminderPageState extends State<ReminderPage> {
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           SizedBox(
-            width: isSmallScreen ? 80 : 100,
+            width: isSmallScreen ? 80 : 80,
             child: ListWheelScrollView.useDelegate(
               controller: _hourController,
               itemExtent: 60,
@@ -967,8 +985,7 @@ class _ReminderPageState extends State<ReminderPage> {
                       displayHour.toString().padLeft(2, '0'),
                       style: AppTextStyles.heading.copyWith(
                         fontSize: 32,
-                        color:
-                        displayHour ==
+                        color: displayHour ==
                             (_selectedTime.hourOfPeriod == 0
                                 ? 12
                                 : _selectedTime.hourOfPeriod)
@@ -1148,16 +1165,24 @@ class _ReminderPageState extends State<ReminderPage> {
         onChanged: onSwitchChanged,
         activeColor: Colors.lightGreen,
       )
-          : Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(
-            value!,
-            style: AppTextStyles.body.copyWith(color: Colors.grey[600]),
-          ),
-          const SizedBox(width: 4),
-          const Icon(Icons.chevron_right, color: Colors.grey, size: 20),
-        ],
+          : SizedBox(
+        width: 180, // prevents overflow and aligns text
+        child: Row(
+          children: [
+            Expanded(
+              child: Text(
+                value ?? '',
+                style: AppTextStyles.body.copyWith(
+                  color: Colors.grey[700],
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis, // <== FIX
+              ),
+            ),
+            const SizedBox(width: 6),
+            const Icon(Icons.chevron_right, color: Colors.grey, size: 20),
+          ],
+        ),
       ),
       onTap: onTap,
     );

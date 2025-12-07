@@ -3,8 +3,10 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:device_info_plus/device_info_plus.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:network_info_plus/network_info_plus.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -60,7 +62,7 @@ class _MusicLibraryState extends State<MusicLibrary> {
     _player = AudioPlayer();
     _initPlayer();
     _loadUploadedFiles(); // load local recordings (no loader)
-    _fetchApiSongs(); // fetch API songs (controls apiStatus & _apiLoaded)
+    // _fetchApiSongs(); // fetch API songs (controls apiStatus & _apiLoaded)
   }
 
   @override
@@ -204,46 +206,46 @@ class _MusicLibraryState extends State<MusicLibrary> {
   }
 
   /// ----------------- API SONGS -----------------
-  Future<void> _fetchApiSongs() async {
-    // Option C behavior:
-    // - show nothing until the API call completes
-    // - after completion, _apiLoaded = true and apiStatus is set to success or error
-    try {
-      final response =
-      await http.get(Uri.parse("http://192.168.2.1/alarmsong/"));
-      if (response.statusCode == 200) {
-        final jsonResponse = json.decode(response.body);
-        final List<dynamic> files = jsonResponse["Data"][0]["files"];
-        final fetched = files.map((e) => e[0].toString()).toList();
-        if (!mounted) return;
-        setState(() {
-          apiSongs = fetched;
-          _apiLoaded = true;
-          if (fetched.isEmpty) {
-            apiStatus = 'No songs on device.';
-          } else {
-            apiStatus = 'Loaded ${fetched.length} songs.';
-          }
-        });
-      } else {
-        if (!mounted) return;
-        setState(() {
-          apiSongs = [];
-          _apiLoaded = true;
-          apiStatus = 'Error fetching songs. Status: ${response.statusCode}';
-        });
-        debugPrint('Error fetching API songs. Status: ${response.statusCode}');
-      }
-    } catch (e) {
-      if (!mounted) return;
-      setState(() {
-        apiSongs = [];
-        _apiLoaded = true;
-        apiStatus = 'Error fetching songs: $e';
-      });
-      debugPrint('Error fetching API songs: $e');
-    }
-  }
+  // Future<void> _fetchApiSongs() async {
+  //   // Option C behavior:
+  //   // - show nothing until the API call completes
+  //   // - after completion, _apiLoaded = true and apiStatus is set to success or error
+  //   try {
+  //     final response =
+  //     await http.get(Uri.parse("http://192.168.2.1/alarmsong/"));
+  //     if (response.statusCode == 200) {
+  //       final jsonResponse = json.decode(response.body);
+  //       final List<dynamic> files = jsonResponse["Data"][0]["files"];
+  //       final fetched = files.map((e) => e[0].toString()).toList();
+  //       if (!mounted) return;
+  //       setState(() {
+  //         apiSongs = fetched;
+  //         _apiLoaded = true;
+  //         if (fetched.isEmpty) {
+  //           apiStatus = 'No songs on device.';
+  //         } else {
+  //           apiStatus = 'Loaded ${fetched.length} songs.';
+  //         }
+  //       });
+  //     } //else {
+  //     //   if (!mounted) return;
+  //     //   setState(() {
+  //     //     apiSongs = [];
+  //     //     _apiLoaded = true;
+  //     //     apiStatus = 'Error fetching songs. Status: ${response.statusCode}';
+  //     //   });
+  //     //   debugPrint('Error fetching API songs. Status: ${response.statusCode}');
+  //     // }
+  //   } catch (e) {
+  //     // if (!mounted) return;
+  //     // setState(() {
+  //     //   apiSongs = [];
+  //     //   _apiLoaded = true;
+  //     //   apiStatus = 'Error fetching songs: $e';
+  //     // });
+  //     // debugPrint('Error fetching API songs: $e');
+  //   }
+  // }
 
   Future<void> _playApiSong(String songName) async {
     try {
@@ -415,36 +417,106 @@ class _MusicLibraryState extends State<MusicLibrary> {
 
   /// ----------------- PERMISSIONS -----------------
   Future<bool> _requestPermissions() async {
-    Map<Permission, PermissionStatus> statuses;
+    try {
+      List<Permission> permissionsToRequest = [];
 
-    if (Platform.isAndroid) {
-      final sdk = await _getAndroidVersion();
-      if (sdk >= 33) {
-        statuses = await [
-          Permission.location,
-          Permission.audio,
+      if (Platform.isAndroid) {
+        final androidInfo = await DeviceInfoPlugin().androidInfo;
+        final sdk = androidInfo.version.sdkInt;
+
+        permissionsToRequest.addAll([
           Permission.microphone,
-          Permission.nearbyWifiDevices
-        ].request();
-      } else {
-        statuses = await [
-          Permission.location,
+          Permission.manageExternalStorage,
           Permission.storage,
-          Permission.microphone,
-          Permission.nearbyWifiDevices
-        ].request();
-      }
-    } else {
-      statuses = await [
-        Permission.location,
-        Permission.microphone,
-        Permission.nearbyWifiDevices
-      ].request();
-    }
+          Permission.mediaLibrary,
+          Permission.locationWhenInUse,
+          Permission.locationAlways,
+        ]);
 
-    // Check if all required permissions are granted
-    bool allGranted = statuses.values.every((status) => status.isGranted);
-    return allGranted;
+        if (sdk >= 33) {
+          permissionsToRequest.addAll([
+            Permission.audio,
+            Permission.accessMediaLocation,
+            Permission.nearbyWifiDevices,
+          ]);
+        }
+      } else {
+        permissionsToRequest.addAll([
+          Permission.microphone,
+          Permission.mediaLibrary,
+          Permission.locationWhenInUse,
+        ]);
+      }
+
+      await permissionsToRequest.request();
+      return true;
+    } catch (e) {
+      debugPrint("Permission error: $e");
+      return false;
+    }
+  }
+
+  Future<void> _pickAndUploadMusic() async {
+    try {
+      // Use file_picker package for more reliable file picking
+      FilePickerResult? result = await FilePicker.platform.pickFiles(
+        type: FileType.audio,
+        allowMultiple: false,
+      );
+
+      if (result != null && result.files.single.path != null) {
+        final filePath = result.files.single.path!;
+
+        // Verify file exists and is accessible
+        final file = File(filePath);
+        final exists = await file.exists();
+
+        if (!exists) {
+          throw Exception('Selected file is not accessible');
+        }
+
+        // Upload the file
+        final newFile = await BellService().uploadMp3(
+          context,
+          filePath,
+          isWifiConnected,
+        );
+
+        if (newFile != null && mounted) {
+          // --- CHANGE STARTS HERE ---
+
+          // Wait for 3 seconds (matching the BellService SnackBar duration)
+          // This gives the server time to process the file and allows the user to read the success message.
+          await Future.delayed(const Duration(seconds: 3));
+
+          // Now refresh the library
+          await _loadUploadedFiles(); // Refreshes local list
+          // await _fetchApiSongs();     // Refreshes server list
+
+        //   AppAlert.success(
+        //     context,
+        //     text: 'Music library updated!',
+        //   );
+        //   // --- CHANGE ENDS HERE ---
+         }
+      }
+    } on PlatformException catch (e) {
+      debugPrint('File picker platform exception: $e');
+      if (mounted) {
+        AppAlert.error(
+          context,
+          text: 'File access denied. Please check app permissions in settings.',
+        );
+      }
+    } catch (e) {
+      debugPrint('Error picking file: $e');
+      if (mounted) {
+        AppAlert.error(
+          context,
+          text: 'Error selecting file: $e',
+        );
+      }
+    }
   }
 
   Future<int> _getAndroidVersion() async {
@@ -551,76 +623,69 @@ class _MusicLibraryState extends State<MusicLibrary> {
       leading: Icon(title == 'Add Music' ? Icons.add : Icons.mic,
           color: themeProvider.selectedColor),
       title: Text(title, style: AppTextStyles.body),
-      onTap: () async {
-        setState(() => _isFabMenuOpen = false);
+        onTap: () async {
+          setState(() => _isFabMenuOpen = false);
+          await Future.delayed(const Duration(milliseconds: 300));
 
-        if (title == 'Add Music') {
-          // Request permissions first
-          final permissionsGranted = await _requestPermissions();
-          if (permissionsGranted) {
-            // Add a small delay to ensure the FAB menu closes completely
-            await Future.delayed(const Duration(milliseconds: 300));
-
-            // Call uploadMp3 with proper parameters
-            final newFile = await BellService().uploadMp3(
-                context,
-                null, // filePath is null, so it will open file picker
-                isWifiConnected);
-
-            if (newFile != null && mounted) {
-              // Refresh both local recordings and API songs
-              await _loadUploadedFiles();
-              await _fetchApiSongs();
-              AppAlert.success(
-                context,
-                text: 'Music added successfully!',
-              );
-            } else {
-              // Optionally show a status if upload returned null
-              if (mounted) {
-                AppAlert.error(context, text: 'Music upload returned no file.');
-              }
-            }
-          } else {
-            if (mounted) {
-              AppAlert.error(
-                context,
-                text: 'Permissions denied. Cannot add music.',
-              );
-            }
-          }
-        } else {
-          // Record Music functionality
-          final micStatus = await Permission.microphone.status;
-          if (!micStatus.isGranted) {
-            await Permission.microphone.request();
-          }
-
-          if (await Permission.microphone.isGranted) {
-            await Future.delayed(const Duration(milliseconds: 300));
-            final newRecordingPath = await Navigator.push<String>(
-              context,
-              MaterialPageRoute(
-                  builder: (context) => const AudioRecorderPage()),
-            );
-            if (newRecordingPath != null && mounted) {
-              await _loadUploadedFiles();
-              AppAlert.success(
-                context,
-                text: 'Recording saved successfully!',
-              );
-            }
-          } else {
-            if (mounted) {
-              AppAlert.error(
-                context,
-                text: 'Microphone permission denied',
-              );
-            }
-          }
-        }
-      },
+          await _requestPermissions();   // always request first
+          await _pickAndUploadMusic();   // directly pick music, no dialogs
+        },
     );
+  }
+
+  Future<void> _handleRecordMusic() async {
+    try {
+      var micStatus = await Permission.microphone.status;
+      if (!micStatus.isGranted) {
+        micStatus = await Permission.microphone.request();
+      }
+
+      if (micStatus.isGranted) {
+        final newRecordingPath = await Navigator.push<String>(
+          context,
+          MaterialPageRoute(builder: (context) => const AudioRecorderPage()),
+        );
+
+        if (newRecordingPath != null && mounted) {
+          await _loadUploadedFiles();
+          AppAlert.success(
+            context,
+            text: 'Recording saved successfully!',
+          );
+        }
+      } else {
+        if (mounted) {
+          await showDialog(
+            context: context,
+            builder: (context) => AlertDialog(
+              title: const Text('Microphone Permission Required'),
+              content: const Text(
+                'Recording audio requires microphone access. '
+                    'Please enable it in app settings.',
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('Cancel'),
+                ),
+                TextButton(
+                  onPressed: () => openAppSettings(),
+                  child: const Text('Open Settings'),
+                ),
+              ],
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      debugPrint('Error in _handleRecordMusic: $e');
+      if (mounted) {
+        AppAlert.error(
+          context,
+          text: 'Failed to start recording: $e',
+        );
+      }
+    }
   }
 
   Widget _buildLibraryList() {

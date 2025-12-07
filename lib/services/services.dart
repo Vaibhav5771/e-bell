@@ -71,10 +71,10 @@ class BellService {
         return [];
       }
     } catch (e) {
-      // _showErrorSnackBar(
-      //     context,
-      //     'Error fetching sounds: Ensure you are connected to the speaker\'s Wi-Fi. Error: $e'
-      // );
+    //   _showErrorSnackBar(
+    //       context,
+    //       'Error fetching sounds: Ensure you are connected to the speaker\'s Wi-Fi. Error: $e'
+    //   );
       return [];
     }
   }
@@ -111,7 +111,7 @@ class BellService {
         'Referer': 'http://192.168.2.1/',
         'Origin': 'http://192.168.2.1',
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,/;q=0.8',
         'Connection': 'keep-alive',
       };
 
@@ -191,7 +191,6 @@ class BellService {
       debugPrint("Sync time error: $e");
     }
   }
-
 
   /// Uploads an MP3 file to the bell device.
   Future<String?> uploadMp3(

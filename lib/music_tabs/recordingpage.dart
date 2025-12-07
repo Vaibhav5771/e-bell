@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_sound/flutter_sound.dart';
+import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:ffmpeg_kit_flutter_new_audio/ffmpeg_kit.dart';
@@ -29,7 +30,6 @@ class _AudioRecorderPageState extends State<AudioRecorderPage> {
   bool _isConverting = false;
   bool _isPlaying = false;
   bool _isLooping = false;
-  bool _isUploading = false; // New state for upload loading
   String? _filePath;
   String? _mp3FilePath;
   String? _errorMessage;
@@ -529,10 +529,6 @@ class _AudioRecorderPageState extends State<AudioRecorderPage> {
       return;
     }
 
-    setState(() {
-      _isUploading = true; // Show loading indicator
-    });
-
     try {
       final file = File(_mp3FilePath!);
       if (!await file.exists()) {
@@ -576,24 +572,9 @@ class _AudioRecorderPageState extends State<AudioRecorderPage> {
         return;
       }
 
-      final bellService = BellService();
-      final uploadedPath =
-      await bellService.uploadMp3(context, _mp3FilePath, _isWifiConnected);
-      debugPrint('Upload result: $uploadedPath');
+      // Start the upload but don't wait for response - navigate immediately
+      _startUploadAndNavigate(_mp3FilePath!);
 
-      if (uploadedPath != null && mounted) {
-        // Navigate back to MusicLibrary page with the uploaded file path
-        Navigator.pop(context, uploadedPath);
-      } else if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              'Failed to upload recording',
-              style: AppTextStyles.body,
-            ),
-          ),
-        );
-      }
     } catch (e) {
       debugPrint('Save/Upload error: $e');
       setState(() {
@@ -609,12 +590,80 @@ class _AudioRecorderPageState extends State<AudioRecorderPage> {
           ),
         );
       }
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isUploading = false; // Hide loading indicator
-        });
+    }
+  }
+
+  /// Start upload and navigate immediately without waiting for response
+  void _startUploadAndNavigate(String filePath) async {
+    try {
+      final file = File(filePath);
+      final fileName = filePath.split('/').last;
+
+      // Validate file
+      if (!fileName.toLowerCase().endsWith('.mp3') &&
+          !fileName.toLowerCase().endsWith('.wav')) {
+        // Don't show error - just navigate back
+        debugPrint("Invalid audio file selected");
+        _navigateToHomepage();
+        return;
       }
+
+      if (!await file.exists()) {
+        // Don't show error - just navigate back
+        debugPrint("Selected file does not exist");
+        _navigateToHomepage();
+        return;
+      }
+
+      final fileSize = await file.length();
+      if (fileSize > 10 * 1024 * 1024) {
+        // Don't show error - just navigate back
+        debugPrint("File is too large (>10MB)");
+        _navigateToHomepage();
+        return;
+      }
+
+      final encodedFileName = Uri.encodeComponent(fileName);
+      final uri = 'http://192.168.2.1/upload/$encodedFileName';
+      debugPrint("Uploading file: $fileName ($fileSize bytes) to $uri");
+
+      // Build the multipart request
+      var request = http.MultipartRequest('POST', Uri.parse(uri))
+        ..headers['Connection'] = 'keep-alive'
+        ..files.add(await http.MultipartFile.fromPath('file', filePath));
+
+      // Send upload but don't wait for response
+      request.send().then((streamedResponse) async {
+        final response = await http.Response.fromStream(streamedResponse);
+        debugPrint("Upload response: ${response.statusCode}, ${response.body}");
+
+        if (response.statusCode == 200) {
+          debugPrint("✅ Successfully uploaded $fileName");
+          // Copy file to documents directory
+          final directory = await getApplicationDocumentsDirectory();
+          final newPath = '${directory.path}/$fileName';
+          await file.copy(newPath);
+        } else {
+          debugPrint("❌ Upload failed: ${response.statusCode}");
+        }
+      }).catchError((e) {
+        debugPrint("Upload error: $e");
+      });
+
+      // Navigate to homepage immediately without waiting for upload response
+      _navigateToHomepage();
+
+    } catch (e) {
+      debugPrint("Upload setup error: $e");
+      // Still navigate to homepage even if there's an error
+      _navigateToHomepage();
+    }
+  }
+
+  /// Navigate back to homepage
+  void _navigateToHomepage() {
+    if (mounted) {
+      Navigator.popUntil(context, (route) => route.isFirst);
     }
   }
 
@@ -622,188 +671,163 @@ class _AudioRecorderPageState extends State<AudioRecorderPage> {
   Widget build(BuildContext context) {
     final themeProvider = Provider.of<ThemeProvider>(context);
 
-    return Stack(
-      children: [
-        Scaffold(
-          backgroundColor: Colors.white,
-          appBar: AppBar(
-            leading: IconButton(
-              icon: Icon(Icons.close, color: Colors.black),
-              onPressed: () => Navigator.pop(context),
-            ),
-            title: Text(
-              'Recording',
-              style: AppTextStyles.heading,
-            ),
-            centerTitle: true,
-            backgroundColor: Colors.white,
-            elevation: 0.5,
-          ),
-          body: Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                if (_isConverting)
-                  Column(
-                    children: [
-                      const CircularProgressIndicator(),
-                      const SizedBox(height: 20),
-                      Text(
-                        'Converting to MP3...',
-                        style: AppTextStyles.body,
-                      ),
-                    ],
-                  )
-                else
-                  Icon(
-                    _isRecording ? Icons.mic : Icons.mic_none,
-                    size: 80,
-                    color: _isRecording
-                        ? themeProvider.selectedColor
-                        : Colors.grey[400],
-                  ),
-                const SizedBox(height: 20),
-                Text(
-                  _isRecording
-                      ? 'Recording...'
-                      : _mp3FilePath != null
-                      ? 'Recording Ready: ${_mp3FilePath!.split('/').last}'
-                      : 'Ready to record',
-                  style: AppTextStyles.heading.copyWith(
-                    fontSize: 20,
-                    color: _isRecording
-                        ? themeProvider.selectedColor
-                        : Colors.black,
-                  ),
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: 20),
-                Text(
-                  _connectionStatus,
-                  style: AppTextStyles.body,
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: 30),
-                if (_errorMessage != null)
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 20),
-                    child: Text(
-                      _errorMessage!,
-                      style: AppTextStyles.body.copyWith(color: Colors.red),
-                      textAlign: TextAlign.center,
-                    ),
-                  ),
-                const SizedBox(height: 30),
-                Wrap(
-                  spacing: 10,
-                  runSpacing: 10,
-                  alignment: WrapAlignment.center,
-                  children: [
-                    ElevatedButton(
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: _isRecording
-                            ? Colors.red
-                            : themeProvider.selectedColor,
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 30, vertical: 15),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        elevation: 4,
-                      ),
-                      onPressed: _isConverting
-                          ? null
-                          : _isRecording
-                          ? _stopRecording
-                          : _startRecording,
-                      child: Text(
-                        _isRecording ? 'Stop Recording' : 'Start Recording',
-                        style: AppTextStyles.button,
-                      ),
-                    ),
-                    if (_mp3FilePath != null &&
-                        !_isRecording &&
-                        !_isConverting) ...[
-                      ElevatedButton(
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.blue,
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 15, vertical: 15),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          elevation: 4,
-                        ),
-                        onPressed: _playPauseRecording,
-                        child: Icon(
-                          _isPlaying ? Icons.pause : Icons.play_arrow,
-                          color: Colors.white,
-                          size: 24,
-                        ),
-                      ),
-                      ElevatedButton(
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor:
-                          _isLooping ? Colors.purple : Colors.grey,
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 15, vertical: 15),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          elevation: 4,
-                        ),
-                        onPressed: _toggleLooping,
-                        child: Icon(
-                          Icons.loop,
-                          color: Colors.white,
-                          size: 24,
-                        ),
-                      ),
-                      ElevatedButton(
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.green,
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 30, vertical: 15),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          elevation: 4,
-                        ),
-                        onPressed: _isUploading ? null : _saveAndUpload,
-                        child: Text(
-                          'Save & Upload',
-                          style: AppTextStyles.button,
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
-              ],
-            ),
-          ),
+    return Scaffold(
+      backgroundColor: Colors.white,
+      appBar: AppBar(
+        leading: IconButton(
+          icon: Icon(Icons.close, color: Colors.black),
+          onPressed: () => Navigator.pop(context),
         ),
-        if (_isUploading)
-          Container(
-            color: Colors.black54,
-            child: const Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
+        title: Text(
+          'Recording',
+          style: AppTextStyles.heading,
+        ),
+        centerTitle: true,
+        backgroundColor: Colors.white,
+        elevation: 0.5,
+      ),
+      body: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            if (_isConverting)
+              Column(
                 children: [
-                  CircularProgressIndicator(),
-                  SizedBox(height: 20),
+                  const CircularProgressIndicator(),
+                  const SizedBox(height: 20),
                   Text(
-                    'Uploading recording...',
-                    style: TextStyle(
+                    'Converting to MP3...',
+                    style: AppTextStyles.body,
+                  ),
+                ],
+              )
+            else
+              Icon(
+                _isRecording ? Icons.mic : Icons.mic_none,
+                size: 80,
+                color: _isRecording
+                    ? themeProvider.selectedColor
+                    : Colors.grey[400],
+              ),
+            const SizedBox(height: 20),
+            Text(
+              _isRecording
+                  ? 'Recording...'
+                  : _mp3FilePath != null
+                  ? 'Recording Ready: ${_mp3FilePath!.split('/').last}'
+                  : 'Ready to record',
+              style: AppTextStyles.heading.copyWith(
+                fontSize: 20,
+                color: _isRecording
+                    ? themeProvider.selectedColor
+                    : Colors.black,
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 20),
+            Text(
+              _connectionStatus,
+              style: AppTextStyles.body,
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 30),
+            if (_errorMessage != null)
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                child: Text(
+                  _errorMessage!,
+                  style: AppTextStyles.body.copyWith(color: Colors.red),
+                  textAlign: TextAlign.center,
+                ),
+              ),
+            const SizedBox(height: 30),
+            Wrap(
+              spacing: 10,
+              runSpacing: 10,
+              alignment: WrapAlignment.center,
+              children: [
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: _isRecording
+                        ? Colors.red
+                        : themeProvider.selectedColor,
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 30, vertical: 15),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    elevation: 4,
+                  ),
+                  onPressed: _isConverting
+                      ? null
+                      : _isRecording
+                      ? _stopRecording
+                      : _startRecording,
+                  child: Text(
+                    _isRecording ? 'Stop Recording' : 'Start Recording',
+                    style: AppTextStyles.button,
+                  ),
+                ),
+                if (_mp3FilePath != null &&
+                    !_isRecording &&
+                    !_isConverting) ...[
+                  ElevatedButton(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.blue,
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 15, vertical: 15),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      elevation: 4,
+                    ),
+                    onPressed: _playPauseRecording,
+                    child: Icon(
+                      _isPlaying ? Icons.pause : Icons.play_arrow,
                       color: Colors.white,
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
+                      size: 24,
+                    ),
+                  ),
+                  ElevatedButton(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor:
+                      _isLooping ? Colors.purple : Colors.grey,
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 15, vertical: 15),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      elevation: 4,
+                    ),
+                    onPressed: _toggleLooping,
+                    child: Icon(
+                      Icons.loop,
+                      color: Colors.white,
+                      size: 24,
+                    ),
+                  ),
+                  ElevatedButton(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.green,
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 30, vertical: 15),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      elevation: 4,
+                    ),
+                    onPressed: _saveAndUpload,
+                    child: Text(
+                      'Save & Upload',
+                      style: AppTextStyles.button,
                     ),
                   ),
                 ],
-              ),
+              ],
             ),
-          ),
-      ],
+          ],
+        ),
+      ),
     );
   }
 }
