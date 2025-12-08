@@ -1,0 +1,2 @@
+--------- beginning of main
+08-18 13:50:12.157   812   812 ? cust_nvram: chipId[0x6779], adieId[0x6631]
