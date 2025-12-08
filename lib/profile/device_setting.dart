@@ -253,7 +253,7 @@ class _DeviceSettingScreenState extends State<DeviceSettingScreen> {
                       min: 0,
                       max: 100,
                       divisions: 100,
-                      label: ((volume / 2) + 50).toInt().toString(), // Show actual device value (50-100)
+                      //label: ((volume / 2) + 50).toInt().toString(), // Show actual device value (50-100)
                       onChanged: (value) {
                         setState(() {
                           volume = value;

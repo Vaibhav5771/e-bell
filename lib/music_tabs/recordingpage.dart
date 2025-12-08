@@ -26,13 +26,19 @@ class AudioRecorderPage extends StatefulWidget {
 class _AudioRecorderPageState extends State<AudioRecorderPage> {
   FlutterSoundRecorder? _recorder;
   AudioPlayer? _player;
+  
+  // State variables
   bool _isRecording = false;
   bool _isConverting = false;
   bool _isPlaying = false;
   bool _isLooping = false;
+  
+  // File paths and errors
   String? _filePath;
   String? _mp3FilePath;
   String? _errorMessage;
+  
+  // Permissions and Network
   bool _micPermissionsGranted = false;
   bool _wifiPermissionsGranted = false;
   bool _isCheckingPermissions = false;
@@ -40,6 +46,11 @@ class _AudioRecorderPageState extends State<AudioRecorderPage> {
   bool _isWifiConnected = false;
   Timer? _wifiCheckTimer;
   final String _targetSsid = "IoGen_Speaker";
+
+  // Timers and Duration tracking
+  Timer? _recordingLimitTimer;
+  StreamSubscription? _recorderSubscription;
+  Duration _currentDuration = Duration.zero;
 
   @override
   void initState() {
@@ -54,6 +65,8 @@ class _AudioRecorderPageState extends State<AudioRecorderPage> {
 
   @override
   void dispose() {
+    _recordingLimitTimer?.cancel();
+    _recorderSubscription?.cancel();
     _recorder?.stopRecorder();
     _recorder?.closeRecorder();
     _recorder = null;
@@ -67,11 +80,21 @@ class _AudioRecorderPageState extends State<AudioRecorderPage> {
   Future<void> _initRecorder() async {
     try {
       await _recorder?.openRecorder();
+      // crucial for the onProgress stream to fire updates every 100ms
+      await _recorder?.setSubscriptionDuration(const Duration(milliseconds: 100));
     } catch (e) {
       setState(() {
         _errorMessage = 'Failed to initialize recorder: $e';
       });
     }
+  }
+
+  /// Formats duration into MM:SS
+  String _formatDuration(Duration duration) {
+    String twoDigits(int n) => n.toString().padLeft(2, '0');
+    final minutes = twoDigits(duration.inMinutes.remainder(60));
+    final seconds = twoDigits(duration.inSeconds.remainder(60));
+    return "$minutes:$seconds";
   }
 
   Future<String?> _askForFileName(BuildContext context) async {
@@ -101,16 +124,16 @@ class _AudioRecorderPageState extends State<AudioRecorderPage> {
               filled: true,
               fillColor: Colors.grey[100],
               contentPadding:
-              const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                  const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(12),
                 borderSide:
-                BorderSide(color: themeProvider.selectedColor, width: 1.5),
+                    BorderSide(color: themeProvider.selectedColor, width: 1.5),
               ),
               focusedBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(12),
                 borderSide:
-                BorderSide(color: themeProvider.selectedColor, width: 2),
+                    BorderSide(color: themeProvider.selectedColor, width: 2),
               ),
               enabledBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(12),
@@ -208,7 +231,7 @@ class _AudioRecorderPageState extends State<AudioRecorderPage> {
         final micStatuses = await micPermissions.request();
         final micAllGranted = micStatuses.values.every((s) => s.isGranted);
         final micPermanentlyDenied =
-        micStatuses.values.any((s) => s.isPermanentlyDenied);
+            micStatuses.values.any((s) => s.isPermanentlyDenied);
 
         setState(() {
           _micPermissionsGranted = micAllGranted;
@@ -329,7 +352,7 @@ class _AudioRecorderPageState extends State<AudioRecorderPage> {
             _connectionStatus = 'Connected to $_targetSsid';
           } else {
             _connectionStatus =
-            'Connected to Wi-Fi: ${cleanedSSID ?? 'Unknown'}';
+                'Connected to Wi-Fi: ${cleanedSSID ?? 'Unknown'}';
           }
         });
       } else {
@@ -357,21 +380,42 @@ class _AudioRecorderPageState extends State<AudioRecorderPage> {
     }
 
     _filePath =
-    '${recordingsDir.path}/recording_${DateTime.now().millisecondsSinceEpoch}.aac';
+        '${recordingsDir.path}/recording_${DateTime.now().millisecondsSinceEpoch}.aac';
 
     try {
       await _recorder?.startRecorder(
         toFile: _filePath,
         codec: Codec.aacADTS,
       );
+
+      // 🎤 Start listening to the progress stream
+      _recorderSubscription = _recorder?.onProgress?.listen((e) {
+        if (mounted) {
+          setState(() {
+            _currentDuration = e.duration;
+          });
+        }
+      });
+      
       setState(() {
         _isRecording = true;
         _errorMessage = null;
         _mp3FilePath = null;
         _isPlaying = false;
         _isLooping = false;
+        _currentDuration = Duration.zero; // Reset display
       });
+      
       await _player?.stop();
+
+      // Start the 60-second timer
+      _recordingLimitTimer?.cancel(); 
+      _recordingLimitTimer = Timer(const Duration(seconds: 60), () {
+        if (mounted && _isRecording) {
+          _stopRecording(isTimeLimit: true);
+        }
+      });
+
     } catch (e) {
       setState(() {
         _errorMessage = 'Recording failed: $e';
@@ -420,12 +464,38 @@ class _AudioRecorderPageState extends State<AudioRecorderPage> {
     }
   }
 
-  Future<void> _stopRecording() async {
+  Future<void> _stopRecording({bool isTimeLimit = false}) async {
+    // Stop timers and listeners
+    _recordingLimitTimer?.cancel();
+    _recorderSubscription?.cancel();
+    _recorderSubscription = null;
+    
+    // Optional: Reset duration or keep it to show final length
+    // setState(() { _currentDuration = Duration.zero; });
+
     try {
       await _recorder?.stopRecorder();
       setState(() {
         _isRecording = false;
       });
+
+      // Show Popup if time limit was reached
+      if (isTimeLimit && mounted) {
+         await showDialog(
+          context: context,
+          barrierDismissible: false,
+          builder: (ctx) => AlertDialog(
+            title: const Text("Limit Exceeded"),
+            content: const Text("Recording stopped automatically because it reached the 60-second limit."),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text("OK", style: TextStyle(color: Colors.blue)),
+              )
+            ],
+          ),
+        );
+      }
 
       if (_filePath != null) {
         final mp3FilePath = await _convertAACtoMP3(_filePath!);
@@ -593,23 +663,19 @@ class _AudioRecorderPageState extends State<AudioRecorderPage> {
     }
   }
 
-  /// Start upload and navigate immediately without waiting for response
   void _startUploadAndNavigate(String filePath) async {
     try {
       final file = File(filePath);
       final fileName = filePath.split('/').last;
 
-      // Validate file
       if (!fileName.toLowerCase().endsWith('.mp3') &&
           !fileName.toLowerCase().endsWith('.wav')) {
-        // Don't show error - just navigate back
         debugPrint("Invalid audio file selected");
         _navigateToHomepage();
         return;
       }
 
       if (!await file.exists()) {
-        // Don't show error - just navigate back
         debugPrint("Selected file does not exist");
         _navigateToHomepage();
         return;
@@ -617,7 +683,6 @@ class _AudioRecorderPageState extends State<AudioRecorderPage> {
 
       final fileSize = await file.length();
       if (fileSize > 10 * 1024 * 1024) {
-        // Don't show error - just navigate back
         debugPrint("File is too large (>10MB)");
         _navigateToHomepage();
         return;
@@ -627,19 +692,16 @@ class _AudioRecorderPageState extends State<AudioRecorderPage> {
       final uri = 'http://192.168.2.1/upload/$encodedFileName';
       debugPrint("Uploading file: $fileName ($fileSize bytes) to $uri");
 
-      // Build the multipart request
       var request = http.MultipartRequest('POST', Uri.parse(uri))
         ..headers['Connection'] = 'keep-alive'
         ..files.add(await http.MultipartFile.fromPath('file', filePath));
 
-      // Send upload but don't wait for response
       request.send().then((streamedResponse) async {
         final response = await http.Response.fromStream(streamedResponse);
         debugPrint("Upload response: ${response.statusCode}, ${response.body}");
 
         if (response.statusCode == 200) {
           debugPrint("✅ Successfully uploaded $fileName");
-          // Copy file to documents directory
           final directory = await getApplicationDocumentsDirectory();
           final newPath = '${directory.path}/$fileName';
           await file.copy(newPath);
@@ -650,17 +712,14 @@ class _AudioRecorderPageState extends State<AudioRecorderPage> {
         debugPrint("Upload error: $e");
       });
 
-      // Navigate to homepage immediately without waiting for upload response
       _navigateToHomepage();
 
     } catch (e) {
       debugPrint("Upload setup error: $e");
-      // Still navigate to homepage even if there's an error
       _navigateToHomepage();
     }
   }
 
-  /// Navigate back to homepage
   void _navigateToHomepage() {
     if (mounted) {
       Navigator.popUntil(context, (route) => route.isFirst);
@@ -724,6 +783,21 @@ class _AudioRecorderPageState extends State<AudioRecorderPage> {
               ),
               textAlign: TextAlign.center,
             ),
+            
+            // ⏱️ Live Timer Display
+            if (_isRecording)
+              Padding(
+                padding: const EdgeInsets.only(top: 8.0),
+                child: Text(
+                  _formatDuration(_currentDuration),
+                  style: AppTextStyles.heading.copyWith(
+                    fontSize: 32,
+                    fontWeight: FontWeight.bold,
+                    color: themeProvider.selectedColor,
+                  ),
+                ),
+              ),
+              
             const SizedBox(height: 20),
             Text(
               _connectionStatus,
@@ -761,7 +835,7 @@ class _AudioRecorderPageState extends State<AudioRecorderPage> {
                   onPressed: _isConverting
                       ? null
                       : _isRecording
-                      ? _stopRecording
+                      ? () => _stopRecording(isTimeLimit: false)
                       : _startRecording,
                   child: Text(
                     _isRecording ? 'Stop Recording' : 'Start Recording',

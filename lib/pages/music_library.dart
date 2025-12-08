@@ -38,8 +38,8 @@ class _MusicLibraryState extends State<MusicLibrary> {
   Timer? wifiCheckTimer;
   final String targetSsid = "IoGen_Speaker";
 
-  // Local recordings
-  List<String> recordings = [];
+  // Local recordings: Now stores path, name, and duration
+  List<Map<String, String>> localSongs = []; // <<== UPDATED
 
   // API songs
   List<String> apiSongs = [];
@@ -75,6 +75,15 @@ class _MusicLibraryState extends State<MusicLibrary> {
     super.dispose();
   }
 
+  /// ----------------- HELPER FUNCTIONS -----------------
+  String _formatDuration(Duration? duration) {
+    if (duration == null) return '??:??'; // Changed default to show unknown
+    String twoDigits(int n) => n.toString().padLeft(2, "0");
+    final minutes = twoDigits(duration.inMinutes.remainder(60));
+    final seconds = twoDigits(duration.inSeconds.remainder(60));
+    return '$minutes:$seconds';
+  }
+
   /// ----------------- AUDIO PLAYER -----------------
   Future<void> _initPlayer() async {
     _playerStateSubscription = _player?.playerStateStream.listen((state) {
@@ -107,7 +116,28 @@ class _MusicLibraryState extends State<MusicLibrary> {
       mp3Files.sort(
               (a, b) => b.statSync().modified.compareTo(a.statSync().modified));
 
-      final localRecordings = mp3Files.map((f) => f.path).toList();
+      // <<== NEW LOGIC: Calculate duration for each local file ==>>
+      List<Map<String, String>> calculatedRecordings = [];
+      final tempPlayer = AudioPlayer(); // Temporary player for duration check
+
+      for (var file in mp3Files) {
+        String durationString = '??:??';
+        try {
+          await tempPlayer.setFilePath(file.path);
+          durationString = _formatDuration(tempPlayer.duration);
+        } catch (e) {
+          debugPrint('Error getting duration for ${file.path}: $e');
+        }
+
+        calculatedRecordings.add({
+          'path': file.path,
+          'name': file.path.split('/').last,
+          'duration': durationString,
+        });
+      }
+      await tempPlayer.dispose(); // IMPORTANT: Dispose the temporary player
+      // <<======================================================>>
+
 
       // 2️⃣ Also try to fetch uploaded files from IoT device (BellService).
       // Note: We still call fetchSoundFiles here to keep the behavior consistent.
@@ -123,7 +153,7 @@ class _MusicLibraryState extends State<MusicLibrary> {
 
       if (!mounted) return;
       setState(() {
-        recordings = localRecordings;
+        localSongs = calculatedRecordings; // <<== UPDATED
         // If BellService returned files, prefer that for API list, else keep existing apiSongs
         if (uploadedFiles.isNotEmpty) {
           apiSongs = uploadedFiles;
@@ -143,7 +173,7 @@ class _MusicLibraryState extends State<MusicLibrary> {
 
   Future<void> _playRecording(int index) async {
     try {
-      final filePath = recordings[index];
+      final filePath = localSongs[index]['path']!; // <<== UPDATED
       final file = File(filePath);
 
       if (!await file.exists()) return;
@@ -178,7 +208,7 @@ class _MusicLibraryState extends State<MusicLibrary> {
       final file = File(filePath);
       await file.delete();
       setState(() {
-        recordings.removeAt(index);
+        localSongs.removeAt(index); // <<== UPDATED
         if (_currentlyPlayingIndex != null &&
             _currentlyPlayingIndex! >= index) {
           if (_currentlyPlayingIndex == index) {
@@ -206,46 +236,7 @@ class _MusicLibraryState extends State<MusicLibrary> {
   }
 
   /// ----------------- API SONGS -----------------
-  // Future<void> _fetchApiSongs() async {
-  //   // Option C behavior:
-  //   // - show nothing until the API call completes
-  //   // - after completion, _apiLoaded = true and apiStatus is set to success or error
-  //   try {
-  //     final response =
-  //     await http.get(Uri.parse("http://192.168.2.1/alarmsong/"));
-  //     if (response.statusCode == 200) {
-  //       final jsonResponse = json.decode(response.body);
-  //       final List<dynamic> files = jsonResponse["Data"][0]["files"];
-  //       final fetched = files.map((e) => e[0].toString()).toList();
-  //       if (!mounted) return;
-  //       setState(() {
-  //         apiSongs = fetched;
-  //         _apiLoaded = true;
-  //         if (fetched.isEmpty) {
-  //           apiStatus = 'No songs on device.';
-  //         } else {
-  //           apiStatus = 'Loaded ${fetched.length} songs.';
-  //         }
-  //       });
-  //     } //else {
-  //     //   if (!mounted) return;
-  //     //   setState(() {
-  //     //     apiSongs = [];
-  //     //     _apiLoaded = true;
-  //     //     apiStatus = 'Error fetching songs. Status: ${response.statusCode}';
-  //     //   });
-  //     //   debugPrint('Error fetching API songs. Status: ${response.statusCode}');
-  //     // }
-  //   } catch (e) {
-  //     // if (!mounted) return;
-  //     // setState(() {
-  //     //   apiSongs = [];
-  //     //   _apiLoaded = true;
-  //     //   apiStatus = 'Error fetching songs: $e';
-  //     // });
-  //     // debugPrint('Error fetching API songs: $e');
-  //   }
-  // }
+  // (API methods remain unchanged as duration is not available from API)
 
   Future<void> _playApiSong(String songName) async {
     try {
@@ -382,7 +373,8 @@ class _MusicLibraryState extends State<MusicLibrary> {
     }
   }
 
-  /// ----------------- WIFI -----------------
+  /// ----------------- WIFI & PERMISSIONS -----------------
+  // (Methods remain unchanged)
   Future<void> _startWifiMonitoring() async {
     await _checkWifiConnection();
     wifiCheckTimer = Timer.periodic(
@@ -415,7 +407,6 @@ class _MusicLibraryState extends State<MusicLibrary> {
     }
   }
 
-  /// ----------------- PERMISSIONS -----------------
   Future<bool> _requestPermissions() async {
     try {
       List<Permission> permissionsToRequest = [];
@@ -458,7 +449,7 @@ class _MusicLibraryState extends State<MusicLibrary> {
 
   Future<void> _pickAndUploadMusic() async {
     try {
-      // Use file_picker package for more reliable file picking
+      // 1. Use file_picker package for more reliable file picking
       FilePickerResult? result = await FilePicker.platform.pickFiles(
         type: FileType.audio,
         allowMultiple: false,
@@ -475,6 +466,43 @@ class _MusicLibraryState extends State<MusicLibrary> {
           throw Exception('Selected file is not accessible');
         }
 
+        // --- DURATION CHECK START ---
+        const int maxDurationSeconds = 120; // Maximum duration: 2 minutes
+
+        // Use a new temporary AudioPlayer instance to get the duration
+        final tempPlayer = AudioPlayer();
+        Duration? duration;
+
+        try {
+          await tempPlayer.setFilePath(filePath);
+          duration = tempPlayer.duration;
+        } catch (e) {
+          debugPrint('Error getting audio duration: $e');
+          if (mounted) {
+            AppAlert.warning(
+              context,
+              text: 'Could not determine file duration. Uploading anyway...',
+            );
+          }
+        } finally {
+          await tempPlayer.dispose();
+        }
+
+        if (duration != null && duration.inSeconds > maxDurationSeconds) {
+          if (mounted) {
+            final maxMinutes = maxDurationSeconds ~/ 60;
+            final fileMinutes = duration.inMinutes;
+            final fileSeconds = duration.inSeconds % 60;
+            AppAlert.error(
+              context,
+              text: 'File is too long! Max allowed is $maxMinutes minutes. '
+                  'This file is ${fileMinutes}m ${fileSeconds}s.',
+            );
+          }
+          return; // Stop the upload process
+        }
+        // --- DURATION CHECK END ---
+
         // Upload the file
         final newFile = await BellService().uploadMp3(
           context,
@@ -483,22 +511,12 @@ class _MusicLibraryState extends State<MusicLibrary> {
         );
 
         if (newFile != null && mounted) {
-          // --- CHANGE STARTS HERE ---
-
           // Wait for 3 seconds (matching the BellService SnackBar duration)
-          // This gives the server time to process the file and allows the user to read the success message.
           await Future.delayed(const Duration(seconds: 3));
 
           // Now refresh the library
-          await _loadUploadedFiles(); // Refreshes local list
-          // await _fetchApiSongs();     // Refreshes server list
-
-        //   AppAlert.success(
-        //     context,
-        //     text: 'Music library updated!',
-        //   );
-        //   // --- CHANGE ENDS HERE ---
-         }
+          await _loadUploadedFiles(); // Refreshes local list and server list via BellService.fetchSoundFiles
+        }
       }
     } on PlatformException catch (e) {
       debugPrint('File picker platform exception: $e');
@@ -561,8 +579,8 @@ class _MusicLibraryState extends State<MusicLibrary> {
                   child: SingleChildScrollView(
                     padding: const EdgeInsets.only(bottom: 80),
                     child: widget.tabLogic.selectedTabIndex == 0
-                        ? _buildLibraryList()
-                        : _buildMyMusicList(),
+                        ? _buildLibraryList() // IoT Device Songs
+                        : _buildMyMusicList(), // Local Recordings
                   ),
                 ),
               ],
@@ -623,13 +641,21 @@ class _MusicLibraryState extends State<MusicLibrary> {
       leading: Icon(title == 'Add Music' ? Icons.add : Icons.mic,
           color: themeProvider.selectedColor),
       title: Text(title, style: AppTextStyles.body),
-        onTap: () async {
-          setState(() => _isFabMenuOpen = false);
-          await Future.delayed(const Duration(milliseconds: 300));
+      onTap: () async {
+        // 1. Close the menu
+        setState(() => _isFabMenuOpen = false);
+        await Future.delayed(const Duration(milliseconds: 300));
 
-          await _requestPermissions();   // always request first
-          await _pickAndUploadMusic();   // directly pick music, no dialogs
-        },
+        // 2. Check which option was clicked
+        if (title == 'Record Music') {
+          // Call the recording logic (which handles its own permissions internally)
+          await _handleRecordMusic();
+        } else {
+          // Default to Add Music logic
+          await _requestPermissions(); // Request permissions first
+          await _pickAndUploadMusic(); // Open file picker
+        }
+      },
     );
   }
 
@@ -688,11 +714,9 @@ class _MusicLibraryState extends State<MusicLibrary> {
     }
   }
 
+  // ----------------- IoT Device Song List (Beautified) -----------------
   Widget _buildLibraryList() {
     // Option C:
-    // - If API not loaded yet -> return blank (SizedBox) so UI stays as-is
-    // - If API loaded and list is empty -> show apiStatus (No songs or error)
-    // - If API loaded and list has items -> show the list
     if (!_apiLoaded) {
       return const SizedBox(); // blank until API response arrives
     }
@@ -700,7 +724,7 @@ class _MusicLibraryState extends State<MusicLibrary> {
     if (apiSongs.isEmpty) {
       return Center(
         child: Text(
-          apiStatus ?? 'No songs available.',
+          apiStatus ?? 'No songs available on device.',
           textAlign: TextAlign.center,
           style: AppTextStyles.body,
         ),
@@ -709,67 +733,89 @@ class _MusicLibraryState extends State<MusicLibrary> {
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16.0),
-      child: Container(
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(12),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.grey.withOpacity(0.2),
-              spreadRadius: 2,
-              blurRadius: 5,
-              offset: const Offset(0, 3),
-            ),
-          ],
-        ),
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(12),
-          child: ListView.builder(
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            itemCount: apiSongs.length,
-            itemBuilder: (context, index) {
-              final song = apiSongs[index];
-              final isPlaying = currentlyPlayingApiSong == song;
-              return ListTile(
-                leading: Icon(Icons.music_note, color: Colors.grey[600]),
+      child: ListView.builder(
+        shrinkWrap: true,
+        physics: const NeverScrollableScrollPhysics(),
+        itemCount: apiSongs.length,
+        itemBuilder: (context, index) {
+          final song = apiSongs[index];
+          final isPlaying = currentlyPlayingApiSong == song;
+
+          // Duration Placeholder: Since API doesn't provide duration, we show a placeholder.
+          const String durationText = '??:?? (Device)';
+
+          return Padding(
+            padding: const EdgeInsets.only(bottom: 10),
+            child: Container(
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(12),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.grey.withOpacity(0.15),
+                    spreadRadius: 1,
+                    blurRadius: 3,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
+              ),
+              child: ListTile(
+                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                leading: Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Colors.orange.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Icon(Icons.music_note_outlined, color: Colors.orange, size: 24),
+                ),
                 title: Text(
                   song,
-                  style: AppTextStyles.body.copyWith(color: Colors.black87),
+                  style: AppTextStyles.body.copyWith(
+                    fontWeight: FontWeight.w600,
+                    color: Colors.black87,
+                  ),
+                  overflow: TextOverflow.ellipsis,
                 ),
+                // subtitle: Text(
+                //   'Duration: $durationText', // Display Duration Placeholder
+                //   style: AppTextStyles.small.copyWith(color: Colors.grey[600]),
+                // ),
                 trailing: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     IconButton(
                       icon: Icon(
-                          isPlaying
-                              ? Icons.pause_circle_filled
-                              : Icons.play_circle_fill,
-                          color: Colors.orange,
-                          size: 28),
+                        isPlaying
+                            ? Icons.pause_circle_filled
+                            : Icons.play_circle_fill,
+                        color: isPlaying ? Colors.blueAccent : Colors.orange,
+                        size: 32, // Increased size
+                      ),
                       onPressed: () =>
                       isPlaying ? _pauseApiSong() : _playApiSong(song),
                     ),
                     IconButton(
                       icon:
-                      const Icon(Icons.delete, color: Colors.red, size: 20),
+                      const Icon(Icons.delete_outline, color: Colors.red, size: 24), // Beautified icon
                       onPressed: () => _deleteApiSong(song),
                     ),
                   ],
                 ),
-              );
-            },
-          ),
-        ),
+              ),
+            ),
+          );
+        },
       ),
     );
   }
 
+
+  // ----------------- Local Music List (Beautified) -----------------
   Widget _buildMyMusicList() {
-    // No loader; if local recordings list is empty, show placeholder text
-    if (recordings.isEmpty) {
+    if (localSongs.isEmpty) { // <<== UPDATED to localSongs
       return Center(
-        child: Text('No recordings yet.\nTap the + button to record something!',
+        child: Text('No recordings yet.\nTap the microphone button to record something!',
             textAlign: TextAlign.center, style: AppTextStyles.body),
       );
     }
@@ -780,45 +826,65 @@ class _MusicLibraryState extends State<MusicLibrary> {
       child: ListView.builder(
         shrinkWrap: true,
         physics: const NeverScrollableScrollPhysics(),
-        itemCount: recordings.length,
+        itemCount: localSongs.length, // <<== UPDATED to localSongs
         itemBuilder: (context, index) {
-          final filePath = recordings[index];
-          final fileName = filePath.split('/').last;
+          final songData = localSongs[index];
+          final filePath = songData['path']!;
+          final fileName = songData['name']!;
+          final duration = songData['duration']!; // <<== USING STORED DURATION
+
+          final isPlaying = _currentlyPlayingIndex == index && _player?.playing == true;
+
           return Dismissible(
             key: Key(filePath),
+            direction: DismissDirection.endToStart, // Only swipe left
             background: Container(
                 color: Colors.red,
                 alignment: Alignment.centerRight,
                 padding: const EdgeInsets.only(right: 20),
                 child: const Icon(Icons.delete, color: Colors.white)),
             onDismissed: (_) => _deleteRecording(index, filePath),
-            child: Container(
-              margin: const EdgeInsets.only(bottom: 12),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(12),
-                boxShadow: [
-                  BoxShadow(
-                      color: Colors.grey.shade300,
-                      blurRadius: 4,
-                      offset: const Offset(0, 2))
-                ],
-              ),
-              child: ListTile(
-                leading: ClipRRect(
+            child: Padding(
+              padding: const EdgeInsets.only(bottom: 10), // Margin moved to Padding
+              child: Container(
+                decoration: BoxDecoration(
+                  color: Colors.white,
                   borderRadius: BorderRadius.circular(12),
-                  child: Image.asset('assets/Music.jpg',
-                      width: 50, height: 50, fit: BoxFit.cover),
+                  boxShadow: [
+                    BoxShadow(
+                        color: Colors.grey.shade300,
+                        blurRadius: 4,
+                        offset: const Offset(0, 2))
+                  ],
                 ),
-                title: Text(fileName, style: AppTextStyles.body),
-                subtitle: Text('00:00', style: AppTextStyles.small),
-                trailing: Icon(
-                    _currentlyPlayingIndex == index && _player?.playing == true
-                        ? Icons.pause_circle_filled
-                        : Icons.play_circle_fill,
-                    color: themeProvider.selectedColor,
-                    size: 30),
-                onTap: () => _playRecording(index),
+                child: ListTile(
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4), // Added padding
+                  leading: ClipRRect(
+                    borderRadius: BorderRadius.circular(8), // Smaller border radius
+                    child: Container(
+                      width: 50,
+                      height: 50,
+                      color: themeProvider.selectedColor.withOpacity(0.15),
+                      child: Icon(Icons.mic, color: themeProvider.selectedColor, size: 28), // Changed image to Mic icon
+                    ),
+                  ),
+                  title: Text(
+                    fileName,
+                    style: AppTextStyles.body.copyWith(fontWeight: FontWeight.w600),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  // subtitle: Text(
+                  //   'Duration: $duration', // Display actual duration
+                  //   style: AppTextStyles.small.copyWith(color: Colors.grey[600]),
+                  // ),
+                  trailing: Icon(
+                      isPlaying
+                          ? Icons.pause_circle_filled
+                          : Icons.play_circle_fill,
+                      color: themeProvider.selectedColor,
+                      size: 32), // Increased size
+                  onTap: () => _playRecording(index),
+                ),
               ),
             ),
           );
